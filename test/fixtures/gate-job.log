@@ -1,0 +1,30 @@
+2026-10-22T18:01:02.1000000Z ##[group]Run actions/checkout@v4
+2026-10-22T18:01:02.1000100Z with:
+2026-10-22T18:01:02.1000200Z   repository: example/tip-stream
+2026-10-22T18:01:02.1000300Z ##[endgroup]
+2026-10-22T18:01:03.0000000Z Syncing repository: example/tip-stream
+2026-10-22T18:01:05.0000000Z ##[group]Run npm ci
+2026-10-22T18:01:05.0000100Z npm ci
+2026-10-22T18:01:05.0000200Z shell: /usr/bin/bash -e {0}
+2026-10-22T18:01:05.0000300Z ##[endgroup]
+2026-10-22T18:01:20.0000000Z added 412 packages in 15s
+2026-10-22T18:01:21.0000000Z ##[group]Run npm run build
+2026-10-22T18:01:21.0000100Z npm run build
+2026-10-22T18:01:21.0000200Z ##[endgroup]
+2026-10-22T18:01:30.0000000Z > tip-stream@1.4.0 build
+2026-10-22T18:01:30.0000100Z > tsc -p tsconfig.json
+2026-10-22T18:01:40.0000000Z ##[group]Run npm test
+2026-10-22T18:01:40.0000100Z npm test
+2026-10-22T18:01:40.0000200Z shell: /usr/bin/bash -e {0}
+2026-10-22T18:01:40.0000300Z ##[endgroup]
+2026-10-22T18:01:41.0000000Z > tip-stream@1.4.0 test
+2026-10-22T18:01:41.0000100Z > vitest run
+2026-10-22T18:01:45.0000000Z  FAIL test/order.test.ts > total > applies quantity
+2026-10-22T18:01:45.0000100Z AssertionError: expected 10 to be 20
+2026-10-22T18:01:45.0000200Z  ❯ test/order.test.ts:14:31
+2026-10-22T18:01:45.0000300Z  Test Files  1 failed | 6 passed (7)
+2026-10-22T18:01:45.0000400Z       Tests  1 failed | 41 passed (42)
+2026-10-22T18:01:45.0000500Z ##[error]Process completed with exit code 1.
+2026-10-22T18:01:46.0000000Z ##[group]Run npm audit --audit-level=high
+2026-10-22T18:01:46.0000100Z ##[endgroup]
+2026-10-22T18:01:50.0000000Z Post job cleanup.
