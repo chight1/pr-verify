@@ -1,0 +1,92 @@
+name: PR Verify
+description: >-
+  Evidence-bound Claude review of a pull request after a deterministic gate.
+  Advisory only: never approves, requests changes, merges or pushes.
+author: Cory Hight
+
+inputs:
+  gate-result:
+    description: Result of the gate job (success, failure, cancelled or skipped). Picks review or red-gate mode.
+    required: true
+  gate-job-name:
+    description: Name of the gate job in this workflow run, used to fetch its log when it fails.
+    required: false
+    default: gate
+  build-command:
+    description: The project's build command.
+    required: true
+  test-command:
+    description: The project's test command, run from the repository root.
+    required: true
+  anthropic-api-key:
+    description: Anthropic API key, from the repository secret.
+    required: true
+  github-token:
+    description: Token for the GitHub API.
+    required: false
+    default: ${{ github.token }}
+  model:
+    description: Claude model id.
+    required: false
+    default: claude-sonnet-5-5
+  guidance-file:
+    description: Repository guidance file read into the brief, capped at 8 KB.
+    required: false
+    default: REVIEW.md
+  max-findings:
+    description: Findings allowed in one review.
+    required: false
+    default: '8'
+  max-unverified-findings:
+    description: Findings without an executed demonstration allowed in one review.
+    required: false
+    default: '3'
+  max-tokens:
+    description: Total input plus output tokens per run.
+    required: false
+    default: '200000'
+  max-minutes:
+    description: Wall-clock budget for the agent loop, in minutes.
+    required: false
+    default: '8'
+  max-tool-calls:
+    description: Total tool calls per run.
+    required: false
+    default: '30'
+  max-test-runs:
+    description: Test runs the agent may request.
+    required: false
+    default: '4'
+  max-patch-attempts:
+    description: Patches the agent may propose.
+    required: false
+    default: '4'
+  test-timeout-minutes:
+    description: Timeout for a single test run.
+    required: false
+    default: '5'
+  max-patch-lines:
+    description: Changed lines allowed in one patch.
+    required: false
+    default: '200'
+  max-patch-files:
+    description: Files allowed in one patch.
+    required: false
+    default: '6'
+  comment-on-red-gate:
+    description: Post a diagnosis or verified fix when the gate fails.
+    required: false
+    default: 'true'
+
+outputs:
+  verdict:
+    description: >-
+      Outcome of the run: clean, findings, infra, flaky, fix, diagnosis, abstain, budget or error.
+
+runs:
+  using: node24
+  main: dist/index.js
+
+branding:
+  icon: shield
+  color: gray-dark

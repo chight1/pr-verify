@@ -1,0 +1,26 @@
+# Copy to .github/workflows/pr-verify.yml in a Python project.
+name: pr-verify
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  pr-verify:
+    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    with:
+      runtime: python
+      runtime-version: '3.12'
+      install-command: pip install -e . pytest pip-audit
+      build-command: python -m compileall -q src
+      test-command: pytest
+      audit-command: pip-audit
+    secrets: inherit

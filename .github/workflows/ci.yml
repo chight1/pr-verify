@@ -1,0 +1,28 @@
+# CI for PR Verify itself: tests, type check, and a guard that dist/ matches src/.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: dist is up to date
+        run: |
+          if [ -n "$(git status --porcelain dist)" ]; then
+            echo "dist/ is stale. Run 'npm run build' and commit the result." >&2
+            git status --porcelain dist >&2
+            exit 1
+          fi

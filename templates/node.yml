@@ -1,0 +1,27 @@
+# Copy to .github/workflows/pr-verify.yml in a Node project.
+name: pr-verify
+
+on:
+  pull_request:
+
+# A new push cancels work still running on the stale commit.
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  pr-verify:
+    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    with:
+      runtime: node
+      runtime-version: '24'
+      install-command: npm ci
+      build-command: npm run build
+      test-command: npm test
+      audit-command: npm audit --audit-level=high
+    secrets: inherit

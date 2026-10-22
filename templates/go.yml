@@ -1,0 +1,26 @@
+# Copy to .github/workflows/pr-verify.yml in a Go project.
+name: pr-verify
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+jobs:
+  pr-verify:
+    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    with:
+      runtime: go
+      runtime-version: '1.23'
+      install-command: go mod download
+      build-command: go build ./... && go vet ./...
+      test-command: go test ./...
+      audit-command: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+    secrets: inherit
