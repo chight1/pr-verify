@@ -24,5 +24,7 @@ jobs:
           if [ -n "$(git status --porcelain dist)" ]; then
             echo "dist/ is stale. Run 'npm run build' and commit the result." >&2
             git status --porcelain dist >&2
+            git diff --stat dist >&2
+            git diff dist | head -80 >&2
             exit 1
           fi
