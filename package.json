@@ -9,7 +9,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && ncc build build/main.js -o dist --minify --license licenses.txt",
+    "build": "tsc -p tsconfig.build.json && ncc build build/main.js -o dist --minify --license licenses.txt && node scripts/normalize-dist.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src test"
