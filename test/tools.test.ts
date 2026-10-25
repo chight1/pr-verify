@@ -121,6 +121,7 @@ describe('propose_patch and run_tests', () => {
     expect(result.block.content).toContain('a test patch may only touch test locations');
     expect(tree.resets).toBe(0);
     expect(exec.patches).toEqual([]);
+    expect(exec.trail[0]!.response).toMatchObject({ applied: false, diffPreview: FIX_PATCH });
   });
 
   it('reports a patch that does not apply and does not keep it', async () => {

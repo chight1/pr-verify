@@ -80,6 +80,70 @@ describe('parseDiff', () => {
   });
 });
 
+describe('parseDiff without git headers', () => {
+  it('reads plain unified diffs, including added and deleted files and traditional timestamps', () => {
+    const files = parseDiff(
+      [
+        '--- a/src/order.ts',
+        '+++ b/src/order.ts',
+        '@@ -12,1 +12,1 @@',
+        '-    sum += item.price;',
+        '+    sum += item.price * item.quantity;',
+        '--- /dev/null',
+        '+++ b/test/order.test.ts',
+        '@@ -0,0 +1,1 @@',
+        "+test('x', () => {});",
+        '--- a/gone.ts\t2026-10-25 10:00:00',
+        '+++ /dev/null',
+        '@@ -1,1 +0,0 @@',
+        '-export const gone = true;',
+        '',
+      ].join('\n'),
+    );
+    expect(files.map((f) => [f.path, f.oldPath, f.status, f.added, f.removed])).toEqual([
+      ['src/order.ts', 'src/order.ts', 'modified', 1, 1],
+      ['test/order.test.ts', null, 'added', 1, 0],
+      ['gone.ts', 'gone.ts', 'deleted', 0, 1],
+    ]);
+  });
+});
+
+describe('hunk bodies', () => {
+  it('counts changed lines whose content looks like a file header', () => {
+    // A removed SQL comment "-- note" and an added "++ note" read as "--- note" and "+++ note".
+    const [file] = parseDiff(
+      ['diff --git a/q.sql b/q.sql', 'index 1..2 100644', '--- a/q.sql', '+++ b/q.sql', '@@ -1,2 +1,2 @@', '--- note', '+++ note', ' select 1;', ''].join('\n'),
+    );
+    expect(file).toMatchObject({ path: 'q.sql', added: 1, removed: 1 });
+    expect([...file!.rightLines]).toEqual([1, 2]);
+    expect([...file!.leftLines]).toEqual([1, 2]);
+  });
+
+  it('ends a hunk that overstates its counts at the next file instead of swallowing it', () => {
+    const files = parseDiff(
+      [
+        'diff --git a/a.ts b/a.ts',
+        '--- a/a.ts',
+        '+++ b/a.ts',
+        '@@ -1,1 +1,9 @@',
+        '-a',
+        '+b',
+        'diff --git a/.github/workflows/x.yml b/.github/workflows/x.yml',
+        '--- a/.github/workflows/x.yml',
+        '+++ b/.github/workflows/x.yml',
+        '@@ -1,1 +1,1 @@',
+        '-x',
+        '+y',
+        '',
+      ].join('\n'),
+    );
+    expect(files.map((f) => [f.path, f.added, f.removed])).toEqual([
+      ['a.ts', 1, 1],
+      ['.github/workflows/x.yml', 1, 1],
+    ]);
+  });
+});
+
 describe('isCommentable', () => {
   const files = parseDiff(SAMPLE);
 

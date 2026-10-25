@@ -43,6 +43,11 @@ describe('checkPatchPolicy', () => {
     expect(checkPatchPolicy(ADD_TEST, 'test', LIMITS)).toMatchObject({ ok: true, violations: [] });
   });
 
+  it('accepts a plain unified diff without git headers', () => {
+    const plain = "--- /dev/null\n+++ b/test/order.test.ts\n@@ -0,0 +1,1 @@\n+test('x', () => {});\n";
+    expect(checkPatchPolicy(plain, 'test', LIMITS)).toMatchObject({ ok: true, violations: [] });
+  });
+
   it('accepts additions to an existing test file but not edits', () => {
     expect(checkPatchPolicy(EXTEND_TEST, 'test', LIMITS).ok).toBe(true);
     const edit = checkPatchPolicy(EDIT_TEST, 'test', LIMITS);

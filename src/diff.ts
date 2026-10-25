@@ -1,7 +1,8 @@
 /**
  * A small unified-diff parser. Three modules depend on it: context (what
  * changed), review (is this line commentable), verify (the patch policy).
- * It reads `git diff` output and the diffs the agent proposes.
+ * It reads `git diff` output and the diffs the agent proposes, which may be
+ * plain unified diffs without git's headers.
  */
 
 export interface Hunk {
@@ -28,37 +29,114 @@ export interface DiffFile {
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+const DEV_NULL = '/dev/null';
 
 function stripPrefix(path: string): string {
   return path.replace(/^[ab]\//, '');
 }
 
+/** The path in a `--- ` or `+++ ` line, without a/b prefix or a traditional diff's tab-separated timestamp. */
+function headerPath(line: string): string {
+  const raw = line.slice(4).split('\t')[0] ?? '';
+  return raw === DEV_NULL ? DEV_NULL : stripPrefix(raw.replace(/^"(.*)"$/, '$1'));
+}
+
+function emptyFile(path: string, oldPath: string | null): DiffFile {
+  return {
+    path,
+    oldPath,
+    status: 'modified',
+    binary: false,
+    symlink: false,
+    added: 0,
+    removed: 0,
+    hunks: [],
+    rightLines: new Set(),
+    leftLines: new Set(),
+  };
+}
+
+/**
+ * Parses `git diff` output and plain unified diffs (files introduced by
+ * `--- `/`+++ ` with no `diff --git` line), since `git apply` accepts both and
+ * the agent writes either.
+ *
+ * Hunk bodies are read by the counts in their `@@` header, the same way git
+ * reads them. That is what lets a removed line whose content starts with
+ * "-- " be told apart from a file header. A body line that cannot be part of
+ * a hunk ends it early, so a header that overstates its counts cannot swallow
+ * the next file and hide it from the patch policy.
+ */
 export function parseDiff(text: string): DiffFile[] {
   const files: DiffFile[] = [];
   let current: DiffFile | null = null;
+  /** True between a `diff --git` line and that file's first hunk, while its `---`/`+++` lines belong to it. */
+  let gitHeaderOpen = false;
   let oldLine = 0;
   let newLine = 0;
+  let oldRemaining = 0;
+  let newRemaining = 0;
 
   for (const rawLine of text.split('\n')) {
     const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
 
+    if (current && (oldRemaining > 0 || newRemaining > 0)) {
+      const marker = line[0];
+      if (marker === '+' && newRemaining > 0) {
+        current.added += 1;
+        current.rightLines.add(newLine);
+        newLine += 1;
+        newRemaining -= 1;
+        continue;
+      }
+      if (marker === '-' && oldRemaining > 0) {
+        current.removed += 1;
+        current.leftLines.add(oldLine);
+        oldLine += 1;
+        oldRemaining -= 1;
+        continue;
+      }
+      if ((marker === ' ' || line === '') && oldRemaining > 0 && newRemaining > 0) {
+        // A blank line inside a hunk is a context line whose trailing space was stripped.
+        current.rightLines.add(newLine);
+        current.leftLines.add(oldLine);
+        newLine += 1;
+        oldLine += 1;
+        oldRemaining -= 1;
+        newRemaining -= 1;
+        continue;
+      }
+      if (marker === '\\') continue; // "\ No newline at end of file"
+      // Not a line this hunk can hold: the header overstated its counts. End it here.
+      oldRemaining = 0;
+      newRemaining = 0;
+    }
+    if (line.startsWith('\\')) continue;
+
     if (line.startsWith('diff --git ')) {
       const match = /^diff --git (?:"?)(.+?)(?:"?) (?:"?)(.+?)(?:"?)$/.exec(line);
-      const oldPath = match ? stripPrefix(match[1] ?? '') : '';
-      const newPath = match ? stripPrefix(match[2] ?? '') : '';
-      current = {
-        path: newPath,
-        oldPath,
-        status: 'modified',
-        binary: false,
-        symlink: false,
-        added: 0,
-        removed: 0,
-        hunks: [],
-        rightLines: new Set(),
-        leftLines: new Set(),
-      };
+      current = emptyFile(match ? stripPrefix(match[2] ?? '') : '', match ? stripPrefix(match[1] ?? '') : '');
       files.push(current);
+      gitHeaderOpen = true;
+      continue;
+    }
+
+    if (line.startsWith('--- ')) {
+      if (gitHeaderOpen) continue; // git's own header lines repeat what `diff --git` and the mode lines said
+      const oldPath = headerPath(line);
+      current = emptyFile(oldPath, oldPath === DEV_NULL ? null : oldPath);
+      if (oldPath === DEV_NULL) current.status = 'added';
+      files.push(current);
+      continue;
+    }
+    if (line.startsWith('+++ ')) {
+      if (gitHeaderOpen || !current) continue;
+      const newPath = headerPath(line);
+      if (newPath === DEV_NULL) {
+        current.status = 'deleted';
+      } else {
+        current.path = newPath;
+      }
       continue;
     }
     if (!current) continue;
@@ -91,9 +169,6 @@ export function parseDiff(text: string): DiffFile[] {
       current.binary = true;
       continue;
     }
-    if (line.startsWith('+++ ') || line.startsWith('--- ') || line.startsWith('index ')) {
-      continue;
-    }
 
     const hunk = HUNK_HEADER.exec(line);
     if (hunk) {
@@ -104,28 +179,12 @@ export function parseDiff(text: string): DiffFile[] {
         newLines: hunk[4] === undefined ? 1 : Number(hunk[4]),
       };
       current.hunks.push(h);
+      gitHeaderOpen = false;
       oldLine = h.oldStart;
       newLine = h.newStart;
-      continue;
+      oldRemaining = h.oldLines;
+      newRemaining = h.newLines;
     }
-    if (current.hunks.length === 0) continue;
-
-    if (line.startsWith('+')) {
-      current.added += 1;
-      current.rightLines.add(newLine);
-      newLine += 1;
-    } else if (line.startsWith('-')) {
-      current.removed += 1;
-      current.leftLines.add(oldLine);
-      oldLine += 1;
-    } else if (line.startsWith(' ') || line === '') {
-      // Context line. A blank line inside a hunk is a context line whose content is empty.
-      current.rightLines.add(newLine);
-      current.leftLines.add(oldLine);
-      newLine += 1;
-      oldLine += 1;
-    }
-    // Lines starting with '\' ("No newline at end of file") fall through untouched.
   }
 
   return files;

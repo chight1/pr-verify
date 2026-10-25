@@ -19,6 +19,9 @@ const CATEGORIES = new Set(['bug', 'security', 'missing-test']);
 const CONFIDENCES = new Set(['low', 'medium', 'high']);
 const VERDICTS = new Set(['fix', 'diagnosis', 'abstain']);
 
+/** How much of a rejected patch the run record keeps. */
+const PREVIEW_BYTES = 2048;
+
 export interface ToolCallRecord {
   n: number;
   tool: string;
@@ -309,6 +312,12 @@ export class ToolExecutor {
     };
   }
 
+  /** The start of a rejected patch, scrubbed, so the run record shows what the agent actually sent. */
+  private preview(diff: string): string {
+    const clipped = diff.length > PREVIEW_BYTES ? `${diff.slice(0, PREVIEW_BYTES)}\n[truncated]` : diff;
+    return this.ctx.scrubber.scrub(clipped);
+  }
+
   private async proposePatch(input: Record<string, unknown>) {
     const kind = expectString(input, 'kind')!;
     if (kind !== 'test' && kind !== 'fix') throw new ToolInputError('"kind" must be "test" or "fix"');
@@ -329,7 +338,7 @@ export class ToolExecutor {
       return {
         ok: false,
         text: `Patch rejected by policy:\n- ${policy.violations.join('\n- ')}`,
-        response: { applied: false, violations: policy.violations },
+        response: { applied: false, violations: policy.violations, diffPreview: this.preview(diff) },
       };
     }
 
@@ -349,7 +358,7 @@ export class ToolExecutor {
       return {
         ok: false,
         text: `Patch did not apply cleanly to the PR commit:\n${applied.error ?? 'unknown error'}`,
-        response: { applied: false, error: applied.error },
+        response: { applied: false, error: applied.error, diffPreview: this.preview(diff) },
       };
     }
 
