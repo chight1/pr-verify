@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
 import { Budget } from '../src/budget.js';
 import { Scrubber } from '../src/context.js';
+import { recountHunks } from '../src/diff.js';
 import { READ_FILE_MAX_LINES, ToolExecutor, toolDefinitions } from '../src/tools.js';
 import type { ApplyResult, CommandResult, ScratchTree } from '../src/verify.js';
 
@@ -84,6 +85,13 @@ describe('read_file', () => {
     expect(exec.filesRead.has('src/a.ts')).toBe(true);
   });
 
+  it('does not call a read truncated when end_line runs past the end of the file', async () => {
+    const { exec } = executor();
+    const result = await exec.execute(call('read_file', { path: 'src/a.ts', start_line: 499, end_line: 600 }));
+    expect(result.block.content).toBe('499\tline 499\n500\tline 500');
+    expect(exec.trail[0]!.response).toMatchObject({ lines: 2, truncated: false });
+  });
+
   it('refuses paths outside the repository and untracked files', async () => {
     const { exec } = executor();
     for (const p of ['../etc/passwd', '/etc/passwd', 'src/../../x', 'node_modules/left-pad/index.js']) {
@@ -110,7 +118,7 @@ describe('propose_patch and run_tests', () => {
     const fix = await exec.execute(call('propose_patch', { kind: 'fix', description: 'fix', diff: FIX_PATCH, base_on: [1] }));
     expect(fix.block.content).toContain('Patch 2 (fix) applied');
     expect(tree.resets).toBe(2);
-    expect(tree.applied).toEqual([TEST_PATCH, FIX_PATCH]);
+    expect(tree.applied).toEqual([recountHunks(TEST_PATCH), recountHunks(FIX_PATCH)]);
     expect(exec.patches.map((p) => [p.id, p.kind])).toEqual([[1, 'test'], [2, 'fix']]);
   });
 
@@ -132,6 +140,26 @@ describe('propose_patch and run_tests', () => {
     expect(result.block.is_error).toBe(true);
     expect(result.block.content).toContain('did not apply cleanly');
     expect(exec.patches).toEqual([]);
+  });
+
+  it('applies the recounted form of a patch whose hunk counts are wrong', async () => {
+    const { exec, tree } = executor();
+    const miscounted = TEST_PATCH.replace('@@ -0,0 +1 @@', '@@ -0,0 +1,9 @@');
+    const result = await exec.execute(call('propose_patch', { kind: 'test', description: 't', diff: miscounted }));
+    expect(result.block.is_error).toBeUndefined();
+    expect(tree.applied[0]).toContain('@@ -0,0 +1,1 @@');
+    expect(exec.patches[0]!.diff).toBe(tree.applied[0]);
+  });
+
+  it('explains a rejected hunk that has context before its change and none after', async () => {
+    const tree = new FakeTree();
+    const noTrailing = 'diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -5,2 +5,3 @@\n line 5\n line 6\n+added\n';
+    tree.rejectDiffs.add(recountHunks(noTrailing));
+    const { exec } = executor('review', tree);
+    const result = await exec.execute(call('propose_patch', { kind: 'fix', description: 'x', diff: noTrailing }));
+    expect(result.block.is_error).toBe(true);
+    expect(result.block.content).toContain('src/a.ts: the hunk at old line 5 has 2 context line(s) before its change and none after');
+    expect(exec.trail[0]!.response).toMatchObject({ applied: false, diffPreview: noTrailing });
   });
 
   it('charges the test-run budget and returns the exit code', async () => {

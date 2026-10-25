@@ -9,6 +9,7 @@ import path from 'node:path';
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Budget } from './budget.js';
 import type { Scrubber } from './context.js';
+import { applyHints, recountHunks } from './diff.js';
 import type { Mode, Patch, PatchKind, ProposedFinding, RedGateResult } from './types.js';
 import { checkPatchPolicy, type PatchLimits, type ScratchTree } from './verify.js';
 
@@ -279,12 +280,15 @@ export class ToolExecutor {
 
     const raw = await readFile(path.join(this.ctx.repoRoot, relative), 'utf8');
     const all = raw.split('\n');
-    const end = Math.min(requestedEnd ?? all.length, all.length, start - 1 + READ_FILE_MAX_LINES);
+    if (raw.endsWith('\n')) all.pop(); // the final newline ends the last line; it does not start another
+    const wantedEnd = Math.min(requestedEnd ?? all.length, all.length);
+    const end = Math.min(wantedEnd, start - 1 + READ_FILE_MAX_LINES);
     const slice = all.slice(start - 1, end);
 
     const numbered: string[] = [];
     let bytes = 0;
-    let truncated = end < (requestedEnd ?? all.length);
+    // Truncated means a cap cut the read short, not that end_line ran past the end of the file.
+    let truncated = end < wantedEnd;
     for (let i = 0; i < slice.length; i += 1) {
       const line = `${start + i}\t${slice[i]}`;
       bytes += Buffer.byteLength(line) + 1;
@@ -322,7 +326,9 @@ export class ToolExecutor {
     const kind = expectString(input, 'kind')!;
     if (kind !== 'test' && kind !== 'fix') throw new ToolInputError('"kind" must be "test" or "fix"');
     const description = expectString(input, 'description')!;
-    const diff = expectString(input, 'diff')!;
+    const sent = expectString(input, 'diff')!;
+    // Policy, apply and the posted comment all use the recounted patch; previews show what was sent.
+    const diff = recountHunks(sent);
     const baseOnRaw = input['base_on'];
     const baseOn: number[] = Array.isArray(baseOnRaw) ? baseOnRaw.map(Number) : [];
     const bases = baseOn.map((id) => {
@@ -338,7 +344,7 @@ export class ToolExecutor {
       return {
         ok: false,
         text: `Patch rejected by policy:\n- ${policy.violations.join('\n- ')}`,
-        response: { applied: false, violations: policy.violations, diffPreview: this.preview(diff) },
+        response: { applied: false, violations: policy.violations, diffPreview: this.preview(sent) },
       };
     }
 
@@ -355,10 +361,12 @@ export class ToolExecutor {
     }
     const applied = await this.ctx.tree.apply(diff);
     if (!applied.applied) {
+      const hints = applyHints(diff);
+      const hintText = hints.length > 0 ? `\n\nLikely cause:\n- ${hints.join('\n- ')}` : '';
       return {
         ok: false,
-        text: `Patch did not apply cleanly to the PR commit:\n${applied.error ?? 'unknown error'}`,
-        response: { applied: false, error: applied.error, diffPreview: this.preview(diff) },
+        text: `Patch did not apply cleanly to the PR commit:\n${applied.error ?? 'unknown error'}${hintText}`,
+        response: { applied: false, error: applied.error, hints, diffPreview: this.preview(sent) },
       };
     }
 

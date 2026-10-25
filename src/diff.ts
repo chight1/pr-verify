@@ -190,6 +190,123 @@ export function parseDiff(text: string): DiffFile[] {
   return files;
 }
 
+/** True when the line at `i` starts the next file of a plain unified diff: `--- `, then `+++ `, then a hunk header. */
+function startsPlainFile(lines: string[], i: number): boolean {
+  return (
+    (lines[i] ?? '').startsWith('--- ') && (lines[i + 1] ?? '').startsWith('+++ ') && HUNK_HEADER.test(lines[i + 2] ?? '')
+  );
+}
+
+/**
+ * Rewrites every hunk header's line counts from the lines that follow it.
+ *
+ * The agent writes diffs by hand and routinely gets the counts in `@@` headers
+ * wrong, and `git apply` rejects any patch whose counts do not match its body.
+ * Recounting before the policy check and the apply means both read the same
+ * hunks, and the patch posted in a comment is the one that was verified.
+ *
+ * A hunk's body runs until a line that cannot belong to a hunk: another hunk
+ * header, a `diff --git` line, or, in a diff without git headers, a
+ * `---`/`+++`/`@@` triple. Blank lines at the end of a body are dropped rather
+ * than counted as context, because a model that strips trailing spaces leaves
+ * them indistinguishable from the gap between files.
+ */
+export function recountHunks(text: string): string {
+  const lines = text.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
+  const plain = !lines.some((l) => l.startsWith('diff --git '));
+  const out: string[] = [];
+
+  let i = 0;
+  while (i < lines.length) {
+    const header = HUNK_HEADER.exec(lines[i]!);
+    if (!header) {
+      out.push(lines[i]!);
+      i += 1;
+      continue;
+    }
+
+    const body: string[] = [];
+    let j = i + 1;
+    for (; j < lines.length; j += 1) {
+      const line = lines[j]!;
+      if (HUNK_HEADER.test(line) || line.startsWith('diff --git ')) break;
+      if (plain && startsPlainFile(lines, j)) break;
+      const marker = line[0];
+      if (line !== '' && marker !== ' ' && marker !== '+' && marker !== '-' && marker !== '\\') break;
+      body.push(line);
+    }
+    while (body.length > 0 && body[body.length - 1] === '') body.pop();
+
+    let oldCount = 0;
+    let newCount = 0;
+    for (const line of body) {
+      if (line.startsWith('+')) newCount += 1;
+      else if (line.startsWith('-')) oldCount += 1;
+      else if (line.startsWith('\\')) continue;
+      else {
+        oldCount += 1;
+        newCount += 1;
+      }
+    }
+
+    const rest = lines[i]!.slice(header[0].length);
+    out.push(`@@ -${header[1]},${oldCount} +${header[3]},${newCount} @@${rest}`, ...body);
+    i = j;
+  }
+
+  while (out.length > 0 && out[out.length - 1] === '') out.pop();
+  return `${out.join('\n')}\n`;
+}
+
+/**
+ * Hints for a patch that `git apply` rejected, for mistakes git's own message
+ * does not explain. Takes a recounted patch, so counts can be trusted.
+ *
+ * The one case so far: a hunk with context before its change and none after.
+ * `git diff` only writes such a hunk at the end of a file, so git will only
+ * apply it there, and reports a plain "patch does not apply" anywhere else.
+ */
+export function applyHints(recounted: string): string[] {
+  const hints: string[] = [];
+  let path = '';
+  const lines = recounted.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!;
+    if (line.startsWith('+++ ')) {
+      path = headerPath(line);
+      continue;
+    }
+    const header = HUNK_HEADER.exec(line);
+    if (!header) continue;
+
+    const oldStart = Number(header[1]);
+    let remaining = Number(header[2] ?? 1) + Number(header[4] ?? 1);
+    let leading = 0;
+    let trailing = 0;
+    let changed = false;
+    for (let j = i + 1; j < lines.length && remaining > 0; j += 1) {
+      const body = lines[j]!;
+      if (body.startsWith('\\')) continue;
+      if (body.startsWith('+') || body.startsWith('-')) {
+        changed = true;
+        trailing = 0;
+        remaining -= 1;
+      } else {
+        if (changed) trailing += 1;
+        else leading += 1;
+        remaining -= 2;
+      }
+    }
+    if (changed && leading > 0 && trailing === 0) {
+      hints.push(
+        `${path}: the hunk at old line ${oldStart} has ${leading} context line(s) before its change and none after. ` +
+          'git applies a hunk like that only at the end of a file. Add the lines that follow the change as context.',
+      );
+    }
+  }
+  return hints;
+}
+
 /** True when `line` of `path` on the PR head is a line GitHub will accept an inline comment on. */
 export function isCommentable(files: DiffFile[], path: string, line: number): boolean {
   const file = files.find((f) => f.path === path && f.status !== 'deleted');
