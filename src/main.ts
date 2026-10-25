@@ -31,7 +31,9 @@ import { emptyRecord, uploadRecord, writeRecord, type FindingRecord, type RunRec
 import {
   buildReview,
   fetchPriorFindings,
+  gitDiffBetween,
   isDuplicate,
+  postingLogin,
   postReview,
   resolvePriorFindings,
   upsertComment,
@@ -39,7 +41,14 @@ import {
 } from './review.js';
 import { ToolExecutor } from './tools.js';
 import type { Finding, GateResult, Mode, Outcome, Patch, PriorFinding, ProposedFinding, PullRequestRef } from './types.js';
-import { isTestPath, ScratchTree, verifyDemonstration, verifyRedGateFix, type PatchLimits } from './verify.js';
+import {
+  isTestPath,
+  recheckDemonstration,
+  ScratchTree,
+  verifyDemonstration,
+  verifyRedGateFix,
+  type PatchLimits,
+} from './verify.js';
 
 interface Inputs {
   gateResult: GateResult;
@@ -139,11 +148,18 @@ async function reviewMode(stage: Stage): Promise<void> {
     collectDiff(pr, repoRoot),
     trackedFiles(repoRoot),
     readGuidance(repoRoot, inputs.guidanceFile),
-    fetchPriorFindings(octokit, pr),
+    postingLogin(octokit).then((author) => fetchPriorFindings(octokit, pr, author)),
   ]);
   const diffFiles = parseDiff(diffText);
   const map = buildRepositoryMap(tracked);
-  const resolution = await resolvePriorFindings(prior, pr.headSha, repoRoot);
+  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs);
+  const recheck = async (testPatch: string) => {
+    const { result, runs, durationMs } = await recheckDemonstration(tree, testPatch, inputs.patchLimits);
+    record.verification.recheckRuns += runs;
+    record.verification.durationMs += durationMs;
+    return result;
+  };
+  const resolution = await resolvePriorFindings(prior, pr.headSha, recheck, gitDiffBetween(repoRoot));
   record.resolvedPriorFindings = resolution.resolved;
   record.contextSizes = {
     diffBytes: Buffer.byteLength(diffText),
@@ -160,7 +176,6 @@ async function reviewMode(stage: Stage): Promise<void> {
   }
 
   const budget = new Budget(inputs.limits);
-  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs);
   const executor = new ToolExecutor({
     mode: 'review',
     repoRoot,

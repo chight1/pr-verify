@@ -8,7 +8,7 @@ import path from 'node:path';
 import { DefaultArtifactClient } from '@actions/artifact';
 import type { BudgetName } from './budget.js';
 import type { ToolCallRecord } from './tools.js';
-import type { FindingCategory, GateResult, Mode, Outcome, PriorFinding } from './types.js';
+import type { FindingCategory, GateResult, Mode, Outcome, ResolvedFinding } from './types.js';
 
 export const RECORD_ARTIFACT_NAME = 'pr-verify-record';
 export const RECORD_RETENTION_DAYS = 30;
@@ -46,10 +46,12 @@ export interface RunRecord {
   };
   toolCalls: ToolCallRecord[];
   findings: FindingRecord[];
-  resolvedPriorFindings: PriorFinding[];
+  resolvedPriorFindings: ResolvedFinding[];
   verification: {
     testRuns: number;
     fixRuns: number;
+    /** Suite runs that re-checked a prior finding's test on this head. */
+    recheckRuns: number;
     durationMs: number;
   };
   usage: {
@@ -73,7 +75,7 @@ export function emptyRecord(identity: RunRecord['identity']): RunRecord {
     toolCalls: [],
     findings: [],
     resolvedPriorFindings: [],
-    verification: { testRuns: 0, fixRuns: 0, durationMs: 0 },
+    verification: { testRuns: 0, fixRuns: 0, recheckRuns: 0, durationMs: 0 },
     usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
     wallMs: 0,
     outcome: 'error',

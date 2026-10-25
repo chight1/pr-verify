@@ -27,6 +27,8 @@ The agent's own test runs are for investigation and decide nothing. When it call
 
 A finding whose test does not fail on the clean commit is downgraded to unverified and competes for the three unverified slots with every other undemonstrated claim. A fix that does not verify is left out of the comment and noted in the run record.
 
+On a later push, the harness re-runs each open verified finding's test against the new commit, up to three per push. If it passes, the finding is reported resolved, wherever the fix landed. If it still fails, the finding stays open, even if its line was edited. A finding without a test, or whose test no longer applies, counts as resolved when the line it pointed at changes. Only comments posted by the action's own account are read back, since a finding's test gets run.
+
 Every run writes a JSON record and uploads it as a workflow artifact (30 days): context sizes, the full tool-call trail, each finding and how it verified, token usage, wall time, and which budget tripped if one did. The record is the evidence behind every comment. Finding accuracy is measured by you: a thumbs-down reaction on an inline comment marks it wrong.
 
 ## When the gate is red

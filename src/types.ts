@@ -48,6 +48,12 @@ export interface PriorFinding {
   headSha: string;
 }
 
+/** A prior finding a later push resolved, and how the harness knows. */
+export interface ResolvedFinding extends PriorFinding {
+  /** test-passes: the finding's own test passes on the new head. line-changed: the line it pointed at was edited. */
+  evidence: 'test-passes' | 'line-changed';
+}
+
 export interface Patch {
   id: number;
   kind: PatchKind;

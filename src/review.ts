@@ -7,46 +7,109 @@
 import type { Octokit } from './context.js';
 import { git } from './context.js';
 import { isCommentable, parseDiff, type DiffFile } from './diff.js';
-import type { Finding, Patch, PriorFinding, PullRequestRef } from './types.js';
+import type { Finding, Patch, PriorFinding, PullRequestRef, ResolvedFinding } from './types.js';
+import type { RecheckResult } from './verify.js';
 
 const MARKER = 'pr-verify';
 const FINDING_MARKER = new RegExp(`<!-- ${MARKER}:finding (\\{.*?\\}) -->`, 'g');
+const RESOLVED_MARKER = new RegExp(`<!-- ${MARKER}:resolved (\\{.*?\\}) -->`, 'g');
 const COMMENT_MARKER = (key: string) => `<!-- ${MARKER}:comment ${key} -->`;
+const TEST_SUMMARY = 'Test that fails on this commit';
+// A diff line starts with a space, +, - or \, so a line opening with ``` can only be the closing fence.
+const TEST_BLOCK = new RegExp(`<summary>${TEST_SUMMARY}</summary>\\s*\`\`\`diff\\n([\\s\\S]*?)\\n\`\`\``, 'g');
+
+/** The login every comment made with the default GITHUB_TOKEN is posted under. */
+export const DEFAULT_TOKEN_LOGIN = 'github-actions[bot]';
+
+/**
+ * The account this action posts as. Markers are trusted only from it: anyone
+ * can comment on a pull request, and a prior finding's test is run on the
+ * next push, so a marker from anyone else would be a stranger's code.
+ */
+export async function postingLogin(octokit: Octokit): Promise<string> {
+  try {
+    return (await octokit.rest.users.getAuthenticated()).data.login;
+  } catch {
+    // The default GITHUB_TOKEN cannot read /user.
+    return DEFAULT_TOKEN_LOGIN;
+  }
+}
 
 export function findingMarker(finding: PriorFinding): string {
   return `<!-- ${MARKER}:finding ${JSON.stringify(finding)} -->`;
 }
 
-export function parseFindingMarkers(text: string): PriorFinding[] {
-  const out: PriorFinding[] = [];
-  for (const match of text.matchAll(FINDING_MARKER)) {
-    try {
-      const parsed = JSON.parse(match[1]!) as Partial<PriorFinding>;
-      if (
-        typeof parsed.file === 'string' &&
-        typeof parsed.line === 'number' &&
-        typeof parsed.title === 'string' &&
-        typeof parsed.category === 'string' &&
-        typeof parsed.headSha === 'string'
-      ) {
-        out.push({
-          file: parsed.file,
-          line: parsed.line,
-          title: parsed.title,
-          category: parsed.category,
-          headSha: parsed.headSha,
-          verified: parsed.verified === true,
-        });
-      }
-    } catch {
-      // A marker someone edited by hand is not our problem; skip it.
+/** Tags an entry under "Resolved by this push" so later runs stop re-checking and re-announcing it. */
+export function resolvedMarker(finding: PriorFinding): string {
+  const { category, file, line, title, verified, headSha } = finding;
+  return `<!-- ${MARKER}:resolved ${JSON.stringify({ category, file, line, title, verified, headSha })} -->`;
+}
+
+function readPrior(json: string): PriorFinding | null {
+  try {
+    const parsed = JSON.parse(json) as Partial<PriorFinding>;
+    if (
+      typeof parsed.file === 'string' &&
+      typeof parsed.line === 'number' &&
+      typeof parsed.title === 'string' &&
+      typeof parsed.category === 'string' &&
+      typeof parsed.headSha === 'string'
+    ) {
+      return {
+        file: parsed.file,
+        line: parsed.line,
+        title: parsed.title,
+        category: parsed.category,
+        headSha: parsed.headSha,
+        verified: parsed.verified === true,
+      };
     }
+  } catch {
+    // A marker someone edited by hand is not our problem; skip it.
+  }
+  return null;
+}
+
+/** A finding read back from a posted comment, with the test that demonstrated it when there was one. */
+export interface PostedFinding {
+  finding: PriorFinding;
+  testPatch: string | null;
+}
+
+/**
+ * Reads every finding marker in a comment body. A finding's test sits between
+ * the previous marker and its own, because renderFinding writes the patches
+ * first and the marker last.
+ */
+export function parsePostedFindings(text: string): PostedFinding[] {
+  const out: PostedFinding[] = [];
+  let segmentStart = 0;
+  for (const match of text.matchAll(FINDING_MARKER)) {
+    const segment = text.slice(segmentStart, match.index);
+    segmentStart = match.index + match[0].length;
+    const finding = readPrior(match[1]!);
+    if (!finding) continue;
+    const tests = [...segment.matchAll(TEST_BLOCK)];
+    const last = tests[tests.length - 1];
+    out.push({ finding, testPatch: last ? `${last[1]!}\n` : null });
   }
   return out;
 }
 
-/** Every finding this action has posted on the PR, from review bodies and inline comments alike. */
-export async function fetchPriorFindings(octokit: Octokit, pr: PullRequestRef): Promise<PriorFinding[]> {
+export function parseFindingMarkers(text: string): PriorFinding[] {
+  return parsePostedFindings(text).map((p) => p.finding);
+}
+
+function findingKey(finding: PriorFinding): string {
+  return `${finding.file}:${finding.line}:${finding.category}:${finding.title}`;
+}
+
+/**
+ * Every finding this action has posted on the PR and not yet reported
+ * resolved, from review bodies and inline comments alike. Only comments by
+ * `author` count.
+ */
+export async function fetchPriorFindings(octokit: Octokit, pr: PullRequestRef, author: string): Promise<PostedFinding[]> {
   const [reviews, comments] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listReviews, {
       owner: pr.owner,
@@ -61,44 +124,85 @@ export async function fetchPriorFindings(octokit: Octokit, pr: PullRequestRef): 
       per_page: 100,
     }),
   ]);
-  const texts = [...reviews.map((r) => r.body ?? ''), ...comments.map((c) => c.body ?? '')];
-  const seen = new Set<string>();
-  const findings: PriorFinding[] = [];
+  const texts = [...reviews, ...comments].filter((c) => c.user?.login === author).map((c) => c.body ?? '');
+
+  const resolved = new Set<string>();
   for (const text of texts) {
-    for (const finding of parseFindingMarkers(text)) {
-      const key = `${finding.file}:${finding.line}:${finding.category}:${finding.title}`;
-      if (seen.has(key)) continue;
+    for (const match of text.matchAll(RESOLVED_MARKER)) {
+      const finding = readPrior(match[1]!);
+      if (finding) resolved.add(`${findingKey(finding)}:${finding.headSha}`);
+    }
+  }
+
+  const seen = new Set<string>();
+  const findings: PostedFinding[] = [];
+  for (const text of texts) {
+    for (const posted of parsePostedFindings(text)) {
+      const key = findingKey(posted.finding);
+      if (resolved.has(`${key}:${posted.finding.headSha}`) || seen.has(key)) continue;
       seen.add(key);
-      findings.push(finding);
+      findings.push(posted);
     }
   }
   return findings;
 }
 
 export interface Resolution {
-  /** Prior findings whose lines changed since they were posted. */
-  resolved: PriorFinding[];
+  /** Prior findings this push resolved, with the evidence for each. */
+  resolved: ResolvedFinding[];
   /** Prior findings still standing, handed to the agent so it does not repeat them. */
   open: PriorFinding[];
+  /** Suite runs spent re-checking prior findings. */
+  rechecks: number;
+}
+
+/** Runs a prior finding's test against the current head. */
+export type Recheck = (testPatch: string) => Promise<RecheckResult>;
+export type DiffBetween = (from: string, to: string, file: string) => Promise<string | null>;
+
+/** Each re-check is a full suite run before the review starts, so only the first few prior findings get one. */
+export const MAX_RECHECKS = 3;
+
+export function gitDiffBetween(cwd: string): DiffBetween {
+  return (from, to, file) => git(['diff', '--no-color', '--unified=0', from, to, '--', file], cwd).catch(() => null);
 }
 
 /**
- * A prior finding is resolved when the lines it pointed at changed between the
- * commit it was posted on and the current head. Decided with git, not the model.
+ * Decides which prior findings this push resolved. Decided by the harness,
+ * not the model.
+ *
+ * A verified finding carries the test that failed when it was posted, and
+ * that test is run again on the current head. A pass resolves the finding
+ * wherever the fix landed; a failure keeps it open even if its line was
+ * edited. A finding without a usable test is resolved when the line it
+ * pointed at changed since it was posted.
  */
 export async function resolvePriorFindings(
-  prior: PriorFinding[],
+  prior: PostedFinding[],
   headSha: string,
-  cwd: string,
-  diffBetween: (from: string, to: string, file: string) => Promise<string | null> = (from, to, file) =>
-    git(['diff', '--no-color', '--unified=0', from, to, '--', file], cwd).catch(() => null),
+  recheck: Recheck,
+  diffBetween: DiffBetween,
 ): Promise<Resolution> {
-  const resolved: PriorFinding[] = [];
+  const resolved: ResolvedFinding[] = [];
   const open: PriorFinding[] = [];
-  for (const finding of prior) {
+  let rechecks = 0;
+  for (const { finding, testPatch } of prior) {
     if (finding.headSha === headSha) {
       open.push(finding);
       continue;
+    }
+    if (testPatch !== null && rechecks < MAX_RECHECKS) {
+      rechecks += 1;
+      const result = await recheck(testPatch);
+      if (result === 'passes') {
+        resolved.push({ ...finding, evidence: 'test-passes' });
+        continue;
+      }
+      if (result === 'fails') {
+        open.push(finding);
+        continue;
+      }
+      // The test no longer fits this commit. Fall back to the line.
     }
     const diff = await diffBetween(finding.headSha, headSha, finding.file);
     if (diff === null) {
@@ -106,10 +210,10 @@ export async function resolvePriorFindings(
       open.push(finding);
       continue;
     }
-    if (lineChanged(parseDiff(diff), finding.file, finding.line)) resolved.push(finding);
+    if (lineChanged(parseDiff(diff), finding.file, finding.line)) resolved.push({ ...finding, evidence: 'line-changed' });
     else open.push(finding);
   }
-  return { resolved, open };
+  return { resolved, open, rechecks };
 }
 
 export function lineChanged(files: DiffFile[], file: string, line: number): boolean {
@@ -149,6 +253,11 @@ export interface ReviewDraft {
   comments: Array<{ path: string; line: number; body: string }>;
 }
 
+const RESOLVED_BY: Record<ResolvedFinding['evidence'], string> = {
+  'test-passes': 'its test passes now',
+  'line-changed': 'the line it pointed at changed',
+};
+
 function fenceDiff(diff: string): string {
   return `\`\`\`diff\n${diff.trimEnd()}\n\`\`\``;
 }
@@ -170,7 +279,7 @@ function renderFinding(finding: Finding, patches: Patch[], headSha: string, with
   const test = finding.testPatch !== undefined ? patches.find((p) => p.id === finding.testPatch) : undefined;
   const fix = finding.fixPatch !== undefined ? patches.find((p) => p.id === finding.fixPatch) : undefined;
   if (test && finding.testPatchVerified) {
-    lines.push('', '<details><summary>Test that fails on this commit</summary>', '', fenceDiff(test.diff), '</details>');
+    lines.push('', `<details><summary>${TEST_SUMMARY}</summary>`, '', fenceDiff(test.diff), '</details>');
   }
   if (fix && finding.fixPatchVerified) {
     lines.push('', '<details><summary>Fix that makes it pass</summary>', '', fenceDiff(fix.diff), '</details>');
@@ -186,7 +295,7 @@ function renderFinding(finding: Finding, patches: Patch[], headSha: string, with
 export function buildReview(
   findings: Finding[],
   patches: Patch[],
-  resolved: PriorFinding[],
+  resolved: ResolvedFinding[],
   diffFiles: DiffFile[],
   headSha: string,
   trail: ReviewTrail,
@@ -222,9 +331,8 @@ export function buildReview(
     sections.push(`### Unverified\n\n${unverified.map((f) => renderFinding(f, patches, headSha, true)).join('\n\n---\n\n')}`);
   }
   if (resolved.length > 0) {
-    sections.push(
-      `### Resolved by this push\n\n${resolved.map((r) => `- \`${r.file}:${r.line}\` ${r.title}`).join('\n')}`,
-    );
+    const entries = resolved.map((r) => `- \`${r.file}:${r.line}\` ${r.title} (${RESOLVED_BY[r.evidence]}) ${resolvedMarker(r)}`);
+    sections.push(`### Resolved by this push\n\n${entries.join('\n')}`);
   }
 
   const trailLines = [

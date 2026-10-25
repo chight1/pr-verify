@@ -202,15 +202,33 @@ export class ScratchTree {
   }
 
   async apply(diff: string): Promise<ApplyResult> {
+    return this.withPatchFile(diff, async (file) => {
+      try {
+        await git(['apply', '--check', '--whitespace=nowarn', file], this.root);
+        await git(['apply', '--whitespace=nowarn', file], this.root);
+        return { applied: true };
+      } catch (error) {
+        return { applied: false, error: (error as Error).message };
+      }
+    });
+  }
+
+  /** True when the tree already contains the patch's changes, i.e. it would apply in reverse. */
+  async contains(diff: string): Promise<boolean> {
+    return this.withPatchFile(diff, (file) =>
+      git(['apply', '--reverse', '--check', '--whitespace=nowarn', file], this.root).then(
+        () => true,
+        () => false,
+      ),
+    );
+  }
+
+  private async withPatchFile<T>(diff: string, use: (file: string) => Promise<T>): Promise<T> {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'pr-verify-'));
     const file = path.join(dir, 'patch.diff');
     try {
       await writeFile(file, diff.endsWith('\n') ? diff : `${diff}\n`, 'utf8');
-      await git(['apply', '--check', '--whitespace=nowarn', file], this.root);
-      await git(['apply', '--whitespace=nowarn', file], this.root);
-      return { applied: true };
-    } catch (error) {
-      return { applied: false, error: (error as Error).message };
+      return await use(file);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -272,6 +290,34 @@ export async function verifyDemonstration(
 
   await tree.reset();
   return { testFails, fixPasses, runs, durationMs: Date.now() - startedAt };
+}
+
+/** passes: the bug is gone. fails: still there. unusable: the test does not fit this commit, so it says nothing. */
+export type RecheckResult = 'passes' | 'fails' | 'unusable';
+
+/**
+ * Runs an earlier finding's test against the current PR commit. The test is
+ * applied, or used as it stands when the author has already committed it.
+ * It goes through the same policy as a fresh test patch first, because it was
+ * read back from a comment.
+ */
+export async function recheckDemonstration(
+  tree: ScratchTree,
+  testDiff: string,
+  limits: PatchLimits,
+): Promise<{ result: RecheckResult; runs: number; durationMs: number }> {
+  const startedAt = Date.now();
+  if (!checkPatchPolicy(testDiff, 'test', limits).ok) return { result: 'unusable', runs: 0, durationMs: 0 };
+
+  await tree.reset();
+  let result: RecheckResult = 'unusable';
+  let runs = 0;
+  if ((await tree.apply(testDiff)).applied || (await tree.contains(testDiff))) {
+    runs = 1;
+    result = (await tree.runTests()).exitCode === 0 ? 'passes' : 'fails';
+  }
+  await tree.reset();
+  return { result, runs, durationMs: Date.now() - startedAt };
 }
 
 /** Red-gate mode: a fix is verified when the suite that failed now passes with only the fix applied. */

@@ -1,5 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkPatchPolicy, isDependencyFile, isTestPath } from '../src/verify.js';
+import { checkPatchPolicy, isDependencyFile, isTestPath, recheckDemonstration, ScratchTree } from '../src/verify.js';
 
 const LIMITS = { maxLines: 200, maxFiles: 6 };
 
@@ -93,5 +97,48 @@ describe('checkPatchPolicy', () => {
 
   it('rejects an empty patch', () => {
     expect(checkPatchPolicy('', 'fix', LIMITS).violations).toContain('patch contains no file changes');
+  });
+});
+
+describe('recheckDemonstration', () => {
+  // A one-file project whose suite runs every file under tests/; a test fails by throwing.
+  const RUNNER = "for (const f of require('fs').readdirSync('tests')) require('./tests/' + f);\n";
+  const TEST = "if (require('../value.js') !== 2) throw new Error('value should be 2');\n";
+  const TEST_PATCH = `diff --git a/tests/value.test.js b/tests/value.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/tests/value.test.js\n@@ -0,0 +1,1 @@\n+${TEST}`;
+
+  function repoAt(value: number, extra: Record<string, string> = {}): ScratchTree {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'pr-verify-recheck-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
+    mkdirSync(path.join(dir, 'tests'));
+    const files: Record<string, string> = { 'run.js': RUNNER, 'value.js': `module.exports = ${value};\n`, 'tests/keep.test.js': '\n', ...extra };
+    for (const [file, text] of Object.entries(files)) writeFileSync(path.join(dir, file), text);
+    git('init', '-q');
+    git('add', '-A');
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-qm', 'head');
+    return new ScratchTree(dir, git('rev-parse', 'HEAD'), 'node run.js', 30_000);
+  }
+
+  it('passes once the bug is fixed, wherever the fix landed', async () => {
+    expect(await recheckDemonstration(repoAt(2), TEST_PATCH, LIMITS)).toMatchObject({ result: 'passes', runs: 1 });
+  });
+
+  it('fails while the bug is still there', async () => {
+    expect(await recheckDemonstration(repoAt(1), TEST_PATCH, LIMITS)).toMatchObject({ result: 'fails', runs: 1 });
+  });
+
+  it('uses the test as it stands when the author committed it', async () => {
+    const tree = repoAt(2, { 'tests/value.test.js': TEST });
+    expect(await recheckDemonstration(tree, TEST_PATCH, LIMITS)).toMatchObject({ result: 'passes', runs: 1 });
+  });
+
+  it('is unusable when the test no longer fits the tree, and leaves the tree clean', async () => {
+    const tree = repoAt(2, { 'tests/value.test.js': 'something else\n' });
+    expect(await recheckDemonstration(tree, TEST_PATCH, LIMITS)).toMatchObject({ result: 'unusable', runs: 0 });
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: tree.root }).toString()).toBe('');
+  });
+
+  it('never runs a patch read back from a comment that breaks the test-patch policy', async () => {
+    const tree = repoAt(1);
+    expect(await recheckDemonstration(tree, FIX_SRC, LIMITS)).toEqual({ result: 'unusable', runs: 0, durationMs: 0 });
   });
 });
