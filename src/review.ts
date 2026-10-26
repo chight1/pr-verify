@@ -366,7 +366,17 @@ export async function postReview(octokit: Octokit, pr: PullRequestRef, draft: Re
   return response.data.id;
 }
 
-/** Creates or updates the single PR comment identified by `key`. Used for red-gate verdicts. */
+async function findComment(octokit: Octokit, pr: PullRequestRef, marker: string) {
+  const existing = await octokit.paginate(octokit.rest.issues.listComments, {
+    owner: pr.owner,
+    repo: pr.repo,
+    issue_number: pr.number,
+    per_page: 100,
+  });
+  return existing.find((c) => (c.body ?? '').includes(marker));
+}
+
+/** Creates or updates the single PR comment identified by `key`. Used for red-gate verdicts and the too-large note. */
 export async function upsertComment(
   octokit: Octokit,
   pr: PullRequestRef,
@@ -375,13 +385,7 @@ export async function upsertComment(
 ): Promise<number> {
   const marker = COMMENT_MARKER(key);
   const full = `${body}\n\n${marker}`;
-  const existing = await octokit.paginate(octokit.rest.issues.listComments, {
-    owner: pr.owner,
-    repo: pr.repo,
-    issue_number: pr.number,
-    per_page: 100,
-  });
-  const mine = existing.find((c) => (c.body ?? '').includes(marker));
+  const mine = await findComment(octokit, pr, marker);
   if (mine) {
     await octokit.rest.issues.updateComment({ owner: pr.owner, repo: pr.repo, comment_id: mine.id, body: full });
     return mine.id;
@@ -393,4 +397,10 @@ export async function upsertComment(
     body: full,
   });
   return created.data.id;
+}
+
+/** Deletes the PR comment identified by `key`, if there is one. */
+export async function deleteComment(octokit: Octokit, pr: PullRequestRef, key: string): Promise<void> {
+  const mine = await findComment(octokit, pr, COMMENT_MARKER(key));
+  if (mine) await octokit.rest.issues.deleteComment({ owner: pr.owner, repo: pr.repo, comment_id: mine.id });
 }

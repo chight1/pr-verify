@@ -64,10 +64,27 @@ describe('runAgent', () => {
       role: 'user',
       content: [
         { type: 'tool_result', tool_use_id: 'a', content: 'ok' },
-        { type: 'tool_result', tool_use_id: 'b', content: 'ok' },
+        { type: 'tool_result', tool_use_id: 'b', content: 'ok', cache_control: { type: 'ephemeral' } },
       ],
     });
     expect(b.usage()).toMatchObject({ inputTokens: 200, outputTokens: 40, cachedInputTokens: 100 });
+  });
+
+  it('keeps one cache breakpoint in the conversation, on the newest message', async () => {
+    const { client, requests } = fakeClient([
+      response('tool_use', [toolUse('a', 'read_file', { path: 'x' })]),
+      response('tool_use', [toolUse('b', 'read_file', { path: 'y' })]),
+      response('tool_use', [toolUse('c', 'finish', { findings: [] })]),
+    ]);
+    const { executor } = fakeExecutor('finish');
+    await runAgent({ client, model: 'm', mode: 'review', repositoryMap: 'map', brief: 'brief', executor, budget: budget() });
+
+    const marked = (params: Anthropic.MessageCreateParams) =>
+      params.messages.flatMap((m, i) =>
+        typeof m.content === 'string' ? [] : m.content.filter((b) => 'cache_control' in b && b.cache_control).map(() => i),
+      );
+    expect(requests[0]!.messages[0]).toEqual({ role: 'user', content: [{ type: 'text', text: 'brief', cache_control: { type: 'ephemeral' } }] });
+    expect(requests.map(marked)).toEqual([[0], [2], [4]]);
   });
 
   it('caches the system prompt and repository map as separate prefix blocks', async () => {
@@ -94,7 +111,7 @@ describe('runAgent', () => {
     expect(outcome).toMatchObject({ finished: null, stopReason: 'no_finish', turns: 3 });
     expect(create).toHaveBeenCalledTimes(3);
     const last = requests[2]!;
-    expect(last.messages.at(-1)).toMatchObject({ role: 'user', content: expect.stringContaining('Call finish') });
+    expect(last.messages.at(-1)).toMatchObject({ role: 'user', content: [{ type: 'text', text: expect.stringContaining('Call finish') }] });
   });
 
   it('ends on a refusal without running any tool', async () => {
@@ -123,6 +140,7 @@ describe('briefs', () => {
   it('includes guidance, conventions, open findings and the diff in the review brief', () => {
     const brief = buildReviewBrief({
       diff: 'diff --git a/x b/x',
+      omitted: ['package-lock.json'],
       guidance: 'Never call the model in tests.',
       openFindings: [{ category: 'bug', file: 'src/a.ts', line: 4, title: 'Old one', verified: true, headSha: 'h' }],
       testConventions: 'Tests live under test/.',
@@ -131,11 +149,13 @@ describe('briefs', () => {
     expect(brief).toContain('Never call the model in tests.');
     expect(brief).toContain('- src/a.ts:4 [bug, verified] Old one');
     expect(brief).toContain('```diff\ndiff --git a/x b/x\n```');
+    expect(brief).toContain('are not shown: package-lock.json.');
   });
 
   it('leaves optional sections out of the red-gate brief when absent', () => {
-    const brief = buildRedGateBrief({ diff: 'd', guidance: null, stepName: 'test', log: 'FAIL' });
+    const brief = buildRedGateBrief({ diff: 'd', omitted: [], guidance: null, stepName: 'test', log: 'FAIL' });
     expect(brief).not.toContain('Repository guidance');
+    expect(brief).not.toContain('Left out of the diff');
     expect(brief).toContain('## Failing step\n\n`test`');
     expect(brief).toContain('FAIL');
   });

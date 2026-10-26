@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { parseDiff } from '../src/diff.js';
 import {
   buildReview,
+  deleteComment,
   DEFAULT_TOKEN_LOGIN,
   fetchPriorFindings,
   findingMarker,
@@ -283,5 +284,26 @@ describe('upsertComment', () => {
     expect(id).toBe(500);
     expect(createComment).toHaveBeenCalledOnce();
     expect(updateComment).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleteComment', () => {
+  function octokitWith(existing: Array<{ id: number; body: string }>) {
+    const remove = vi.fn(async () => ({}));
+    const octokit = { paginate: vi.fn(async () => existing), rest: { issues: { listComments: {}, deleteComment: remove } } } as never;
+    return { octokit, remove };
+  }
+
+  it('deletes only the comment with the matching marker, and is a no-op without one', async () => {
+    const found = octokitWith([
+      { id: 1, body: 'x\n\n<!-- pr-verify:comment red-gate -->' },
+      { id: 2, body: 'x\n\n<!-- pr-verify:comment too-large -->' },
+    ]);
+    await deleteComment(found.octokit, PR, 'too-large');
+    expect(found.remove).toHaveBeenCalledExactlyOnceWith({ owner: 'o', repo: 'r', comment_id: 2 });
+
+    const none = octokitWith([{ id: 1, body: 'unrelated' }]);
+    await deleteComment(none.octokit, PR, 'too-large');
+    expect(none.remove).not.toHaveBeenCalled();
   });
 });

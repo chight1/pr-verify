@@ -41,7 +41,8 @@ Every one is an action input with a default.
 
 | Budget | Default |
 | --- | --- |
-| Tokens per run (input plus output, cached included) | 200,000 |
+| Tokens per run (input plus output; cache reads count at a tenth, the rate they are billed at) | 200,000 |
+| Diff size | a quarter of the token budget |
 | Agent wall clock | 8 minutes |
 | Tool calls | 30 |
 | Test runs by the agent | 4 |
@@ -52,6 +53,12 @@ Every one is an action input with a default.
 | Findings per review | 8, of which at most 3 unverified |
 
 When a budget trips, the run ends and names the budget in the record. Nothing unverified is posted.
+
+The conversation is cached turn by turn, so each request pays full price only for what is new since the last one.
+
+## Large pull requests
+
+Lockfiles, minified files, source maps and files `.gitattributes` marks `linguist-generated` are left out of the diff the agent sees; the brief names them so the agent knows they changed. If what is left would take more than a quarter of the token budget, the review is skipped before any API call and one comment says so and asks for smaller pull requests. It declines rather than fails: the gate still decides the merge. The comment is removed once a later push fits.
 
 ## Attaching it to a project
 

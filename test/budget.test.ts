@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Budget, BudgetExceeded, type BudgetLimits } from '../src/budget.js';
+import { Budget, BudgetExceeded, diffTokenLimit, estimateTokens, type BudgetLimits } from '../src/budget.js';
 
 const LIMITS: BudgetLimits = {
   tokens: 1000,
@@ -23,11 +23,12 @@ function expectTrip(fn: () => void, budget: keyof BudgetLimits): void {
 }
 
 describe('Budget', () => {
-  it('counts cached input toward the token total and names the budget that tripped', () => {
+  it('counts cache writes in full and cache reads at a tenth, and names the budget that tripped', () => {
     const budget = new Budget(LIMITS);
-    budget.chargeTokens({ input: 400, output: 100, cached: 400 });
-    expectTrip(() => budget.chargeTokens({ input: 100, output: 1, cached: 0 }), 'tokens');
-    expect(budget.usage()).toMatchObject({ inputTokens: 500, outputTokens: 101, cachedInputTokens: 400 });
+    budget.chargeTokens({ input: 300, output: 100, cacheRead: 2000, cacheWrite: 100 });
+    expect(budget.chargedTokens()).toBe(300 + 100 + 100 + 200);
+    expect(budget.usage()).toMatchObject({ inputTokens: 400, outputTokens: 100, cachedInputTokens: 2000 });
+    expectTrip(() => budget.chargeTokens({ input: 300, output: 1, cacheRead: 0, cacheWrite: 0 }), 'tokens');
   });
 
   it('caps tool calls, test runs and patch attempts separately', () => {
@@ -53,5 +54,13 @@ describe('Budget', () => {
     expectTrip(() => budget.checkClock(), 'minutes');
     expectTrip(() => budget.chargeToolCall(), 'minutes');
     expect(budget.remainingMs()).toBe(0);
+  });
+});
+
+describe('diff size limit', () => {
+  it('is a quarter of the token budget, measured at about four bytes per token', () => {
+    expect(diffTokenLimit({ ...LIMITS, tokens: 200_000 })).toBe(50_000);
+    expect(estimateTokens('a'.repeat(400))).toBe(100);
+    expect(estimateTokens('é')).toBe(1);
   });
 });

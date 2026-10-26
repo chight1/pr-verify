@@ -79,6 +79,7 @@ export type Outcome =
   | 'diagnosis'
   | 'abstain'
   | 'budget'
+  | 'too-large'
   | 'error';
 
 export interface PullRequestRef {

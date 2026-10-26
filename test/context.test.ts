@@ -1,7 +1,31 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildRepositoryMap, capUtf8, extractStepLog, Scrubber, tail } from '../src/context.js';
+import { buildRepositoryMap, capUtf8, dropNoise, extractStepLog, isNoise, Scrubber, tail } from '../src/context.js';
+import { parseDiff } from '../src/diff.js';
+
+describe('dropNoise', () => {
+  const section = (p: string) => `diff --git a/${p} b/${p}\nindex 1..2 100644\n--- a/${p}\n+++ b/${p}\n@@ -1,1 +1,1 @@\n-a\n+b`;
+
+  it('drops lockfiles, minified files, source maps and generated files, and names them', () => {
+    const text = ['src/a.ts', 'package-lock.json', 'web/app.min.js', 'web/app.js.map', 'api/client.ts', 'src/b.ts'].map(section).join('\n') + '\n';
+    const diff = dropNoise(text, (p) => p === 'api/client.ts');
+    expect(parseDiff(diff.text).map((f) => [f.path, f.added, f.removed])).toEqual([
+      ['src/a.ts', 1, 1],
+      ['src/b.ts', 1, 1],
+    ]);
+    expect(diff.omitted).toEqual(['package-lock.json', 'web/app.min.js', 'web/app.js.map', 'api/client.ts']);
+  });
+
+  it('keeps dependency manifests, which a reviewer should see', () => {
+    for (const p of ['package.json', 'pyproject.toml', 'go.mod', 'src/package-lock.ts']) expect(isNoise(p), p).toBe(false);
+    for (const p of ['sub/yarn.lock', 'go.sum', 'uv.lock', 'dist/x.min.css']) expect(isNoise(p), p).toBe(true);
+  });
+
+  it('leaves an empty diff empty', () => {
+    expect(dropNoise('')).toEqual({ text: '', omitted: [] });
+  });
+});
 
 const LOG = readFileSync(path.join(__dirname, 'fixtures', 'gate-job.log'), 'utf8');
 

@@ -15,7 +15,7 @@ import {
   runAgent,
   type AgentOutcome,
 } from './agent.js';
-import { Budget, type BudgetLimits } from './budget.js';
+import { Budget, diffTokenLimit, estimateTokens, type BudgetLimits } from './budget.js';
 import {
   buildRepositoryMap,
   collectDiff,
@@ -24,12 +24,14 @@ import {
   Scrubber,
   trackedFiles,
   type Octokit,
+  type PullRequestDiff,
 } from './context.js';
 import { parseDiff } from './diff.js';
 import { preclassify } from './preclassify.js';
 import { emptyRecord, uploadRecord, writeRecord, type FindingRecord, type RunRecord } from './record.js';
 import {
   buildReview,
+  deleteComment,
   fetchPriorFindings,
   gitDiffBetween,
   isDuplicate,
@@ -131,6 +133,25 @@ function describeTestConventions(files: string[]): string {
   return `Test files live under: ${topDirs}. Examples: ${examples.join(', ')}. A test patch may add files in these locations or add to these files.`;
 }
 
+const TOO_LARGE_KEY = 'too-large';
+
+/**
+ * The note posted instead of a review when the diff alone would take more
+ * than its share of the token budget, or null when it fits. Like a reviewer
+ * who asks for smaller pull requests, this declines rather than fails: the
+ * review never blocks a merge, and the gate still decides it.
+ */
+function tooLargeNote(diff: PullRequestDiff, limits: BudgetLimits): string | null {
+  const tokens = estimateTokens(diff.text);
+  const limit = diffTokenLimit(limits);
+  if (tokens <= limit) return null;
+  const kb = Math.round(Buffer.byteLength(diff.text, 'utf8') / 1024);
+  return (
+    `This diff is about ${kb} KB (≈ ${tokens.toLocaleString('en-US')} tokens), over this project's review limit of ` +
+    `${limit.toLocaleString('en-US')} tokens, a quarter of its \`max-tokens\` budget. Split it into smaller pull requests to get a review.`
+  );
+}
+
 interface Stage {
   inputs: Inputs;
   pr: PullRequestRef;
@@ -144,14 +165,38 @@ interface Stage {
 async function reviewMode(stage: Stage): Promise<void> {
   const { inputs, pr, octokit, repoRoot, record, scrubber } = stage;
 
-  const [diffText, tracked, guidance, prior] = await Promise.all([
+  const [diff, tracked, guidance, prior] = await Promise.all([
     collectDiff(pr, repoRoot),
     trackedFiles(repoRoot),
     readGuidance(repoRoot, inputs.guidanceFile),
     postingLogin(octokit).then((author) => fetchPriorFindings(octokit, pr, author)),
   ]);
-  const diffFiles = parseDiff(diffText);
+  const diffFiles = parseDiff(diff.text);
   const map = buildRepositoryMap(tracked);
+  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
+  record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
+  record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+
+  const tooLarge = tooLargeNote(diff, inputs.limits);
+  if (tooLarge) {
+    record.outcome = 'too-large';
+    record.postedId = await upsertComment(
+      octokit,
+      pr,
+      TOO_LARGE_KEY,
+      `### PR Verify: not reviewed\n\n${tooLarge} The gate still ran and still decides the merge. [Run record](${stage.runUrl})`,
+    );
+    return;
+  }
+  await deleteComment(octokit, pr, TOO_LARGE_KEY);
+
+  if (diffFiles.length === 0) {
+    record.outcome = 'clean';
+    const why = diff.omitted.length > 0 ? 'only machine-written files changed' : 'empty diff';
+    await core.summary.addRaw(`PR Verify: ${why}, nothing to review.`).write();
+    return;
+  }
+
   const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs);
   const recheck = async (testPatch: string) => {
     const { result, runs, durationMs } = await recheckDemonstration(tree, testPatch, inputs.patchLimits);
@@ -161,19 +206,7 @@ async function reviewMode(stage: Stage): Promise<void> {
   };
   const resolution = await resolvePriorFindings(prior, pr.headSha, recheck, gitDiffBetween(repoRoot));
   record.resolvedPriorFindings = resolution.resolved;
-  record.contextSizes = {
-    diffBytes: Buffer.byteLength(diffText),
-    repositoryMapBytes: Buffer.byteLength(map.text),
-    guidanceBytes: guidance?.bytes ?? 0,
-    priorFindingsBytes: Buffer.byteLength(JSON.stringify(resolution.open)),
-    failingLogBytes: 0,
-  };
-
-  if (diffFiles.length === 0) {
-    record.outcome = 'clean';
-    await core.summary.addRaw('PR Verify: empty diff, nothing to review.').write();
-    return;
-  }
+  record.contextSizes.priorFindingsBytes = Buffer.byteLength(JSON.stringify(resolution.open));
 
   const budget = new Budget(inputs.limits);
   const executor = new ToolExecutor({
@@ -193,7 +226,8 @@ async function reviewMode(stage: Stage): Promise<void> {
     repositoryMap: map.text,
     brief: scrubber.scrub(
       buildReviewBrief({
-        diff: diffText,
+        diff: diff.text,
+        omitted: diff.omitted,
         guidance: guidance?.text ?? null,
         openFindings: resolution.open,
         testConventions: describeTestConventions(tracked),
@@ -400,15 +434,27 @@ async function redGateMode(stage: Stage): Promise<void> {
     }
   }
 
-  const [diffText, tracked, guidance] = await Promise.all([
+  const [diff, tracked, guidance] = await Promise.all([
     collectDiff(pr, repoRoot),
     trackedFiles(repoRoot),
     readGuidance(repoRoot, inputs.guidanceFile),
   ]);
   const map = buildRepositoryMap(tracked);
-  record.contextSizes.diffBytes = Buffer.byteLength(diffText);
+  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
   record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
   record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+
+  const tooLarge = tooLargeNote(diff, inputs.limits);
+  if (tooLarge) {
+    record.outcome = 'too-large';
+    record.postedId = await upsertComment(
+      octokit,
+      pr,
+      commentKey,
+      `### PR Verify: gate failed at \`${failing.stepName}\`\n\nNot investigated. ${tooLarge} The failing step's log is in the run. [Run record](${stage.runUrl})`,
+    );
+    return;
+  }
 
   const budget = new Budget(inputs.limits);
   const executor = new ToolExecutor({
@@ -426,7 +472,7 @@ async function redGateMode(stage: Stage): Promise<void> {
     mode: 'red-gate',
     repositoryMap: map.text,
     brief: scrubber.scrub(
-      buildRedGateBrief({ diff: diffText, guidance: guidance?.text ?? null, stepName: failing.stepName, log }),
+      buildRedGateBrief({ diff: diff.text, omitted: diff.omitted, guidance: guidance?.text ?? null, stepName: failing.stepName, log }),
     ),
     executor,
     budget,

@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { getExecOutput } from '@actions/exec';
 import type { getOctokit } from '@actions/github';
+import { parseDiff } from './diff.js';
 import type { PullRequestRef } from './types.js';
 
 export type Octokit = ReturnType<typeof getOctokit>;
@@ -16,17 +17,86 @@ export const GUIDANCE_CAP_BYTES = 8 * 1024;
 export const MAP_CAP_BYTES = 48 * 1024;
 export const LOG_TAIL_BYTES = 64 * 1024;
 
-export async function git(args: string[], cwd: string): Promise<string> {
-  const result = await getExecOutput('git', args, { cwd, silent: true, ignoreReturnCode: true });
+export async function git(args: string[], cwd: string, input?: string): Promise<string> {
+  const result = await getExecOutput('git', args, {
+    cwd,
+    silent: true,
+    ignoreReturnCode: true,
+    ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
+  });
   if (result.exitCode !== 0) {
     throw new Error(`git ${args.join(' ')} failed (${result.exitCode}): ${result.stderr.trim()}`);
   }
   return result.stdout;
 }
 
-/** The PR diff from the merge base, which is what GitHub shows on the Files tab. */
-export async function collectDiff(pr: PullRequestRef, cwd: string): Promise<string> {
-  return git(['diff', '--no-color', '--unified=3', '--merge-base', pr.baseSha, pr.headSha], cwd);
+const NOISE_FILES = [
+  /^package-lock\.json$/,
+  /^npm-shrinkwrap\.json$/,
+  /^yarn\.lock$/,
+  /^pnpm-lock\.yaml$/,
+  /^bun\.lockb?$/,
+  /^poetry\.lock$/,
+  /^Pipfile\.lock$/,
+  /^uv\.lock$/,
+  /^go\.sum$/,
+  /^Cargo\.lock$/,
+  /^Gemfile\.lock$/,
+  /^packages\.lock\.json$/,
+  /^composer\.lock$/,
+  /\.min\.(js|css)$/,
+  /\.map$/,
+];
+
+/** Machine-written files: lockfiles, minified bundles, source maps. A reviewer skips them, and patches may not touch them. */
+export function isNoise(filePath: string): boolean {
+  const base = path.posix.basename(filePath.replace(/\\/g, '/'));
+  return NOISE_FILES.some((p) => p.test(base));
+}
+
+export interface PullRequestDiff {
+  /** The diff the agent sees. */
+  text: string;
+  /** Changed files left out of `text` because they are machine-written. */
+  omitted: string[];
+}
+
+/** Drops whole file sections whose path is noise, or that `generated` marks as generated. */
+export function dropNoise(diffText: string, generated: (path: string) => boolean = () => false): PullRequestDiff {
+  const sections: string[][] = [];
+  for (const line of diffText.split('\n')) {
+    if (line.startsWith('diff --git ') || sections.length === 0) sections.push([]);
+    sections[sections.length - 1]!.push(line);
+  }
+  const kept: string[] = [];
+  const omitted: string[] = [];
+  for (const section of sections) {
+    const text = section.join('\n');
+    const file = parseDiff(text)[0];
+    if (file && (isNoise(file.path) || generated(file.path))) omitted.push(file.path);
+    else kept.push(text);
+  }
+  return { text: kept.join('\n'), omitted };
+}
+
+/** Paths among `paths` that .gitattributes marks `linguist-generated`, the marker GitHub collapses diffs by. */
+async function generatedPaths(paths: string[], cwd: string): Promise<Set<string>> {
+  if (paths.length === 0) return new Set();
+  // With -z, each answer is three NUL-terminated fields: path, attribute, value.
+  const out = await git(['check-attr', '-z', '--stdin', 'linguist-generated'], cwd, `${paths.join('\0')}\0`);
+  const fields = out.split('\0');
+  const generated = new Set<string>();
+  for (let i = 0; i + 2 < fields.length; i += 3) {
+    if (fields[i + 2] === 'true' || fields[i + 2] === 'set') generated.add(fields[i]!);
+  }
+  return generated;
+}
+
+/** The PR diff from the merge base, which is what GitHub shows on the Files tab, without machine-written files. */
+export async function collectDiff(pr: PullRequestRef, cwd: string): Promise<PullRequestDiff> {
+  const text = await git(['diff', '--no-color', '--unified=3', '--merge-base', pr.baseSha, pr.headSha], cwd);
+  const generated = await generatedPaths(parseDiff(text).map((f) => f.path), cwd);
+  return dropNoise(text, (p) => generated.has(p));
 }
 
 export async function trackedFiles(cwd: string): Promise<string[]> {

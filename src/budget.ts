@@ -17,9 +17,30 @@ export interface BudgetLimits {
 
 export type BudgetName = keyof BudgetLimits;
 
+/** Cache reads are billed at a tenth of the input rate. */
+export const CACHE_READ_WEIGHT = 0.1;
+
+/**
+ * The most of the token budget a diff may take on its own. The rest is for
+ * reading files and running tests. Above it the run is skipped before any
+ * API call, because the budget is only charged after a call returns.
+ */
+export const DIFF_BUDGET_SHARE = 0.25;
+
+/** A rough count for text before it is sent: about four bytes per token for code and English. */
+export function estimateTokens(text: string): number {
+  return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
+}
+
+export function diffTokenLimit(limits: BudgetLimits): number {
+  return Math.floor(limits.tokens * DIFF_BUDGET_SHARE);
+}
+
 export interface BudgetUsage {
+  /** Input not read from the cache, including input written to it. */
   inputTokens: number;
   outputTokens: number;
+  /** Input read from the cache. */
   cachedInputTokens: number;
   toolCalls: number;
   testRuns: number;
@@ -58,16 +79,22 @@ export class Budget {
   }
 
   /**
-   * Records usage from one API response. Cached input tokens are counted
-   * toward the total too: the design counts "input plus output as reported".
+   * Records usage from one API response. Input written to the cache counts
+   * like any other input. Input read from the cache counts at a tenth, the
+   * rate it is billed at: every turn re-reads the whole conversation, and
+   * counting those re-reads in full would make the cap grow with the square
+   * of the turn count instead of with the work done.
    */
-  chargeTokens(usage: { input: number; output: number; cached: number }): void {
-    this.inputTokens += usage.input;
+  chargeTokens(usage: { input: number; output: number; cacheRead: number; cacheWrite: number }): void {
+    this.inputTokens += usage.input + usage.cacheWrite;
     this.outputTokens += usage.output;
-    this.cachedInputTokens += usage.cached;
-    if (this.inputTokens + this.cachedInputTokens + this.outputTokens > this.limits.tokens) {
-      throw new BudgetExceeded('tokens');
-    }
+    this.cachedInputTokens += usage.cacheRead;
+    if (this.chargedTokens() > this.limits.tokens) throw new BudgetExceeded('tokens');
+  }
+
+  /** What the token budget measures. */
+  chargedTokens(): number {
+    return this.inputTokens + this.outputTokens + Math.ceil(this.cachedInputTokens * CACHE_READ_WEIGHT);
   }
 
   chargeToolCall(): void {

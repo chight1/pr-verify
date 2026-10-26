@@ -52,8 +52,17 @@ If the failing step is the build step: diagnose only. You cannot verify a build 
 
 End with finish: "fix" with the patch id, "diagnosis" with a three-line summary and citations when you can name the cause but not fix it, or "abstain" when you cannot say. An honest abstain is worth more than a guess.`;
 
+/** Names the machine-written files left out of the diff, so the agent knows they changed. */
+function omittedSection(omitted: string[]): string[] {
+  if (omitted.length === 0) return [];
+  const shown = omitted.slice(0, 20).join(', ');
+  const more = omitted.length > 20 ? `, and ${omitted.length - 20} more` : '';
+  return [`## Left out of the diff\n\nThese changed files are machine-written (lockfiles, minified or generated) and are not shown: ${shown}${more}.`];
+}
+
 export interface ReviewBriefInput {
   diff: string;
+  omitted: string[];
   guidance: string | null;
   openFindings: PriorFinding[];
   testConventions: string;
@@ -71,13 +80,14 @@ export function buildReviewBrief(input: ReviewBriefInput): string {
       .join('\n');
     sections.push(`## Already reported on this pull request\n\n${list}`);
   }
-  sections.push(`## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``);
+  sections.push(`## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``, ...omittedSection(input.omitted));
   sections.push('Review the change. Read whatever files you need, demonstrate what you can, then call finish.');
   return sections.join('\n\n');
 }
 
 export interface RedGateBriefInput {
   diff: string;
+  omitted: string[];
   guidance: string | null;
   stepName: string;
   log: string;
@@ -90,7 +100,7 @@ export function buildRedGateBrief(input: RedGateBriefInput): string {
   }
   sections.push(`## Failing step\n\n\`${input.stepName}\``);
   sections.push(`## Log of the failing step\n\n\`\`\`\n${input.log.trimEnd()}\n\`\`\``);
-  sections.push(`## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``);
+  sections.push(`## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``, ...omittedSection(input.omitted));
   sections.push('Investigate the failure, then call finish.');
   return sections.join('\n\n');
 }
@@ -111,6 +121,27 @@ export interface AgentRunInput {
   brief: string;
   executor: ToolExecutor;
   budget: Budget;
+}
+
+/**
+ * Puts the conversation's cache breakpoint on the newest user message and
+ * takes it off the older ones. Each request then reads everything up to the
+ * previous turn from the cache instead of paying for the brief and every tool
+ * result again. With the two system breakpoints this uses three of the four
+ * the API allows.
+ */
+export function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
+  for (const message of messages) {
+    if (message.role !== 'user' || typeof message.content === 'string') continue;
+    for (const block of message.content) {
+      if ('cache_control' in block) delete block.cache_control;
+    }
+  }
+  const last = messages[messages.length - 1];
+  if (last?.role !== 'user') return;
+  if (typeof last.content === 'string') last.content = [{ type: 'text', text: last.content }];
+  const block = last.content[last.content.length - 1];
+  if (block && block.type !== 'thinking' && block.type !== 'redacted_thinking') block.cache_control = { type: 'ephemeral' };
 }
 
 export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
@@ -136,6 +167,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
     while (true) {
       budget.checkClock();
       turns += 1;
+      moveCacheBreakpoint(messages);
       const response = await client.messages.create(
         { model, max_tokens: MAX_OUTPUT_TOKENS, system, tools, messages },
         { timeout: Math.max(10_000, budget.remainingMs()) },
@@ -143,7 +175,8 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
       budget.chargeTokens({
         input: response.usage.input_tokens,
         output: response.usage.output_tokens,
-        cached: (response.usage.cache_read_input_tokens ?? 0) + (response.usage.cache_creation_input_tokens ?? 0),
+        cacheRead: response.usage.cache_read_input_tokens ?? 0,
+        cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
       });
       messages.push({ role: 'assistant', content: response.content });
 
