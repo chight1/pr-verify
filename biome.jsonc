@@ -7,7 +7,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "style": {
         // With noUncheckedIndexedAccess on, `!` after a bounds-checked index or
         // a regex group that always captures is how the code says "present".
