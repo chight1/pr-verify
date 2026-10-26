@@ -8,7 +8,7 @@ describe('dropNoise', () => {
   const section = (p: string) => `diff --git a/${p} b/${p}\nindex 1..2 100644\n--- a/${p}\n+++ b/${p}\n@@ -1,1 +1,1 @@\n-a\n+b`;
 
   it('drops lockfiles, minified files, source maps and generated files, and names them', () => {
-    const text = ['src/a.ts', 'package-lock.json', 'web/app.min.js', 'web/app.js.map', 'api/client.ts', 'src/b.ts'].map(section).join('\n') + '\n';
+    const text = ['src/a.ts', 'package-lock.json', 'web/app.min.js', 'web/app.js.map', 'api/client.ts', 'src/b.ts'].map((p) => `${section(p)}\n`).join('');
     const diff = dropNoise(text, (p) => p === 'api/client.ts');
     expect(parseDiff(diff.text).map((f) => [f.path, f.added, f.removed])).toEqual([
       ['src/a.ts', 1, 1],

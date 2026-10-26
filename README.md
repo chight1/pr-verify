@@ -99,6 +99,7 @@ Work on branches with pull requests, even solo. Nothing here triggers on a push 
 ```
 npm install
 npm test          # unit tests (vitest)
+npm run lint      # Biome, lint rules only
 npm run build     # type-check and bundle to dist/index.js with ncc
 ```
 

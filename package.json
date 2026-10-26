@@ -12,7 +12,7 @@
     "build": "tsc -p tsconfig.build.json && ncc build build/main.js -o dist --minify --license licenses.txt && node scripts/normalize-dist.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src test",
+    "lint": "biome lint --error-on-warnings",
     "precision": "tsc -p tsconfig.build.json && node build/precision-cli.js"
   },
   "dependencies": {
@@ -23,6 +23,7 @@
     "@anthropic-ai/sdk": "^1.1.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.3",
     "@types/node": "^26.6.5",
     "@vercel/ncc": "^0.45.0",
     "typescript": "^7.0.2",

@@ -52,6 +52,8 @@ export interface ExecutionResult {
 
 class ToolInputError extends Error {}
 
+function expectString(input: Record<string, unknown>, key: string): string;
+function expectString(input: Record<string, unknown>, key: string, optional: true): string | undefined;
 function expectString(input: Record<string, unknown>, key: string, optional = false): string | undefined {
   const value = input[key];
   if (value === undefined || value === null) {
@@ -62,6 +64,8 @@ function expectString(input: Record<string, unknown>, key: string, optional = fa
   return value;
 }
 
+function expectInteger(input: Record<string, unknown>, key: string): number;
+function expectInteger(input: Record<string, unknown>, key: string, optional: true): number | undefined;
 function expectInteger(input: Record<string, unknown>, key: string, optional = false): number | undefined {
   const value = input[key];
   if (value === undefined || value === null) {
@@ -270,7 +274,7 @@ export class ToolExecutor {
   }
 
   private async readFile(input: Record<string, unknown>) {
-    const relative = this.resolveTracked(expectString(input, 'path')!);
+    const relative = this.resolveTracked(expectString(input, 'path'));
     const start = expectInteger(input, 'start_line', true) ?? 1;
     const requestedEnd = expectInteger(input, 'end_line', true);
     if (start < 1) throw new ToolInputError('"start_line" must be at least 1');
@@ -323,10 +327,10 @@ export class ToolExecutor {
   }
 
   private async proposePatch(input: Record<string, unknown>) {
-    const kind = expectString(input, 'kind')!;
+    const kind = expectString(input, 'kind');
     if (kind !== 'test' && kind !== 'fix') throw new ToolInputError('"kind" must be "test" or "fix"');
-    const description = expectString(input, 'description')!;
-    const sent = expectString(input, 'diff')!;
+    const description = expectString(input, 'description');
+    const sent = expectString(input, 'diff');
     // Policy, apply and the posted comment all use the recounted patch; previews show what was sent.
     const diff = recountHunks(sent);
     const baseOnRaw = input['base_on'];
@@ -387,9 +391,9 @@ export class ToolExecutor {
       return { mode: 'review', findings };
     }
 
-    const verdict = expectString(input, 'verdict')!;
+    const verdict = expectString(input, 'verdict');
     if (!VERDICTS.has(verdict)) throw new ToolInputError('"verdict" must be fix, diagnosis or abstain');
-    const summary = expectString(input, 'summary')!;
+    const summary = expectString(input, 'summary');
     const citations = Array.isArray(input['citations']) ? input['citations'].map(String) : [];
     const fixPatch = expectInteger(input, 'fix_patch', true);
     if (verdict === 'fix' && fixPatch === undefined) {
@@ -410,12 +414,12 @@ export class ToolExecutor {
   private parseFinding(item: unknown, index: number): ProposedFinding {
     if (typeof item !== 'object' || item === null) throw new ToolInputError(`findings[${index}] must be an object`);
     const f = item as Record<string, unknown>;
-    const category = expectString(f, 'category')!;
+    const category = expectString(f, 'category');
     if (!CATEGORIES.has(category)) throw new ToolInputError(`findings[${index}].category is invalid`);
-    const confidence = expectString(f, 'confidence')!;
+    const confidence = expectString(f, 'confidence');
     if (!CONFIDENCES.has(confidence)) throw new ToolInputError(`findings[${index}].confidence is invalid`);
-    const file = this.resolveTracked(expectString(f, 'file')!);
-    const line = expectInteger(f, 'line')!;
+    const file = this.resolveTracked(expectString(f, 'file'));
+    const line = expectInteger(f, 'line');
     if (line < 1) throw new ToolInputError(`findings[${index}].line must be at least 1`);
     const testPatch = expectInteger(f, 'test_patch', true);
     const fixPatch = expectInteger(f, 'fix_patch', true);
@@ -429,8 +433,8 @@ export class ToolExecutor {
       confidence: confidence as ProposedFinding['confidence'],
       file,
       line,
-      title: clipLines(expectString(f, 'title')!, 1),
-      explanation: clipLines(expectString(f, 'explanation')!, 4),
+      title: clipLines(expectString(f, 'title'), 1),
+      explanation: clipLines(expectString(f, 'explanation'), 4),
       ...(testPatch !== undefined ? { testPatch } : {}),
       ...(fixPatch !== undefined ? { fixPatch } : {}),
     };

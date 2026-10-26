@@ -5,7 +5,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { Budget, BudgetExceeded, type BudgetName } from './budget.js';
+import { type Budget, BudgetExceeded, type BudgetName } from './budget.js';
 import type { FinishPayload, ToolExecutor } from './tools.js';
 import { toolDefinitions } from './tools.js';
 import type { Mode, Outcome, PriorFinding } from './types.js';

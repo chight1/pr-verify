@@ -82,8 +82,8 @@ describe('checkPatchPolicy', () => {
     const symlink = `diff --git a/src/link b/src/link\nnew file mode 120000\nindex 0..1\n--- /dev/null\n+++ b/src/link\n@@ -0,0 +1 @@\n+/etc/passwd\n`;
     expect(checkPatchPolicy(symlink, 'fix', LIMITS).violations[0]).toMatch(/symlinks/);
 
-    const escape = patch('../outside.ts', `@@ -1,1 +1,1 @@\n-a\n+b\n`);
-    expect(checkPatchPolicy(escape, 'fix', LIMITS).violations[0]).toMatch(/outside the repository/);
+    const outside = patch('../outside.ts', `@@ -1,1 +1,1 @@\n-a\n+b\n`);
+    expect(checkPatchPolicy(outside, 'fix', LIMITS).violations[0]).toMatch(/outside the repository/);
   });
 
   it('enforces the size limits', () => {

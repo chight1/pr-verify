@@ -1,0 +1,23 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": { "includes": ["src/**", "test/**", "scripts/**"] },
+  // Lint only. Formatting is a separate decision and would rewrite every file.
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        // With noUncheckedIndexedAccess on, `!` after a bounds-checked index or
+        // a regex group that always captures is how the code says "present".
+        "noNonNullAssertion": "off"
+      },
+      "complexity": {
+        // Keys of index-signature types (process.env, tool input) are read with
+        // brackets, so a lookup that can miss looks like one.
+        "useLiteralKeys": "off"
+      }
+    }
+  }
+}
