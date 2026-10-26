@@ -1,6 +1,6 @@
 # PR Verify
 
-A pull-request pipeline in two stages. The **gate** is plain CI: install, build, test, audit, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
+A pull-request pipeline in two stages. The **gate** is plain CI: install, lint, build, test, audit, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
 
 The review is advisory. A person decides what to do with it.
 
@@ -33,7 +33,7 @@ Every run writes a JSON record and uploads it as a workflow artifact (30 days): 
 
 ## When the gate is red
 
-The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Build failures get a diagnosis only, since no green suite can verify a build fix.
+The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Build and lint failures get a diagnosis only, since no green suite can verify those fixes.
 
 ## Budgets
 
@@ -61,6 +61,10 @@ The conversation is cached turn by turn, so each request pays full price only fo
 ## Large pull requests
 
 Lockfiles, minified files, source maps and files `.gitattributes` marks `linguist-generated` are left out of the diff the agent sees; the brief names them so the agent knows they changed. If what is left would take more than a quarter of the token budget, the review is skipped before any API call and one comment says so and asks for smaller pull requests. It declines rather than fails: the gate still decides the merge. The comment is removed once a later push fits.
+
+## Linting
+
+The gate lints with a tool picked from `runtime`, so a project needs no setup: `ruff check` for Python, `go vet` for Go, and for Node the project's own `npm run lint` if it has one, otherwise Biome's recommended rules. `lint-command` replaces the default and `lint: false` turns it off. The default linters are pinned to a version, like the runner image.
 
 ## Runner image
 

@@ -415,7 +415,8 @@ async function redGateMode(stage: Stage): Promise<void> {
 
   const step = failing.stepName.toLowerCase();
   const isTestStep = step.includes('test');
-  const isBuildStep = step.includes('build');
+  // A green suite says nothing about whether a build or lint fix works.
+  const diagnosisOnly = step.includes('build') || step.includes('lint');
   const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs);
 
   if (isTestStep) {
@@ -491,10 +492,10 @@ async function redGateMode(stage: Stage): Promise<void> {
   let fixPatch = result.fixPatch !== undefined ? executor.patches.find((p) => p.id === result.fixPatch) : undefined;
   let note = '';
 
-  if (verdict === 'fix' && isBuildStep && !isTestStep) {
+  if (verdict === 'fix' && diagnosisOnly && !isTestStep) {
     verdict = 'diagnosis';
     fixPatch = undefined;
-    note = 'A fix was proposed but build failures are diagnosed only, since no green suite can verify them.';
+    note = 'A fix was proposed but build and lint failures are diagnosed only, since no green suite can verify them.';
   }
   if (verdict === 'fix' && fixPatch) {
     const verification = await verifyRedGateFix(tree, fixPatch);
