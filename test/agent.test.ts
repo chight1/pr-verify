@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type Anthropic from '@anthropic-ai/sdk';
-import { buildRedGateBrief, buildReviewBrief, runAgent } from '../src/agent.js';
+import { buildRedGateBrief, buildReviewBrief, runAgent, stoppedOutcome } from '../src/agent.js';
 import { Budget } from '../src/budget.js';
 import type { ToolExecutor } from '../src/tools.js';
 
@@ -133,6 +133,16 @@ describe('runAgent', () => {
     const client = { messages: { create: vi.fn(async () => { throw new Error('401'); }) } } as unknown as Anthropic;
     const { executor } = fakeExecutor('finish');
     await expect(runAgent({ client, model: 'm', mode: 'review', repositoryMap: '', brief: 'b', executor, budget: budget() })).rejects.toThrow('401');
+  });
+});
+
+describe('stoppedOutcome', () => {
+  const stopped = { finished: null, turns: 1 };
+
+  it('names a refusal, which fails the job, apart from a plain abstain', () => {
+    expect(stoppedOutcome({ ...stopped, budgetTripped: null, stopReason: 'refusal' })).toBe('refused');
+    expect(stoppedOutcome({ ...stopped, budgetTripped: null, stopReason: 'no_finish' })).toBe('abstain');
+    expect(stoppedOutcome({ ...stopped, budgetTripped: 'tokens', stopReason: null })).toBe('budget');
   });
 });
 

@@ -8,7 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Budget, BudgetExceeded, type BudgetName } from './budget.js';
 import type { FinishPayload, ToolExecutor } from './tools.js';
 import { toolDefinitions } from './tools.js';
-import type { Mode, PriorFinding } from './types.js';
+import type { Mode, Outcome, PriorFinding } from './types.js';
 
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
 const MAX_OUTPUT_TOKENS = 16_000;
@@ -111,6 +111,12 @@ export interface AgentOutcome {
   /** Why the loop ended when it ended without finish and without a budget. */
   stopReason: 'refusal' | 'max_tokens' | 'no_finish' | 'context_window' | null;
   turns: number;
+}
+
+/** The run outcome when the agent stopped without calling finish. A refusal is its own outcome so the job can fail on it. */
+export function stoppedOutcome(outcome: AgentOutcome): Outcome {
+  if (outcome.budgetTripped) return 'budget';
+  return outcome.stopReason === 'refusal' ? 'refused' : 'abstain';
 }
 
 export interface AgentRunInput {

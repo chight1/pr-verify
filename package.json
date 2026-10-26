@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.build.json && ncc build build/main.js -o dist --minify --license licenses.txt && node scripts/normalize-dist.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "lint": "eslint src test"
+    "lint": "eslint src test",
+    "precision": "tsc -p tsconfig.build.json && node build/precision-cli.js"
   },
   "dependencies": {
     "@actions/artifact": "^6.3.1",

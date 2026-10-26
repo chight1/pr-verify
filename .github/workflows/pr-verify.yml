@@ -98,7 +98,7 @@ jobs:
   # Not a required check, and nothing needs it: a red canary never blocks a
   # merge or starts an investigation. It says the pin is not safe to move yet.
   canary:
-    name: gate (next)
+    name: 'canary: ubuntu-latest (non-blocking)'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

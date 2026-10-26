@@ -80,6 +80,7 @@ export type Outcome =
   | 'abstain'
   | 'budget'
   | 'too-large'
+  | 'refused'
   | 'error';
 
 export interface PullRequestRef {

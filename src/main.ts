@@ -14,6 +14,7 @@ import {
   DEFAULT_MODEL,
   runAgent,
   type AgentOutcome,
+  stoppedOutcome,
 } from './agent.js';
 import { Budget, diffTokenLimit, estimateTokens, type BudgetLimits } from './budget.js';
 import {
@@ -239,7 +240,7 @@ async function reviewMode(stage: Stage): Promise<void> {
   recordAgentRun(record, executor, budget, outcome);
 
   if (outcome.finished?.mode !== 'review') {
-    record.outcome = outcome.budgetTripped ? 'budget' : 'abstain';
+    record.outcome = stoppedOutcome(outcome);
     await tree.reset();
     await core.summary
       .addRaw(`PR Verify: no review posted (${outcome.budgetTripped ? `budget: ${outcome.budgetTripped}` : outcome.stopReason}).`)
@@ -480,7 +481,7 @@ async function redGateMode(stage: Stage): Promise<void> {
   recordAgentRun(record, executor, budget, outcome);
 
   if (outcome.finished?.mode !== 'red-gate') {
-    record.outcome = outcome.budgetTripped ? 'budget' : 'abstain';
+    record.outcome = stoppedOutcome(outcome);
     await tree.reset();
     return;
   }
@@ -586,6 +587,9 @@ async function run(): Promise<void> {
     }
   }
   core.info(`PR Verify finished: ${outcome}`);
+  if (outcome === 'refused') {
+    core.setFailed('API refusal: the model declined to work on this pull request. Nothing was posted; the run record has the trail.');
+  }
 }
 
 run().catch((error: unknown) => {

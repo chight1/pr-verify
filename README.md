@@ -29,7 +29,7 @@ A finding whose test does not fail on the clean commit is downgraded to unverifi
 
 On a later push, the harness re-runs each open verified finding's test against the new commit, up to three per push. If it passes, the finding is reported resolved, wherever the fix landed. If it still fails, the finding stays open, even if its line was edited. A finding without a test, or whose test no longer applies, counts as resolved when the line it pointed at changes. Only comments posted by the action's own account are read back, since a finding's test gets run.
 
-Every run writes a JSON record and uploads it as a workflow artifact (30 days): context sizes, the full tool-call trail, each finding and how it verified, token usage, wall time, and which budget tripped if one did. The record is the evidence behind every comment. Finding accuracy is measured by you: a thumbs-down reaction on an inline comment marks it wrong.
+Every run writes a JSON record and uploads it as a workflow artifact (30 days): context sizes, the full tool-call trail, each finding and how it verified, token usage, wall time, and which budget tripped if one did. The record is the evidence behind every comment. Finding accuracy is measured by you: a thumbs-down reaction on an inline comment marks it wrong, and `npm run precision -- owner/repo` (with `GITHUB_TOKEN` set) counts those per category, verified and unverified apart.
 
 ## When the gate is red
 
@@ -54,6 +54,8 @@ Every one is an action input with a default.
 
 When a budget trips, the run ends and names the budget in the record. Nothing unverified is posted.
 
+If the model refuses, the review job fails with an "API refusal" annotation and nothing is posted. The review is never a required check, so a refusal does not block the merge, but it does not pass for a clean run either.
+
 The conversation is cached turn by turn, so each request pays full price only for what is new since the last one.
 
 ## Large pull requests
@@ -62,14 +64,14 @@ Lockfiles, minified files, source maps and files `.gitattributes` marks `linguis
 
 ## Runner image
 
-The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes red only when the code changes. A third job, `pr-verify / gate (next)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
+The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes red only when the code changes. A third job, `pr-verify / canary: ubuntu-latest (non-blocking)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
 
 ## Attaching it to a project
 
 1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present. Put model calls behind an interface and swap in a fake for tests.
 2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`.
 3. Copy the matching file from `templates/` to `.github/workflows/pr-verify.yml` and fill in the commands.
-4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and `pr-verify / gate (next)` optional; they never block.
+4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and the canary optional; they never block.
 5. Optionally add a `REVIEW.md` at the repository root (8 KB cap) saying what matters in this project: invariants, areas to scrutinize, things to ignore. It is read into the review brief verbatim.
 
 Work on branches with pull requests, even solo. Nothing here triggers on a push to the default branch.
@@ -88,6 +90,7 @@ Work on branches with pull requests, even solo. Nothing here triggers on a push 
 | `src/review.ts` | Posting policy, line-to-diff mapping, markers, prior-finding resolution. |
 | `src/record.ts` | The run record and artifact upload. |
 | `src/budget.ts` | Token, time, call and finding counters. |
+| `src/precision.ts` | Thumbs-down counts per category, run locally with `npm run precision`. |
 | `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review. |
 | `templates/` | The one-file workflow a project copies, per runtime. |
 
