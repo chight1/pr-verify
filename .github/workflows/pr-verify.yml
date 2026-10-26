@@ -57,25 +57,25 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node
         if: inputs.runtime == 'node'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.runtime-version }}
           cache: npm
 
       - name: Set up Python
         if: inputs.runtime == 'python'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.runtime-version }}
           cache: pip
 
       - name: Set up Go
         if: inputs.runtime == 'go'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.runtime-version }}
 
@@ -111,7 +111,7 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history: the action diffs against the merge base and against
           # the commits earlier findings were posted on.
@@ -120,21 +120,21 @@ jobs:
 
       - name: Set up Node
         if: inputs.runtime == 'node'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.runtime-version }}
           cache: npm
 
       - name: Set up Python
         if: inputs.runtime == 'python'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.runtime-version }}
           cache: pip
 
       - name: Set up Go
         if: inputs.runtime == 'go'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.runtime-version }}
 
