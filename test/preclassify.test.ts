@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { preclassify } from '../src/preclassify.js';
+import { preclassify, scanFailure } from '../src/preclassify.js';
 
 describe('preclassify', () => {
   it.each([
@@ -27,5 +27,14 @@ describe('preclassify', () => {
 
   it('leaves a compile error for the agent', () => {
     expect(preclassify("src/a.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.")).toBeNull();
+  });
+});
+
+describe('scanFailure', () => {
+  it('recognises the two scanner steps and nothing else', () => {
+    expect(scanFailure('security scan')).toMatch(/^Trivy found/);
+    expect(scanFailure('install security scanner')).toMatch(/checksum/);
+    expect(scanFailure('test')).toBeNull();
+    expect(scanFailure('lint')).toBeNull();
   });
 });

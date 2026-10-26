@@ -1,6 +1,6 @@
 # PR Verify
 
-A pull-request pipeline in two stages. The **gate** is plain CI: install, lint, build, test, audit, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
+A pull-request pipeline in two stages. The **gate** is plain CI: install, lint, build, test, audit, security scan, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
 
 The review is advisory. A person decides what to do with it.
 
@@ -65,6 +65,10 @@ Lockfiles, minified files, source maps and files `.gitattributes` marks `linguis
 ## Linting
 
 The gate lints with a tool picked from `runtime`, so a project needs no setup: `ruff check` for Python, `go vet` for Go, and for Node the project's own `npm run lint` if it has one, otherwise Biome's recommended rules. `lint-command` replaces the default and `lint: false` turns it off. The default linters are pinned to a version, like the runner image.
+
+## Security scan
+
+Every gate ends with a Trivy filesystem scan for known vulnerabilities in dependencies, committed secrets and misconfigurations. By default it is strict and fails on any finding at any severity; `security-scan: loose` fails only on HIGH and CRITICAL. There is no ignore file: a finding is fixed, not accepted. Trivy is installed from a pinned release and checked against its SHA-256, not through an action. When the scan fails, the review agent does not run, since it cannot run the scanner to verify a fix; one comment points at the step log.
 
 ## Runner image
 

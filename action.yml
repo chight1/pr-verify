@@ -81,7 +81,7 @@ inputs:
 outputs:
   verdict:
     description: >-
-      Outcome of the run: clean, findings, infra, flaky, fix, diagnosis, abstain, budget, too-large, refused or error.
+      Outcome of the run: clean, findings, infra, flaky, fix, diagnosis, abstain, budget, too-large, refused, scan or error.
 
 runs:
   using: node24

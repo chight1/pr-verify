@@ -28,7 +28,7 @@ import {
   type PullRequestDiff,
 } from './context.js';
 import { parseDiff } from './diff.js';
-import { preclassify } from './preclassify.js';
+import { preclassify, scanFailure } from './preclassify.js';
 import { emptyRecord, uploadRecord, writeRecord, type FindingRecord, type RunRecord } from './record.js';
 import {
   buildReview,
@@ -409,6 +409,18 @@ async function redGateMode(stage: Stage): Promise<void> {
       pr,
       commentKey,
       `### PR Verify: gate failed at \`${failing.stepName}\`\n\nThis looks like an infrastructure failure (${infra.label}), not the change:\n\n\`\`\`\n${infra.evidence}\n\`\`\`\n\nRe-run the job. [Run record](${stage.runUrl})`,
+    );
+    return;
+  }
+
+  const scan = scanFailure(failing.stepName);
+  if (scan) {
+    record.outcome = 'scan';
+    record.postedId = await upsertComment(
+      octokit,
+      pr,
+      commentKey,
+      `### PR Verify: gate failed at \`${failing.stepName}\`\n\n${scan} Not investigated: the agent cannot run the scanner, so it could not verify a fix. [Run record](${stage.runUrl})`,
     );
     return;
   }

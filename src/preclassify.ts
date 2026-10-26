@@ -74,6 +74,16 @@ const RULES: Rule[] = [
   },
 ];
 
+/** Gate steps the agent never investigates: it cannot run the scanner, so it could not verify a fix. */
+export const SCAN_STEPS: Record<string, string> = {
+  'security scan': 'Trivy found a vulnerability, secret or misconfiguration; the step log lists each one.',
+  'install security scanner': 'The security scanner could not be downloaded or failed its checksum.',
+};
+
+export function scanFailure(stepName: string): string | null {
+  return SCAN_STEPS[stepName.toLowerCase()] ?? null;
+}
+
 export interface PreclassifyResult {
   label: InfraLabel;
   /** The log line that matched, for the record and the comment. */

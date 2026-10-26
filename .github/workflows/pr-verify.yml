@@ -40,6 +40,13 @@ on:
         required: false
         type: string
         default: ''
+      security-scan:
+        description: >-
+          strict fails on any vulnerability, secret or misconfiguration Trivy
+          finds; loose fails only on HIGH and CRITICAL.
+        required: false
+        type: string
+        default: strict
       audit-command:
         description: Dependency vulnerability scan. Leave empty to skip the audit step.
         required: false
@@ -128,6 +135,32 @@ jobs:
       - name: audit
         if: inputs.audit-command != ''
         run: ${{ inputs.audit-command }}
+
+      # Installed from a pinned, immutable release and checked against its
+      # hash rather than through trivy-action, whose tags were rewritten to
+      # steal CI secrets in March 2026.
+      - name: install security scanner
+        env:
+          TRIVY_VERSION: 0.76.1
+          TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+        run: |
+          archive="$RUNNER_TEMP/trivy.tar.gz"
+          curl -fsSL -o "$archive" "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "$TRIVY_SHA256  $archive" | sha256sum --check --strict
+          tar -xzf "$archive" -C "$RUNNER_TEMP" trivy
+
+      # node_modules is skipped because the lockfile already lists everything in it.
+      - name: security scan
+        env:
+          MODE: ${{ inputs.security-scan }}
+        run: |
+          case "$MODE" in
+            strict) severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL ;;
+            loose) severity=HIGH,CRITICAL ;;
+            *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
+          esac
+          "$RUNNER_TEMP/trivy" fs --scanners vuln,secret,misconfig --severity "$severity" \
+            --exit-code 1 --no-progress --skip-dirs node_modules .
 
   # Not a required check, and nothing needs it: a red canary never blocks a
   # merge or starts an investigation. It says the pin is not safe to move yet.

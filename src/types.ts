@@ -81,6 +81,7 @@ export type Outcome =
   | 'budget'
   | 'too-large'
   | 'refused'
+  | 'scan'
   | 'error';
 
 export interface PullRequestRef {
