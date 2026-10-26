@@ -1,9 +1,10 @@
 # Reusable workflow. A project calls this from its own one-file workflow;
 # see templates/ for the file to copy.
 #
-# Two jobs. "gate" is plain CI with no model in it and is what a required
+# Three jobs. "gate" is plain CI with no model in it and is what a required
 # status check is made of. "review" runs the action after the gate, in both
 # directions: a green gate gets a review, a red gate gets a diagnosis.
+# "canary" runs the gate's steps on the next runner image and decides nothing.
 
 name: pr-verify
 
@@ -52,11 +53,13 @@ on:
 jobs:
   gate:
     name: gate
-    runs-on: ubuntu-latest
+    # Pinned, so the required check changes only when the code does. The
+    # canary runs the same steps on the image ubuntu-latest points at next.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
-    steps:
+    steps: &gate-steps
       - uses: actions/checkout@v7
 
       - name: Set up Node
@@ -92,6 +95,16 @@ jobs:
         if: inputs.audit-command != ''
         run: ${{ inputs.audit-command }}
 
+  # Not a required check, and nothing needs it: a red canary never blocks a
+  # merge or starts an investigation. It says the pin is not safe to move yet.
+  canary:
+    name: gate (next)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps: *gate-steps
+
   review:
     name: review
     needs: gate
@@ -104,7 +117,7 @@ jobs:
       && inputs.review
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read

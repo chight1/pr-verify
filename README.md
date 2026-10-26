@@ -60,12 +60,16 @@ The conversation is cached turn by turn, so each request pays full price only fo
 
 Lockfiles, minified files, source maps and files `.gitattributes` marks `linguist-generated` are left out of the diff the agent sees; the brief names them so the agent knows they changed. If what is left would take more than a quarter of the token budget, the review is skipped before any API call and one comment says so and asks for smaller pull requests. It declines rather than fails: the gate still decides the merge. The comment is removed once a later push fits.
 
+## Runner image
+
+The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes red only when the code changes. A third job, `pr-verify / gate (next)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
+
 ## Attaching it to a project
 
 1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present. Put model calls behind an interface and swap in a fake for tests.
 2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`.
 3. Copy the matching file from `templates/` to `.github/workflows/pr-verify.yml` and fill in the commands.
-4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` optional; it never blocks.
+4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and `pr-verify / gate (next)` optional; they never block.
 5. Optionally add a `REVIEW.md` at the repository root (8 KB cap) saying what matters in this project: invariants, areas to scrutinize, things to ignore. It is read into the review brief verbatim.
 
 Work on branches with pull requests, even solo. Nothing here triggers on a push to the default branch.
@@ -84,7 +88,7 @@ Work on branches with pull requests, even solo. Nothing here triggers on a push 
 | `src/review.ts` | Posting policy, line-to-diff mapping, markers, prior-finding resolution. |
 | `src/record.ts` | The run record and artifact upload. |
 | `src/budget.ts` | Token, time, call and finding counters. |
-| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate job and the review job. |
+| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review. |
 | `templates/` | The one-file workflow a project copies, per runtime. |
 
 ## Developing
