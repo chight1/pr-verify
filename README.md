@@ -107,7 +107,18 @@ npm run lint      # Biome, lint rules only
 npm run build     # type-check and bundle to dist/index.js with ncc
 ```
 
-`dist/index.js` is committed on every release tag; that is what the `uses:` line in a consumer resolves to.
+`dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
+
+## Releases
+
+Each release is a permanent tag, `vMAJOR.MINOR.PATCH`, and a GitHub Release with notes. `v1` is a branch that never gets commits of its own: a release fast-forwards it to the newest 1.x tag, so `@v1` always runs the latest release and never a breaking one. A consumer that wants an exact version pins the tag or its commit SHA.
+
+```
+git tag v1.2.0 && git push origin v1.2.0
+git push origin v1.2.0^{commit}:refs/heads/v1
+```
+
+Breaking changes (a renamed or removed input, a default that turns a passing gate red) go out as a new major with its own branch.
 
 ## Non-goals for version 1
 
