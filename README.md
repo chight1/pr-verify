@@ -114,7 +114,7 @@ npm run build     # type-check and bundle to dist/index.js with ncc
 Each release is a permanent tag, `vMAJOR.MINOR.PATCH`, and a GitHub Release with notes. `v1` is a branch that never gets commits of its own: a release fast-forwards it to the newest 1.x tag, so `@v1` always runs the latest release and never a breaking one. A consumer that wants an exact version pins the tag or its commit SHA.
 
 ```
-git tag v1.2.0 && git push origin v1.2.0
+git tag -a v1.2.0 -m v1.2.0 && git push origin v1.2.0
 git push origin v1.2.0^{commit}:refs/heads/v1
 ```
 
