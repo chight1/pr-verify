@@ -69,12 +69,9 @@ on:
       ANTHROPIC_API_KEY:
         required: true
 
-# The static analysis run, defined once: the gate runs it, and the review job
-# hands it to the action, which runs it again to verify a proposed fix.
-# Semgrep 1.182.0 is pinned by image digest, so its content cannot change. The
-# rule packs come from Semgrep's registry when it runs, since their license
-# does not allow shipping copies of them. --disable-nosem ignores inline
-# suppressions, so a finding gets fixed.
+# Semgrep 1.182.0, defined once: the gate runs it, and the review job hands it
+# to the action to check a proposed fix. The rule packs come from Semgrep's
+# registry since their license does not allow shipping copies.
 env:
   SEMGREP_IMAGE: semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af
   SEMGREP_ARGS: >-
