@@ -22,6 +22,12 @@ jobs:
         env:
           # The sandbox tests check this never reaches a sandboxed command.
           PR_VERIFY_CANARY: canary-${{ github.run_id }}
+      # Same pinned image, Semgrep 1.182.0, as the gate in pr-verify.yml.
+      - name: static analysis
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
+            semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af \
+            semgrep scan --config p/javascript --config p/typescript --error --metrics off --disable-version-check
       # Same pinned release and hash as the gate in pr-verify.yml.
       - name: install security scanner
         env:

@@ -1,6 +1,6 @@
 # PR Verify
 
-A pull-request pipeline in two stages. The **gate** is plain CI: install, lint, build, test, audit, security scan, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
+A pull-request pipeline in two stages. The **gate** is plain CI: install, lint, static analysis, build, test, audit, security scan, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
 
 The review is advisory. A person decides what to do with it.
 
@@ -69,6 +69,10 @@ Lockfiles, minified files, source maps and files `.gitattributes` marks `linguis
 
 The gate lints with a tool picked from `runtime`, so a project needs no setup: `ruff check` for Python, `go vet` for Go, and for Node the project's own `npm run lint` if it has one, otherwise Biome's recommended rules. `lint-command` replaces the default and `lint: false` turns it off. The default linters are pinned to a version, like the runner image.
 
+## Static analysis
+
+After lint, the gate runs Semgrep with its maintained rules for the runtime (`p/python`, `p/golang`, or `p/javascript` and `p/typescript`), which follow untrusted input to a dangerous call such as a shell command, a query or a file path. `security-scan` sets its mode as well: strict fails on any finding, loose only on ERROR. The engine runs from an image pinned by digest, and the rules come from Semgrep's registry at run time, so a new rule can fail a gate the code passed before, the way a new advisory can for Trivy. There is no ignore file, and the agent does not investigate a failure.
+
 ## Security scan
 
 Every gate ends with a Trivy filesystem scan for known vulnerabilities in dependencies, committed secrets and misconfigurations. By default it is strict and fails on any finding at any severity; `security-scan: loose` fails only on HIGH and CRITICAL. There is no ignore file: a finding is fixed, not accepted. Trivy is installed from a pinned release and checked against its SHA-256, not through an action. When the scan fails, the review agent does not run, since it cannot run the scanner to verify a fix; one comment points at the step log.
@@ -122,8 +126,6 @@ npm run build     # type-check and bundle to dist/index.js with ncc
 ## Releases
 
 Each release is a permanent tag, `vMAJOR.MINOR.PATCH`, and a GitHub Release with notes. `v1` is a branch that never gets commits of its own: a release fast-forwards it to the newest 1.x tag, so `@v1` always runs the latest release and never a breaking one. A consumer that wants an exact version pins the tag or its commit SHA.
-
-Breaking changes (a renamed or removed input, a default that turns a passing gate red) go out as a new major with its own branch.
 
 ## Non-goals for version 1
 
