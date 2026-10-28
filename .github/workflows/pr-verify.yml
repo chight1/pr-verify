@@ -69,6 +69,21 @@ on:
       ANTHROPIC_API_KEY:
         required: true
 
+# The static analysis run, defined once: the gate runs it, and the review job
+# hands it to the action, which runs it again to verify a proposed fix.
+# Semgrep 1.182.0 is pinned by image digest, so its content cannot change. The
+# rule packs come from Semgrep's registry when it runs, since their license
+# does not allow shipping copies of them. --disable-nosem ignores inline
+# suppressions, so a finding gets fixed.
+env:
+  SEMGREP_IMAGE: semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af
+  SEMGREP_ARGS: >-
+    ${{ inputs.runtime == 'python' && '--config p/python'
+    || inputs.runtime == 'go' && '--config p/golang'
+    || '--config p/javascript --config p/typescript' }}
+    ${{ inputs.security-scan == 'loose' && '--severity ERROR' || '' }}
+    --disable-nosem
+
 jobs:
   gate:
     name: gate
@@ -130,27 +145,16 @@ jobs:
           esac
 
       # Lint finds smells; this follows untrusted input to a dangerous call.
-      # Semgrep 1.182.0, pinned by image digest so its content cannot change.
-      # The rule packs are fetched from Semgrep's registry when it runs, since
-      # their license does not allow shipping copies of them.
       - name: static analysis
         env:
           MODE: ${{ inputs.security-scan }}
-          RUNTIME: ${{ inputs.runtime }}
         run: |
-          case "$RUNTIME" in
-            python) packs="--config p/python" ;;
-            go) packs="--config p/golang" ;;
-            node) packs="--config p/javascript --config p/typescript" ;;
-          esac
           case "$MODE" in
-            strict) severity= ;;
-            loose) severity="--severity ERROR" ;;
+            strict | loose) ;;
             *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
           esac
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
-            semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af \
-            semgrep scan $packs $severity --error --metrics off --disable-version-check
+            "$SEMGREP_IMAGE" semgrep scan $SEMGREP_ARGS --error --metrics off --disable-version-check
 
       - name: build
         run: ${{ inputs.build-command }}
@@ -259,3 +263,5 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: ${{ inputs.model }}
           guidance-file: ${{ inputs.guidance-file }}
+          semgrep-image: ${{ env.SEMGREP_IMAGE }}
+          semgrep-args: ${{ env.SEMGREP_ARGS }}

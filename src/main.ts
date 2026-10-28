@@ -48,10 +48,13 @@ import type { Finding, GateResult, Mode, Outcome, Patch, PriorFinding, ProposedF
 import {
   isTestPath,
   recheckDemonstration,
+  runStaticAnalysis,
   ScratchTree,
   verifyDemonstration,
   verifyRedGateFix,
+  verifyStaticAnalysisFix,
   type PatchLimits,
+  type StaticAnalysis,
 } from './verify.js';
 
 interface Inputs {
@@ -67,6 +70,8 @@ interface Inputs {
   limits: BudgetLimits;
   patchLimits: PatchLimits;
   testTimeoutMs: number;
+  /** The gate's Semgrep run, when the workflow passes it, so a static analysis fix can be verified. */
+  staticAnalysis: StaticAnalysis | null;
 }
 
 const GATE_RESULTS = new Set<GateResult>(['success', 'failure', 'cancelled', 'skipped']);
@@ -83,6 +88,7 @@ function readInputs(): Inputs {
   if (!GATE_RESULTS.has(gateResult)) throw new Error(`input "gate-result" must be one of ${[...GATE_RESULTS].join(', ')}`);
   const anthropicApiKey = core.getInput('anthropic-api-key', { required: true });
   core.setSecret(anthropicApiKey);
+  const semgrepImage = core.getInput('semgrep-image');
   return {
     gateResult,
     gateJobName: core.getInput('gate-job-name') || 'gate',
@@ -104,6 +110,7 @@ function readInputs(): Inputs {
     },
     patchLimits: { maxLines: integerInput('max-patch-lines'), maxFiles: integerInput('max-patch-files') },
     testTimeoutMs: integerInput('test-timeout-minutes') * 60_000,
+    staticAnalysis: semgrepImage ? { image: semgrepImage, args: core.getInput('semgrep-args') } : null,
   };
 }
 
@@ -414,7 +421,10 @@ async function redGateMode(stage: Stage): Promise<void> {
     return;
   }
 
-  const scan = scanFailure(failing.stepName);
+  const step = failing.stepName.toLowerCase();
+  // With the gate's Semgrep run to repeat, a static analysis failure can get a verified fix like a test failure.
+  const staticAnalysis = step === 'static analysis' ? inputs.staticAnalysis : null;
+  const scan = staticAnalysis ? null : scanFailure(failing.stepName);
   if (scan) {
     record.outcome = 'scan';
     record.postedId = await upsertComment(
@@ -426,7 +436,6 @@ async function redGateMode(stage: Stage): Promise<void> {
     return;
   }
 
-  const step = failing.stepName.toLowerCase();
   const isTestStep = step.includes('test');
   // A green suite says nothing about whether a build or lint fix works.
   const diagnosisOnly = step.includes('build') || step.includes('lint');
@@ -511,13 +520,18 @@ async function redGateMode(stage: Stage): Promise<void> {
     note = 'A fix was proposed but build and lint failures are diagnosed only, since no green suite can verify them.';
   }
   if (verdict === 'fix' && fixPatch) {
-    const verification = await verifyRedGateFix(tree, fixPatch);
+    const scanned = staticAnalysis
+      ? await verifyStaticAnalysisFix(tree, fixPatch, () => countStaticAnalysisFindings(tree, staticAnalysis, inputs.testTimeoutMs))
+      : null;
+    const verification = scanned ?? (await verifyRedGateFix(tree, fixPatch));
     record.verification.fixRuns += verification.runs;
     record.verification.durationMs += verification.durationMs;
     if (!verification.fixPasses) {
       verdict = 'diagnosis';
       fixPatch = undefined;
-      note = 'The proposed fix did not make the suite pass when re-run by the harness, so only the diagnosis is shown.';
+      note = scanned
+        ? staticAnalysisNote(scanned.findingsLeft)
+        : 'The proposed fix did not make the suite pass when re-run by the harness, so only the diagnosis is shown.';
     }
   }
   await tree.reset();
@@ -527,10 +541,13 @@ async function redGateMode(stage: Stage): Promise<void> {
     return;
   }
 
+  const verified = staticAnalysis
+    ? '**Verified fix.** Semgrep finds nothing and the suite passes with the patch below applied.'
+    : '**Verified fix.** The suite passes with the patch below applied.';
   const lines = [
     `### PR Verify: gate failed at \`${failing.stepName}\``,
     '',
-    verdict === 'fix' ? '**Verified fix.** The suite passes with the patch below applied.' : '**Diagnosis.**',
+    verdict === 'fix' ? verified : '**Diagnosis.**',
     '',
     result.summary,
   ];
@@ -545,6 +562,21 @@ async function redGateMode(stage: Stage): Promise<void> {
 
   record.postedId = await upsertComment(octokit, pr, commentKey, scrubber.scrub(lines.join('\n')));
   record.outcome = verdict;
+}
+
+async function countStaticAnalysisFindings(tree: ScratchTree, analysis: StaticAnalysis, timeoutMs: number): Promise<number | null> {
+  const result = await runStaticAnalysis(tree, analysis, timeoutMs);
+  if (result.findings === null) core.warning(`Semgrep failed on the proposed fix:\n${result.output}`);
+  return result.findings;
+}
+
+/** Why a static analysis fix did not verify, for the comment. */
+function staticAnalysisNote(findingsLeft: number | null): string {
+  if (findingsLeft === null) return 'Semgrep could not be re-run with the proposed fix applied, so only the diagnosis is shown.';
+  if (findingsLeft > 0) {
+    return `Semgrep still reported ${findingsLeft} finding(s) with the proposed fix applied, so only the diagnosis is shown.`;
+  }
+  return 'Semgrep found nothing with the proposed fix applied, but the suite did not pass, so only the diagnosis is shown.';
 }
 
 async function run(): Promise<void> {

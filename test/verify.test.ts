@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { checkPatchPolicy, isDependencyFile, isTestPath, recheckDemonstration, ScratchTree } from '../src/verify.js';
+import {
+  checkPatchPolicy,
+  isDependencyFile,
+  isTestPath,
+  recheckDemonstration,
+  runStaticAnalysis,
+  ScratchTree,
+  verifyStaticAnalysisFix,
+} from '../src/verify.js';
 
 const LIMITS = { maxLines: 200, maxFiles: 6 };
 
@@ -95,29 +103,34 @@ describe('checkPatchPolicy', () => {
     expect(checkPatchPolicy(many, 'fix', { maxLines: 200, maxFiles: 2 }).violations).toContain('patch touches 3 files; the limit is 2');
   });
 
+  it('rejects a patch that edits a scanner ignore file', () => {
+    const ignore = patch('.semgrepignore', '@@ -0,0 +1,1 @@\n+src/\n', { newFile: true });
+    expect(checkPatchPolicy(ignore, 'fix', LIMITS).violations[0]).toMatch(/scanner ignore files are off limits/);
+  });
+
   it('rejects an empty patch', () => {
     expect(checkPatchPolicy('', 'fix', LIMITS).violations).toContain('patch contains no file changes');
   });
 });
 
+// A one-file project for the harness runs whose suite runs every file under tests/; a test fails by throwing.
+const RUNNER = "for (const f of require('fs').readdirSync('tests')) require('./tests/' + f);\n";
+const TEST = "if (require('../value.js') !== 2) throw new Error('value should be 2');\n";
+const TEST_PATCH = `diff --git a/tests/value.test.js b/tests/value.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/tests/value.test.js\n@@ -0,0 +1,1 @@\n+${TEST}`;
+
+function repoAt(value: number, extra: Record<string, string> = {}): ScratchTree {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'pr-verify-recheck-'));
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
+  mkdirSync(path.join(dir, 'tests'));
+  const files: Record<string, string> = { 'run.js': RUNNER, 'value.js': `module.exports = ${value};\n`, 'tests/keep.test.js': '\n', ...extra };
+  for (const [file, text] of Object.entries(files)) writeFileSync(path.join(dir, file), text);
+  git('init', '-q');
+  git('add', '-A');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-qm', 'head');
+  return new ScratchTree(dir, git('rev-parse', 'HEAD'), 'node run.js', 30_000);
+}
+
 describe('recheckDemonstration', () => {
-  // A one-file project whose suite runs every file under tests/; a test fails by throwing.
-  const RUNNER = "for (const f of require('fs').readdirSync('tests')) require('./tests/' + f);\n";
-  const TEST = "if (require('../value.js') !== 2) throw new Error('value should be 2');\n";
-  const TEST_PATCH = `diff --git a/tests/value.test.js b/tests/value.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/tests/value.test.js\n@@ -0,0 +1,1 @@\n+${TEST}`;
-
-  function repoAt(value: number, extra: Record<string, string> = {}): ScratchTree {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'pr-verify-recheck-'));
-    const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
-    mkdirSync(path.join(dir, 'tests'));
-    const files: Record<string, string> = { 'run.js': RUNNER, 'value.js': `module.exports = ${value};\n`, 'tests/keep.test.js': '\n', ...extra };
-    for (const [file, text] of Object.entries(files)) writeFileSync(path.join(dir, file), text);
-    git('init', '-q');
-    git('add', '-A');
-    git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-qm', 'head');
-    return new ScratchTree(dir, git('rev-parse', 'HEAD'), 'node run.js', 30_000);
-  }
-
   it('passes once the bug is fixed, wherever the fix landed', async () => {
     expect(await recheckDemonstration(repoAt(2), TEST_PATCH, LIMITS)).toMatchObject({ result: 'passes', runs: 1 });
   });
@@ -141,4 +154,54 @@ describe('recheckDemonstration', () => {
     const tree = repoAt(1);
     expect(await recheckDemonstration(tree, FIX_SRC, LIMITS)).toEqual({ result: 'unusable', runs: 0, durationMs: 0 });
   });
+});
+
+describe('verifyStaticAnalysisFix', () => {
+  const fixTo = (value: number) => ({
+    id: 1,
+    kind: 'fix' as const,
+    description: 'fix',
+    diff: `diff --git a/value.js b/value.js\n--- a/value.js\n+++ b/value.js\n@@ -1,1 +1,1 @@\n-module.exports = 1;\n+module.exports = ${value};\n`,
+  });
+
+  it('verifies a fix that clears every finding and keeps the suite passing', async () => {
+    const tree = repoAt(1, { 'tests/value.test.js': TEST });
+    expect(await verifyStaticAnalysisFix(tree, fixTo(2), async () => 0)).toMatchObject({ fixPasses: true, findingsLeft: 0, runs: 1 });
+  });
+
+  it('does not run the suite while findings are left', async () => {
+    const tree = repoAt(1, { 'tests/value.test.js': TEST });
+    expect(await verifyStaticAnalysisFix(tree, fixTo(2), async () => 2)).toMatchObject({ fixPasses: false, findingsLeft: 2, runs: 0 });
+  });
+
+  it('rejects a fix that clears the findings but breaks the suite, and leaves the tree clean', async () => {
+    const tree = repoAt(1, { 'tests/value.test.js': TEST });
+    expect(await verifyStaticAnalysisFix(tree, fixTo(3), async () => 0)).toMatchObject({ fixPasses: false, findingsLeft: 0, runs: 1 });
+    expect(execFileSync('git', ['status', '--porcelain'], { cwd: tree.root }).toString()).toBe('');
+  });
+
+  it('says nothing about findings when Semgrep failed or the fix did not apply', async () => {
+    const tree = repoAt(1);
+    expect(await verifyStaticAnalysisFix(tree, fixTo(2), async () => null)).toMatchObject({ fixPasses: false, findingsLeft: null });
+    expect(await verifyStaticAnalysisFix(repoAt(5), fixTo(2), async () => 0)).toMatchObject({ fixPasses: false, findingsLeft: null, runs: 0 });
+  });
+});
+
+// Real Semgrep, from the pinned image CI sets. A local rule keeps the test off the registry.
+describe.runIf(process.platform === 'linux' && process.env['SEMGREP_IMAGE'])('runStaticAnalysis', () => {
+  const RULES = 'rules:\n  - id: no-eval\n    languages: [javascript]\n    severity: ERROR\n    message: eval\n    pattern: eval($X)\n';
+  const analysis = { image: process.env['SEMGREP_IMAGE'] ?? '', args: '--config /src/rules.yml --disable-nosem' };
+
+  it('counts findings, including ones an inline nosemgrep comment would hide', async () => {
+    const tree = repoAt(1, { 'rules.yml': RULES, 'a.js': 'eval(process.argv[2]);\n// nosemgrep\neval(process.argv[3]);\n' });
+    expect(await runStaticAnalysis(tree, analysis, 120_000)).toMatchObject({ findings: 2 });
+  }, 180_000);
+
+  it('scans a file the fix added, which git does not track yet', async () => {
+    const tree = repoAt(1, { 'rules.yml': RULES });
+    const added = 'diff --git a/b.js b/b.js\nnew file mode 100644\n--- /dev/null\n+++ b/b.js\n@@ -0,0 +1,1 @@\n+eval(process.argv[2]);\n';
+    expect((await tree.apply(added)).applied).toBe(true);
+    expect(await runStaticAnalysis(tree, analysis, 120_000)).toMatchObject({ findings: 1 });
+    await tree.reset();
+  }, 180_000);
 });

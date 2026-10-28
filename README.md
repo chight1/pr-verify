@@ -12,7 +12,7 @@ These are enforced by the harness code in `src/`, not requested of the model.
 - Push, commit, or keep a patch anywhere. Patches exist only in the comment and in the runner's scratch tree, which is discarded with the machine.
 - Run on a pull request from a fork, or on a draft.
 - Let the code under test reach the job's secrets, the network, or anything that runs after it.
-- Edit anything under `.github`, or touch a lockfile or dependency manifest.
+- Edit anything under `.github`, or touch a lockfile, a dependency manifest or a scanner's ignore file.
 - Post a behavior claim it could not demonstrate without labelling it unverified, and never more than three unverified findings per review.
 - Run more than one review at a time on a PR. A new push cancels the stale run.
 - Say anything when it has nothing to say. A clean PR gets a green check and one line in the job summary, no review.
@@ -71,7 +71,7 @@ The gate lints with a tool picked from `runtime`, so a project needs no setup: `
 
 ## Static analysis
 
-After lint, the gate runs Semgrep with its maintained rules for the runtime (`p/python`, `p/golang`, or `p/javascript` and `p/typescript`), which follow untrusted input to a dangerous call such as a shell command, a query or a file path. `security-scan` sets its mode as well: strict fails on any finding, loose only on ERROR. The engine runs from an image pinned by digest, and the rules come from Semgrep's registry at run time, so a new rule can fail a gate the code passed before, the way a new advisory can for Trivy. There is no ignore file, and the agent does not investigate a failure.
+After lint, the gate runs Semgrep with its maintained rules for the runtime (`p/python`, `p/golang`, or `p/javascript` and `p/typescript`), which follow untrusted input to a dangerous call such as a shell command, a query or a file path. `security-scan` sets its mode as well: strict fails on any finding, loose only on ERROR. The engine runs from an image pinned by digest, and the rules come from Semgrep's registry at run time, so a new rule can fail a gate the code passed before, the way a new advisory can for Trivy. There is no ignore file, and inline `nosemgrep` comments are ignored. A failure is investigated like a failing test: when the agent proposes a fix, the harness re-runs Semgrep on it, outside the sandbox since Semgrep reads the code without running it, and the suite inside the sandbox, and calls the fix verified only when Semgrep finds nothing and the suite passes.
 
 ## Security scan
 
