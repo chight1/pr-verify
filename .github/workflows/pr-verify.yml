@@ -84,8 +84,7 @@ env:
 jobs:
   gate:
     name: gate
-    # Pinned, so the required check changes only when the code does. The
-    # canary runs the same steps on the image ubuntu-latest points at next.
+    # The canary runs the same steps on the image ubuntu-latest points at next.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -123,8 +122,7 @@ jobs:
         if: inputs.lint && inputs.lint-command != ''
         run: ${{ inputs.lint-command }}
 
-      # Defaults that need no config in the project. Versions are pinned so
-      # a linter release cannot turn the gate red on its own.
+      # Defaults that need no config in the project.
       - name: lint
         if: inputs.lint && inputs.lint-command == ''
         env:
