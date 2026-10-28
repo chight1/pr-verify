@@ -1,0 +1,22 @@
+# Actions are pinned by commit SHA, so their updates arrive here as pull
+# requests that go through CI like any other change. The cooldown skips a
+# release until it has been out for a week, long enough for a hijacked
+# version to be found and pulled.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      # Our own action, which the reusable workflow runs at the v1 branch.
+      - dependency-name: chight1/pr-verify
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

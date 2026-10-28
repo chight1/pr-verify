@@ -77,6 +77,8 @@ Every gate ends with a Trivy filesystem scan for known vulnerabilities in depend
 
 The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes red only when the code changes. A third job, `pr-verify / canary: ubuntu-latest (non-blocking)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
 
+Every action the workflows use is pinned to a commit SHA, not a tag, since a tag can be re-pointed by whoever controls its repository and the review job holds the Anthropic key. Dependabot proposes updates as pull requests once a release is a week old.
+
 ## Attaching it to a project
 
 1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present, and the tests without network access. Put model calls behind an interface and swap in a fake for tests.
