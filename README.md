@@ -82,7 +82,7 @@ The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes 
 4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and the canary optional; they never block.
 5. Optionally add a `REVIEW.md` at the repository root (8 KB cap) saying what matters in this project: invariants, areas to scrutinize, things to ignore. It is read into the review brief verbatim.
 
-Work on branches with pull requests, even solo. Nothing here triggers on a push to the default branch.
+Nothing here runs on a push to the default branch, only on pull requests.
 
 ## Repository layout
 
@@ -116,11 +116,6 @@ npm run build     # type-check and bundle to dist/index.js with ncc
 ## Releases
 
 Each release is a permanent tag, `vMAJOR.MINOR.PATCH`, and a GitHub Release with notes. `v1` is a branch that never gets commits of its own: a release fast-forwards it to the newest 1.x tag, so `@v1` always runs the latest release and never a breaking one. A consumer that wants an exact version pins the tag or its commit SHA.
-
-```
-git tag -a v1.2.0 -m v1.2.0 && git push origin v1.2.0
-git push origin v1.2.0^{commit}:refs/heads/v1
-```
 
 Breaking changes (a renamed or removed input, a default that turns a passing gate red) go out as a new major with its own branch.
 
