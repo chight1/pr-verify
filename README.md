@@ -11,6 +11,7 @@ These are enforced by the harness code in `src/`, not requested of the model.
 - Approve, request changes, or merge. Every review is posted with the comment event only.
 - Push, commit, or keep a patch anywhere. Patches exist only in the comment and in the runner's scratch tree, which is discarded with the machine.
 - Run on a pull request from a fork, or on a draft.
+- Let the code under test reach the job's secrets, the network, or anything that runs after it.
 - Edit anything under `.github`, or touch a lockfile or dependency manifest.
 - Post a behavior claim it could not demonstrate without labelling it unverified, and never more than three unverified findings per review.
 - Run more than one review at a time on a PR. A new push cancels the stale run.
@@ -24,6 +25,8 @@ The agent's own test runs are for investigation and decide nothing. When it call
 
 - A **bug** is verified when the test patch alone makes the suite fail.
 - A **fix** is verified when the test patch and fix patch together make the suite pass.
+
+Every test run is sandboxed, since the suite is code from the pull request running in the job that holds the Anthropic key. It gets its own network, process and mount namespaces: loopback only, no view of the action's process or environment, only toolchain variables passed in, and the runner's home, temp directories and `/run` replaced by empty ones. The working tree is mounted back with `.git` read-only, so a test cannot leave a hook or config that runs later outside. The command runs as the runner user with no supplementary groups and `no_new_privs`, which rules out sudo and Docker. Building the sandbox needs passwordless sudo, as on GitHub-hosted Ubuntu runners; where it cannot be built, the review fails instead of running tests without it.
 
 A finding whose test does not fail on the clean commit is downgraded to unverified and competes for the three unverified slots with every other undemonstrated claim. A fix that does not verify is left out of the comment and noted in the run record.
 
@@ -76,7 +79,7 @@ The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes 
 
 ## Attaching it to a project
 
-1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present. Put model calls behind an interface and swap in a fake for tests.
+1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present, and the tests without network access. Put model calls behind an interface and swap in a fake for tests.
 2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`.
 3. Copy the matching file from `templates/` to `.github/workflows/pr-verify.yml` and fill in the commands.
 4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and the canary optional; they never block.
@@ -95,6 +98,7 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/agent.ts` | The Messages API loop, both briefs, prompt caching. |
 | `src/tools.ts` | The four tools and their limits. |
 | `src/verify.ts` | Scratch-tree reset, patch policy, apply, harness test runs. |
+| `src/sandbox.ts` | The namespaces every test run executes in. |
 | `src/review.ts` | Posting policy, line-to-diff mapping, markers, prior-finding resolution. |
 | `src/record.ts` | The run record and artifact upload. |
 | `src/budget.ts` | Token, time, call and finding counters. |

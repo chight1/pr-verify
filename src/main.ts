@@ -42,6 +42,7 @@ import {
   upsertComment,
   type ReviewTrail,
 } from './review.js';
+import { Sandbox } from './sandbox.js';
 import { ToolExecutor } from './tools.js';
 import type { Finding, GateResult, Mode, Outcome, Patch, PriorFinding, ProposedFinding, PullRequestRef } from './types.js';
 import {
@@ -198,7 +199,7 @@ async function reviewMode(stage: Stage): Promise<void> {
     return;
   }
 
-  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs);
+  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs, await Sandbox.forRunner());
   const recheck = async (testPatch: string) => {
     const { result, runs, durationMs } = await recheckDemonstration(tree, testPatch, inputs.patchLimits);
     record.verification.recheckRuns += runs;
@@ -429,7 +430,7 @@ async function redGateMode(stage: Stage): Promise<void> {
   const isTestStep = step.includes('test');
   // A green suite says nothing about whether a build or lint fix works.
   const diagnosisOnly = step.includes('build') || step.includes('lint');
-  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs);
+  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs, await Sandbox.forRunner());
 
   if (isTestStep) {
     await tree.reset();

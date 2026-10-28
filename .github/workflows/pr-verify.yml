@@ -79,7 +79,10 @@ jobs:
     permissions:
       contents: read
     steps: &gate-steps
+      # No token left in .git/config for the project's code to read.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node
         if: inputs.runtime == 'node'
@@ -197,6 +200,8 @@ jobs:
           # the commits earlier findings were posted on.
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          # The suite runs in this checkout; it must not find a token in .git/config.
+          persist-credentials: false
 
       - name: Set up Node
         if: inputs.runtime == 'node'

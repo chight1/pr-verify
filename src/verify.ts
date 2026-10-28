@@ -10,6 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseDiff, totalChangedLines, type DiffFile } from './diff.js';
 import { git } from './context.js';
+import type { Sandbox } from './sandbox.js';
 import type { Patch, PatchKind } from './types.js';
 
 const TEST_DIR_SEGMENTS = new Set(['test', 'tests', '__tests__', 'spec', 'specs', 'testing']);
@@ -133,12 +134,16 @@ export interface CommandResult {
   timedOut: boolean;
 }
 
-/** Runs a shell command, kills it on timeout, and keeps only the last `tailBytes` of combined output. */
+/**
+ * Runs a shell command, kills it on timeout, and keeps only the last
+ * `tailBytes` of combined output. With a sandbox, the command runs inside it.
+ */
 export function runCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
   tailBytes: number,
+  sandbox: Sandbox | null = null,
 ): Promise<CommandResult> {
   return new Promise((resolve) => {
     const startedAt = Date.now();
@@ -147,8 +152,10 @@ export function runCommand(
     let timedOut = false;
 
     const shell = process.platform === 'win32' ? 'powershell' : 'bash';
-    const args = process.platform === 'win32' ? ['-NoProfile', '-Command', command] : ['-c', command];
-    const child = spawn(shell, args, { cwd, env: { ...process.env, CI: 'true' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const local = { file: shell, args: process.platform === 'win32' ? ['-NoProfile', '-Command', command] : ['-c', command] };
+    const { file, args } = sandbox ? sandbox.wrap(command, cwd, timeoutMs) : local;
+    const env = sandbox ? { PATH: process.env.PATH } : { ...process.env, CI: 'true' };
+    const child = spawn(file, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
 
     const keep = (chunk: Buffer) => {
       chunks.push(chunk);
@@ -160,13 +167,17 @@ export function runCommand(
     child.stdout.on('data', keep);
     child.stderr.on('data', keep);
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGKILL');
-    }, timeoutMs);
+    // A sandboxed command is killed by the sandbox, since this process cannot signal one started through sudo.
+    const timer = sandbox
+      ? null
+      : setTimeout(() => {
+          timedOut = true;
+          child.kill('SIGKILL');
+        }, timeoutMs);
 
     child.on('close', (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (sandbox && code !== 0 && Date.now() - startedAt >= timeoutMs) timedOut = true;
       const combined = Buffer.concat(chunks);
       const output =
         combined.byteLength > tailBytes
@@ -193,6 +204,7 @@ export class ScratchTree {
     private readonly headSha: string,
     private readonly testCommand: string,
     private readonly testTimeoutMs: number,
+    private readonly sandbox: Sandbox | null = null,
     private readonly outputTailBytes = 64 * 1024,
   ) {}
 
@@ -235,7 +247,7 @@ export class ScratchTree {
   }
 
   runTests(): Promise<CommandResult> {
-    return runCommand(this.testCommand, this.root, this.testTimeoutMs, this.outputTailBytes);
+    return runCommand(this.testCommand, this.root, this.testTimeoutMs, this.outputTailBytes, this.sandbox);
   }
 }
 
