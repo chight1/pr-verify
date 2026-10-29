@@ -78,6 +78,7 @@ const RULES: Rule[] = [
 export const SCAN_STEPS: Record<string, string> = {
   'security scan': 'Trivy found a vulnerability, secret or misconfiguration; the step log lists each one.',
   'install security scanner': 'The security scanner could not be downloaded or failed its checksum.',
+  'static analysis': 'Semgrep found a security problem in the code; the step log lists each one.',
 };
 
 export function scanFailure(stepName: string): string | null {

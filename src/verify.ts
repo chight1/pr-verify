@@ -5,7 +5,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { parseDiff, totalChangedLines, type DiffFile } from './diff.js';
@@ -61,6 +61,13 @@ export function isDependencyFile(filePath: string): boolean {
   return DEPENDENCY_FILES.some((p) => p.test(base));
 }
 
+/** A patch that silences a scanner instead of fixing what it found is not a fix. */
+const SCANNER_IGNORE_FILES = new Set(['.semgrepignore', '.trivyignore', '.trivyignore.yaml']);
+
+export function isScannerIgnoreFile(filePath: string): boolean {
+  return SCANNER_IGNORE_FILES.has(path.posix.basename(filePath.replace(/\\/g, '/')));
+}
+
 export interface PatchLimits {
   maxLines: number;
   maxFiles: number;
@@ -104,6 +111,7 @@ export function checkPatchPolicy(diffText: string, kind: PatchKind, limits: Patc
       if (isOutsideRepository(p)) violations.push(`${p}: path resolves outside the repository`);
       if (p === '.github' || p.startsWith('.github/')) violations.push(`${p}: workflow files are off limits`);
       if (isDependencyFile(p)) violations.push(`${p}: dependency manifests and lockfiles are off limits`);
+      if (isScannerIgnoreFile(p)) violations.push(`${p}: scanner ignore files are off limits`);
     }
     if (file.binary) violations.push(`${file.path}: binary files are off limits`);
     if (file.symlink) violations.push(`${file.path}: symlinks are off limits`);
@@ -302,6 +310,73 @@ export async function verifyDemonstration(
 
   await tree.reset();
   return { testFails, fixPasses, runs, durationMs: Date.now() - startedAt };
+}
+
+/** The gate's Semgrep run, which the harness repeats to verify a fix: the pinned image and the gate's arguments. */
+export interface StaticAnalysis {
+  image: string;
+  args: string;
+}
+
+export interface StaticAnalysisResult {
+  /** Null when Semgrep itself failed, so the run says nothing about the code. */
+  findings: number | null;
+  output: string;
+  durationMs: number;
+}
+
+/**
+ * Runs Semgrep over the tree as the gate ran it and counts the findings. It
+ * runs outside the sandbox, in its own container with only the tree mounted,
+ * since it reads the project's code and never executes it.
+ */
+export async function runStaticAnalysis(tree: ScratchTree, analysis: StaticAnalysis, timeoutMs: number): Promise<StaticAnalysisResult> {
+  // Semgrep scans only what git tracks, and files a patch added are untracked.
+  await git(['add', '--intent-to-add', '.'], tree.root);
+  const out = await mkdtemp(path.join(os.tmpdir(), 'pr-verify-semgrep-'));
+  try {
+    const command = [
+      'docker run --rm',
+      `--user ${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
+      `-e HOME=/tmp -v "${tree.root}:/src" -v "${out}:/out" -w /src`,
+      analysis.image,
+      'semgrep scan',
+      analysis.args,
+      '--metrics off --disable-version-check --json --output /out/results.json',
+    ].join(' ');
+    const result = await runCommand(command, tree.root, timeoutMs, 16 * 1024);
+    if (result.exitCode !== 0) return { findings: null, output: result.output, durationMs: result.durationMs };
+    const report = JSON.parse(await readFile(path.join(out, 'results.json'), 'utf8')) as { results?: unknown[] };
+    return { findings: report.results?.length ?? 0, output: result.output, durationMs: result.durationMs };
+  } finally {
+    await rm(out, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Red-gate mode at the static analysis step: a fix is verified when Semgrep
+ * finds nothing with only the fix applied and the suite still passes.
+ * `countFindings` runs Semgrep on the tree as it stands.
+ */
+export async function verifyStaticAnalysisFix(
+  tree: ScratchTree,
+  fixPatch: Patch,
+  countFindings: () => Promise<number | null>,
+): Promise<Verification & { findingsLeft: number | null }> {
+  const startedAt = Date.now();
+  await tree.reset();
+  let findingsLeft: number | null = null;
+  let fixPasses = false;
+  let runs = 0;
+  if ((await tree.apply(fixPatch.diff)).applied) {
+    findingsLeft = await countFindings();
+    if (findingsLeft === 0) {
+      runs = 1;
+      fixPasses = (await tree.runTests()).exitCode === 0;
+    }
+  }
+  await tree.reset();
+  return { testFails: null, fixPasses, runs, findingsLeft, durationMs: Date.now() - startedAt };
 }
 
 /** passes: the bug is gone. fails: still there. unusable: the test does not fit this commit, so it says nothing. */

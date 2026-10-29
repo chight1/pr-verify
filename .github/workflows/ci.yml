@@ -8,6 +8,9 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      # Semgrep 1.182.0, as in pr-verify.yml. The static analysis tests use it too.
+      SEMGREP_IMAGE: semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -22,6 +25,11 @@ jobs:
         env:
           # The sandbox tests check this never reaches a sandboxed command.
           PR_VERIFY_CANARY: canary-${{ github.run_id }}
+      - name: static analysis
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
+            "$SEMGREP_IMAGE" semgrep scan --config p/javascript --config p/typescript --disable-nosem \
+            --error --metrics off --disable-version-check
       # Same pinned release and hash as the gate in pr-verify.yml.
       - name: install security scanner
         env:

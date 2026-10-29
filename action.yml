@@ -77,6 +77,14 @@ inputs:
     description: Post a diagnosis or verified fix when the gate fails.
     required: false
     default: 'true'
+  semgrep-image:
+    description: The pinned Semgrep image the gate ran. With semgrep-args, a static analysis failure gets a verified fix instead of only a comment.
+    required: false
+    default: ''
+  semgrep-args:
+    description: The arguments the gate ran Semgrep with.
+    required: false
+    default: ''
 
 outputs:
   verdict:

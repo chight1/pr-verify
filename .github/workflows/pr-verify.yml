@@ -42,8 +42,8 @@ on:
         default: ''
       security-scan:
         description: >-
-          strict fails on any vulnerability, secret or misconfiguration Trivy
-          finds; loose fails only on HIGH and CRITICAL.
+          strict fails on anything Trivy or Semgrep finds; loose fails only on
+          Trivy's HIGH and CRITICAL and Semgrep's ERROR.
         required: false
         type: string
         default: strict
@@ -68,6 +68,18 @@ on:
     secrets:
       ANTHROPIC_API_KEY:
         required: true
+
+# Semgrep 1.182.0, defined once: the gate runs it, and the review job hands it
+# to the action to check a proposed fix. The rule packs come from Semgrep's
+# registry since their license does not allow shipping copies.
+env:
+  SEMGREP_IMAGE: semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af
+  SEMGREP_ARGS: >-
+    ${{ inputs.runtime == 'python' && '--config p/python'
+    || inputs.runtime == 'go' && '--config p/golang'
+    || '--config p/javascript --config p/typescript' }}
+    ${{ inputs.security-scan == 'loose' && '--severity ERROR' || '' }}
+    --disable-nosem
 
 jobs:
   gate:
@@ -128,6 +140,18 @@ jobs:
                 npx --yes @biomejs/biome@2.6.3 lint --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true .
               fi ;;
           esac
+
+      # Lint finds smells; this follows untrusted input to a dangerous call.
+      - name: static analysis
+        env:
+          MODE: ${{ inputs.security-scan }}
+        run: |
+          case "$MODE" in
+            strict | loose) ;;
+            *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
+          esac
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
+            "$SEMGREP_IMAGE" semgrep scan $SEMGREP_ARGS --error --metrics off --disable-version-check
 
       - name: build
         run: ${{ inputs.build-command }}
@@ -236,3 +260,5 @@ jobs:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           model: ${{ inputs.model }}
           guidance-file: ${{ inputs.guidance-file }}
+          semgrep-image: ${{ env.SEMGREP_IMAGE }}
+          semgrep-args: ${{ env.SEMGREP_ARGS }}

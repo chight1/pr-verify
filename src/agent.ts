@@ -50,6 +50,8 @@ If the failing step is the test step: find the cause, and if you can fix it, pro
 
 If the failing step is the build step: diagnose only. You cannot verify a build fix with a green suite, so do not propose one.
 
+If the failing step is static analysis: Semgrep flagged the code, and the log lists each finding with its rule and lines. Fix the code so the flagged pattern is gone, in one fix patch that clears every finding. Suppressing a finding is not a fix: nosemgrep comments are ignored and ignore files are off limits. You cannot run Semgrep, so use run_tests to check the suite still passes. The harness re-runs Semgrep and the suite on your patch and calls it verified only when Semgrep finds nothing and the suite passes.
+
 End with finish: "fix" with the patch id, "diagnosis" with a three-line summary and citations when you can name the cause but not fix it, or "abstain" when you cannot say. An honest abstain is worth more than a guess.`;
 
 /** Names the machine-written files left out of the diff, so the agent knows they changed. */

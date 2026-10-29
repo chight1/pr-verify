@@ -31,9 +31,10 @@ describe('preclassify', () => {
 });
 
 describe('scanFailure', () => {
-  it('recognises the two scanner steps and nothing else', () => {
+  it('recognises the scanner steps and nothing else', () => {
     expect(scanFailure('security scan')).toMatch(/^Trivy found/);
     expect(scanFailure('install security scanner')).toMatch(/checksum/);
+    expect(scanFailure('static analysis')).toMatch(/^Semgrep found/);
     expect(scanFailure('test')).toBeNull();
     expect(scanFailure('lint')).toBeNull();
   });
