@@ -79,13 +79,13 @@ Every gate ends with a Trivy filesystem scan for known vulnerabilities in depend
 
 ## Runner image
 
-The gate and the review run on a pinned image, `ubuntu-24.04`, so the gate goes red only when the code changes. A third job, `pr-verify / canary: ubuntu-latest (non-blocking)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
+The gate and the review run on a pinned image, `ubuntu-24.04`. A third job, `pr-verify / canary: ubuntu-latest (non-blocking)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
 
-Every action the workflows use is pinned to a commit SHA, not a tag, since a tag can be re-pointed by whoever controls its repository and the review job holds the Anthropic key. Dependabot proposes updates as pull requests once a release is a week old.
+Every action the workflows use is pinned to a commit SHA. Dependabot proposes updates as pull requests once a release is a week old.
 
 ## Attaching it to a project
 
-1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present, and the tests without network access. Put model calls behind an interface and swap in a fake for tests.
+1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present, and the tests without network access.
 2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`.
 3. Copy the matching file from `templates/` to `.github/workflows/pr-verify.yml` and fill in the commands.
 4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and the canary optional; they never block.
@@ -112,20 +112,11 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review. |
 | `templates/` | The one-file workflow a project copies, per runtime. |
 
-## Developing
-
-```
-npm install
-npm test          # unit tests (vitest)
-npm run lint      # Biome, lint rules only
-npm run build     # type-check and bundle to dist/index.js with ncc
-```
-
 `dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
 
 ## Releases
 
-Each release is a permanent tag, `vMAJOR.MINOR.PATCH`, and a GitHub Release with notes. `v1` is a branch that never gets commits of its own: a release fast-forwards it to the newest 1.x tag, so `@v1` always runs the latest release and never a breaking one. A consumer that wants an exact version pins the tag or its commit SHA.
+Releases are tagged `vMAJOR.MINOR.PATCH` with notes, and `@v1` runs the latest 1.x release.
 
 ## Non-goals for version 1
 

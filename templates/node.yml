@@ -4,7 +4,6 @@ name: pr-verify
 on:
   pull_request:
 
-# A new push cancels work still running on the stale commit.
 concurrency:
   group: pr-verify-${{ github.event.pull_request.number }}
   cancel-in-progress: true
