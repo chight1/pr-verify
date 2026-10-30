@@ -184,7 +184,17 @@ jobs:
             loose) severity=HIGH,CRITICAL ;;
             *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
           esac
+          # Trivy has no switch to turn off inline ignore comments, so they fail the step.
+          if git grep -nE 'trivy[:]ignore[:]'; then
+            echo "Inline Trivy ignore comments are not allowed. Fix the finding instead." >&2
+            exit 1
+          fi
+          # Empty settings of the gate's own, so a .trivyignore, trivy.yaml or
+          # trivy-secret.yaml in the project has no effect.
+          empty="$RUNNER_TEMP/trivy-empty.yaml"
+          echo '{}' > "$empty"
           "$RUNNER_TEMP/trivy" fs --scanners vuln,secret,misconfig --severity "$severity" \
+            --config "$empty" --ignorefile "$empty" --secret-config "$empty" \
             --exit-code 1 --no-progress --skip-dirs node_modules .
 
   # Not a required check, and nothing needs it: a red canary never blocks a
