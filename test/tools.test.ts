@@ -7,7 +7,7 @@ import { Budget } from '../src/budget.js';
 import { Scrubber } from '../src/context.js';
 import { recountHunks } from '../src/diff.js';
 import { READ_FILE_MAX_LINES, ToolExecutor, toolDefinitions } from '../src/tools.js';
-import type { ApplyResult, CommandResult, ScratchTree } from '../src/verify.js';
+import type { ApplyResult, ScratchTree, TestRun } from '../src/verify.js';
 
 /** A ScratchTree stand-in that records what was asked of it. */
 class FakeTree {
@@ -24,8 +24,8 @@ class FakeTree {
     this.applied.push(diff);
     return { applied: true };
   }
-  async runTests(): Promise<CommandResult> {
-    return { exitCode: this.testExitCode, output: 'suite output', durationMs: 5, timedOut: false };
+  async runTests(): Promise<TestRun> {
+    return { exitCode: this.testExitCode, output: 'suite output', durationMs: 5, timedOut: false, buildFailed: false };
   }
 }
 

@@ -56,6 +56,7 @@ import {
   verifyStaticAnalysisFix,
   type PatchLimits,
   type StaticAnalysis,
+  type TestRun,
 } from './verify.js';
 
 interface Inputs {
@@ -145,6 +146,7 @@ function describeTestConventions(files: string[]): string {
 
 const TOO_LARGE_KEY = 'too-large';
 const RED_GATE_KEY = 'red-gate';
+const BASELINE_KEY = 'baseline';
 
 /**
  * The note posted instead of a review when the diff alone would take more
@@ -171,6 +173,22 @@ interface Stage {
   record: RunRecord;
   scrubber: Scrubber;
   runUrl: string;
+}
+
+/** The note posted instead of a review when the unchanged PR commit does not pass in the sandbox. */
+function baselineNote(run: TestRun, runUrl: string): string {
+  const what = run.timedOut ? 'The suite timed out' : run.buildFailed ? 'The build failed' : 'The suite failed';
+  return [
+    '### PR Verify: not reviewed',
+    '',
+    `${what} on this commit in the review's sandbox, which has no network and only toolchain variables, so no finding could be verified. The gate runs the suite outside the sandbox and still decides the merge.`,
+    '',
+    '```',
+    run.output.slice(-3000).trimEnd(),
+    '```',
+    '',
+    `[Run record](${runUrl})`,
+  ].join('\n');
 }
 
 async function reviewMode(stage: Stage): Promise<void> {
@@ -216,7 +234,25 @@ async function reviewMode(stage: Stage): Promise<void> {
     return;
   }
 
-  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs, await Sandbox.forRunner());
+  const tree = new ScratchTree(
+    repoRoot,
+    pr.headSha,
+    { build: inputs.buildCommand, test: inputs.testCommand },
+    inputs.testTimeoutMs,
+    await Sandbox.forRunner(),
+  );
+
+  // A failing test proves a bug only if the suite passes here, in the sandbox, without it.
+  await tree.reset();
+  const baseline = await tree.runTests();
+  record.baseline = { passed: baseline.exitCode === 0, buildFailed: baseline.buildFailed, durationMs: baseline.durationMs };
+  if (baseline.exitCode !== 0) {
+    record.outcome = 'baseline';
+    record.postedId = await upsertComment(octokit, pr, BASELINE_KEY, scrubber.scrub(baselineNote(baseline, stage.runUrl)));
+    return;
+  }
+  await deleteComment(octokit, pr, BASELINE_KEY);
+
   const recheck = async (testPatch: string) => {
     const { result, runs, durationMs } = await recheckDemonstration(tree, testPatch, inputs.patchLimits);
     record.verification.recheckRuns += runs;
@@ -448,7 +484,13 @@ async function redGateMode(stage: Stage): Promise<void> {
   const isTestStep = step.includes('test');
   // A green suite says nothing about whether a build or lint fix works.
   const diagnosisOnly = step.includes('build') || step.includes('lint');
-  const tree = new ScratchTree(repoRoot, pr.headSha, inputs.testCommand, inputs.testTimeoutMs, await Sandbox.forRunner());
+  const tree = new ScratchTree(
+    repoRoot,
+    pr.headSha,
+    { build: inputs.buildCommand, test: inputs.testCommand },
+    inputs.testTimeoutMs,
+    await Sandbox.forRunner(),
+  );
 
   if (isTestStep) {
     await tree.reset();
