@@ -90,6 +90,8 @@ outputs:
   verdict:
     description: >-
       Outcome of the run: clean, findings, infra, flaky, fix, diagnosis, abstain, budget, too-large, refused, scan or error.
+  record-path:
+    description: The run record's JSON file, written on every run, for the workflow to upload.
 
 runs:
   using: node24

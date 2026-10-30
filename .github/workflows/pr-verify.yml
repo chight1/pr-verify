@@ -249,6 +249,7 @@ jobs:
         run: ${{ inputs.install-command }}
 
       - name: PR Verify
+        id: pr-verify
         uses: chight1/pr-verify@v1
         with:
           gate-result: ${{ needs.gate.result }}
@@ -260,3 +261,12 @@ jobs:
           guidance-file: ${{ inputs.guidance-file }}
           semgrep-image: ${{ env.SEMGREP_IMAGE }}
           semgrep-args: ${{ env.SEMGREP_ARGS }}
+
+      # A step of its own, so the upload never runs in the process that holds the key.
+      - name: upload run record
+        if: always() && steps.pr-verify.outputs.record-path != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr-verify-record
+          path: ${{ steps.pr-verify.outputs.record-path }}
+          retention-days: 30
