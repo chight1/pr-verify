@@ -39,6 +39,7 @@ import {
   postingLogin,
   postReview,
   resolvePriorFindings,
+  updateComment,
   upsertComment,
   type ReviewTrail,
 } from './review.js';
@@ -143,6 +144,7 @@ function describeTestConventions(files: string[]): string {
 }
 
 const TOO_LARGE_KEY = 'too-large';
+const RED_GATE_KEY = 'red-gate';
 
 /**
  * The note posted instead of a review when the diff alone would take more
@@ -173,6 +175,14 @@ interface Stage {
 
 async function reviewMode(stage: Stage): Promise<void> {
   const { inputs, pr, octokit, repoRoot, record, scrubber } = stage;
+
+  // A red-gate comment from an earlier run would still say the gate fails.
+  await updateComment(
+    octokit,
+    pr,
+    RED_GATE_KEY,
+    `### PR Verify: gate passes\n\nThe gate passes on \`${pr.headSha.slice(0, 7)}\`, so the failure this comment reported earlier no longer applies. [Run record](${stage.runUrl})`,
+  );
 
   const [diff, tracked, guidance, prior] = await Promise.all([
     collectDiff(pr, repoRoot),
@@ -392,7 +402,6 @@ function recordAgentRun(record: RunRecord, executor: ToolExecutor, budget: Budge
 
 async function redGateMode(stage: Stage): Promise<void> {
   const { inputs, pr, octokit, repoRoot, record, scrubber } = stage;
-  const commentKey = 'red-gate';
 
   if (!inputs.commentOnRedGate) {
     record.outcome = 'abstain';
@@ -415,7 +424,7 @@ async function redGateMode(stage: Stage): Promise<void> {
     record.postedId = await upsertComment(
       octokit,
       pr,
-      commentKey,
+      RED_GATE_KEY,
       `### PR Verify: gate failed at \`${failing.stepName}\`\n\nThis looks like an infrastructure failure (${infra.label}), not the change:\n\n\`\`\`\n${infra.evidence}\n\`\`\`\n\nRe-run the job. [Run record](${stage.runUrl})`,
     );
     return;
@@ -430,7 +439,7 @@ async function redGateMode(stage: Stage): Promise<void> {
     record.postedId = await upsertComment(
       octokit,
       pr,
-      commentKey,
+      RED_GATE_KEY,
       `### PR Verify: gate failed at \`${failing.stepName}\`\n\n${scan} Not investigated: the agent cannot run the scanner, so it could not verify a fix. [Run record](${stage.runUrl})`,
     );
     return;
@@ -451,7 +460,7 @@ async function redGateMode(stage: Stage): Promise<void> {
       record.postedId = await upsertComment(
         octokit,
         pr,
-        commentKey,
+        RED_GATE_KEY,
         `### PR Verify: gate failed at \`${failing.stepName}\`\n\nThe suite passed when re-run unchanged on this commit, so the failure looks flaky. Re-run the job, and consider the failing test suspect. [Run record](${stage.runUrl})`,
       );
       return;
@@ -474,7 +483,7 @@ async function redGateMode(stage: Stage): Promise<void> {
     record.postedId = await upsertComment(
       octokit,
       pr,
-      commentKey,
+      RED_GATE_KEY,
       `### PR Verify: gate failed at \`${failing.stepName}\`\n\nNot investigated. ${tooLarge} The failing step's log is in the run. [Run record](${stage.runUrl})`,
     );
     return;
@@ -560,7 +569,7 @@ async function redGateMode(stage: Stage): Promise<void> {
   if (note) lines.push('', `_${note}_`);
   lines.push('', `[Run record](${stage.runUrl})`);
 
-  record.postedId = await upsertComment(octokit, pr, commentKey, scrubber.scrub(lines.join('\n')));
+  record.postedId = await upsertComment(octokit, pr, RED_GATE_KEY, scrubber.scrub(lines.join('\n')));
   record.outcome = verdict;
 }
 
