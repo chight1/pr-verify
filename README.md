@@ -75,7 +75,7 @@ After lint, the gate runs Semgrep with its maintained rules for the runtime (`p/
 
 ## Security scan
 
-Every gate ends with a Trivy filesystem scan for known vulnerabilities in dependencies, committed secrets and misconfigurations. By default it is strict and fails on any finding at any severity; `security-scan: loose` fails only on HIGH and CRITICAL. There is no ignore file: a finding is fixed, not accepted. Trivy is installed from a pinned release and checked against its SHA-256, not through an action. When the scan fails, the review agent does not run, since it cannot run the scanner to verify a fix; one comment points at the step log.
+Every gate ends with a Trivy filesystem scan for known vulnerabilities in dependencies, committed secrets and misconfigurations. By default it is strict and fails on any finding at any severity; `security-scan: loose` fails only on HIGH and CRITICAL. Nothing can be ignored: the gate runs Trivy with empty settings of its own, so a project's `.trivyignore`, `trivy.yaml` or `trivy-secret.yaml` has no effect, and an inline Trivy ignore comment fails the step. A finding is fixed, not accepted. Trivy is installed from a pinned release and checked against its SHA-256, not through an action. When the scan fails, the review agent does not run, since it cannot run the scanner to verify a fix; one comment points at the step log.
 
 ## Runner image
 
