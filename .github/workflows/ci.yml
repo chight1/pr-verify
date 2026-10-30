@@ -1,16 +1,38 @@
-# CI for PR Verify itself: lint, tests, a security scan, type check, and a guard that dist/ matches src/.
+# CI for PR Verify itself: its own gate and review, from this commit's copy of
+# the workflow, and a check that dist/ matches src/. The review runs the
+# released action, so a PR cannot change the reviewer that judges it.
 name: ci
 
 on:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
 jobs:
-  check:
+  pr-verify:
+    uses: ./.github/workflows/pr-verify.yml
+    with:
+      runtime: node
+      runtime-version: '24'
+      install-command: npm ci
+      build-command: npm run build
+      # The sandbox tests check this never reaches a sandboxed command.
+      test-command: PR_VERIFY_CANARY="canary-$GITHUB_RUN_ID" npm test
+      audit-command: npm audit --audit-level=high
+    secrets: inherit
+
+  dist:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    env:
-      # Semgrep 1.182.0, as in pr-verify.yml. The static analysis tests use it too.
-      SEMGREP_IMAGE: semgrep/semgrep@sha256:4a34048c04fef049f71665047f074cffb00cc3d89482f965a5cd151d589237af
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -20,30 +42,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: npm run lint
-      - run: npm test
-        env:
-          # The sandbox tests check this never reaches a sandboxed command.
-          PR_VERIFY_CANARY: canary-${{ github.run_id }}
-      - name: static analysis
-        run: |
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
-            "$SEMGREP_IMAGE" semgrep scan --config p/javascript --config p/typescript --disable-nosem \
-            --error --metrics off --disable-version-check
-      # Same pinned release and hash as the gate in pr-verify.yml.
-      - name: install security scanner
-        env:
-          TRIVY_VERSION: 0.76.1
-          TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
-        run: |
-          archive="$RUNNER_TEMP/trivy.tar.gz"
-          curl -fsSL -o "$archive" "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          echo "$TRIVY_SHA256  $archive" | sha256sum --check --strict
-          tar -xzf "$archive" -C "$RUNNER_TEMP" trivy
-      # dist/ is built from src/ and the lockfile, which are both scanned.
-      - name: security scan
-        run: |
-          "$RUNNER_TEMP/trivy" fs --scanners vuln,secret,misconfig --exit-code 1 --no-progress --skip-dirs node_modules --skip-dirs dist .
       - run: npm run build
       - name: dist is up to date
         run: |
