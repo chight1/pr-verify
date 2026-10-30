@@ -36,7 +36,7 @@ Every run writes a JSON record, which the workflow uploads as an artifact (30 da
 
 ## When the gate is red
 
-The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Build and lint failures get a diagnosis only, since no green suite can verify those fixes.
+The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Once the gate passes, that comment says so. Build and lint failures get a diagnosis only, since no green suite can verify those fixes.
 
 ## Budgets
 

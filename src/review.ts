@@ -399,6 +399,15 @@ export async function upsertComment(
   return created.data.id;
 }
 
+/** Updates the PR comment identified by `key`, if there is one, and never creates it. */
+export async function updateComment(octokit: Octokit, pr: PullRequestRef, key: string, body: string): Promise<void> {
+  const marker = COMMENT_MARKER(key);
+  const mine = await findComment(octokit, pr, marker);
+  if (mine) {
+    await octokit.rest.issues.updateComment({ owner: pr.owner, repo: pr.repo, comment_id: mine.id, body: `${body}\n\n${marker}` });
+  }
+}
+
 /** Deletes the PR comment identified by `key`, if there is one. */
 export async function deleteComment(octokit: Octokit, pr: PullRequestRef, key: string): Promise<void> {
   const mine = await findComment(octokit, pr, COMMENT_MARKER(key));

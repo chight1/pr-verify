@@ -14,6 +14,7 @@ import {
   postingLogin,
   postReview,
   resolvePriorFindings,
+  updateComment,
   upsertComment,
   type PostedFinding,
   type ReviewTrail,
@@ -284,6 +285,31 @@ describe('upsertComment', () => {
     expect(id).toBe(500);
     expect(createComment).toHaveBeenCalledOnce();
     expect(updateComment).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateComment', () => {
+  function octokitWith(existing: Array<{ id: number; body: string }>) {
+    const update = vi.fn(async () => ({}));
+    const create = vi.fn(async () => ({ data: { id: 500 } }));
+    const octokit = {
+      paginate: vi.fn(async () => existing),
+      rest: { issues: { listComments: {}, updateComment: update, createComment: create } },
+    } as never;
+    return { octokit, update, create };
+  }
+
+  it('rewrites the marked comment and keeps its marker', async () => {
+    const { octokit, update } = octokitWith([{ id: 2, body: 'failed\n\n<!-- pr-verify:comment red-gate -->' }]);
+    await updateComment(octokit, PR, 'red-gate', 'passes');
+    expect(update).toHaveBeenCalledExactlyOnceWith({ owner: 'o', repo: 'r', comment_id: 2, body: 'passes\n\n<!-- pr-verify:comment red-gate -->' });
+  });
+
+  it('posts nothing when no comment is marked', async () => {
+    const { octokit, update, create } = octokitWith([{ id: 1, body: 'unrelated' }]);
+    await updateComment(octokit, PR, 'red-gate', 'passes');
+    expect(update).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
   });
 });
 
