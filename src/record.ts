@@ -55,6 +55,8 @@ export interface RunRecord {
     outputTokens: number;
     cachedInputTokens: number;
   };
+  /** The build and suite on the unchanged PR commit, in the sandbox, before any patch. Null when it did not run. */
+  baseline: { passed: boolean; buildFailed: boolean; durationMs: number } | null;
   wallMs: number;
   outcome: Outcome;
   postedId: number | null;
@@ -73,6 +75,7 @@ export function emptyRecord(identity: RunRecord['identity']): RunRecord {
     resolvedPriorFindings: [],
     verification: { testRuns: 0, fixRuns: 0, recheckRuns: 0, durationMs: 0 },
     usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+    baseline: null,
     wallMs: 0,
     outcome: 'error',
     postedId: null,

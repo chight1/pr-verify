@@ -196,6 +196,12 @@ export function runCommand(
   });
 }
 
+/** A harness run: the build, then the suite. */
+export interface TestRun extends CommandResult {
+  /** True when the build failed, so the suite never ran. */
+  buildFailed: boolean;
+}
+
 export interface ApplyResult {
   applied: boolean;
   error?: string;
@@ -210,7 +216,7 @@ export class ScratchTree {
   constructor(
     readonly root: string,
     private readonly headSha: string,
-    private readonly testCommand: string,
+    private readonly commands: { build: string; test: string },
     private readonly testTimeoutMs: number,
     private readonly sandbox: Sandbox | null = null,
     private readonly outputTailBytes = 64 * 1024,
@@ -254,8 +260,19 @@ export class ScratchTree {
     }
   }
 
-  runTests(): Promise<CommandResult> {
-    return runCommand(this.testCommand, this.root, this.testTimeoutMs, this.outputTailBytes, this.sandbox);
+  /** Builds, then runs the suite, so a patch to the source is compiled before it is tested. */
+  async runTests(): Promise<TestRun> {
+    const run = (command: string) => runCommand(command, this.root, this.testTimeoutMs, this.outputTailBytes, this.sandbox);
+    let buildMs = 0;
+    if (this.commands.build) {
+      const build = await run(this.commands.build);
+      if (build.exitCode !== 0) {
+        return { ...build, output: `The build failed, so the suite did not run.\n\n${build.output}`, buildFailed: true };
+      }
+      buildMs = build.durationMs;
+    }
+    const test = await run(this.commands.test);
+    return { ...test, durationMs: buildMs + test.durationMs, buildFailed: false };
   }
 }
 
@@ -289,7 +306,8 @@ export async function verifyDemonstration(
     if (applied.applied) {
       runs += 1;
       const result = await tree.runTests();
-      testFails = result.exitCode !== 0;
+      // A test that breaks the build demonstrates nothing about the code under test.
+      testFails = result.exitCode !== 0 && !result.buildFailed;
     } else {
       testFails = false;
     }
@@ -401,7 +419,8 @@ export async function recheckDemonstration(
   let runs = 0;
   if ((await tree.apply(testDiff)).applied || (await tree.contains(testDiff))) {
     runs = 1;
-    result = (await tree.runTests()).exitCode === 0 ? 'passes' : 'fails';
+    const run = await tree.runTests();
+    result = run.buildFailed ? 'unusable' : run.exitCode === 0 ? 'passes' : 'fails';
   }
   await tree.reset();
   return { result, runs, durationMs: Date.now() - startedAt };

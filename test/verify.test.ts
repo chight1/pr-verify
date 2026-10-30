@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -10,6 +10,7 @@ import {
   recheckDemonstration,
   runStaticAnalysis,
   ScratchTree,
+  verifyDemonstration,
   verifyStaticAnalysisFix,
 } from '../src/verify.js';
 
@@ -118,7 +119,7 @@ const RUNNER = "for (const f of require('fs').readdirSync('tests')) require('./t
 const TEST = "if (require('../value.js') !== 2) throw new Error('value should be 2');\n";
 const TEST_PATCH = `diff --git a/tests/value.test.js b/tests/value.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/tests/value.test.js\n@@ -0,0 +1,1 @@\n+${TEST}`;
 
-function repoAt(value: number, extra: Record<string, string> = {}): ScratchTree {
+function repoAt(value: number, extra: Record<string, string> = {}, build = ''): ScratchTree {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'pr-verify-recheck-'));
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' }).toString().trim();
   mkdirSync(path.join(dir, 'tests'));
@@ -127,7 +128,7 @@ function repoAt(value: number, extra: Record<string, string> = {}): ScratchTree 
   git('init', '-q');
   git('add', '-A');
   git('-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-qm', 'head');
-  return new ScratchTree(dir, git('rev-parse', 'HEAD'), 'node run.js', 30_000);
+  return new ScratchTree(dir, git('rev-parse', 'HEAD'), { build, test: 'node run.js' }, 30_000);
 }
 
 describe('recheckDemonstration', () => {
@@ -204,4 +205,38 @@ describe.runIf(process.platform === 'linux' && process.env['SEMGREP_IMAGE'])('ru
     expect(await runStaticAnalysis(tree, analysis, 120_000)).toMatchObject({ findings: 1 });
     await tree.reset();
   }, 180_000);
+});
+
+// Compiles every test file without running it, the way a TypeScript build type-checks tests.
+const BUILD = "for (const f of require('fs').readdirSync('tests')) new (require('vm').Script)(require('fs').readFileSync('tests/' + f, 'utf8'));\n";
+const BROKEN_TEST_PATCH = 'diff --git a/tests/broken.test.js b/tests/broken.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/tests/broken.test.js\n@@ -0,0 +1,1 @@\n+this is not javascript(\n';
+
+describe('ScratchTree.runTests', () => {
+  it('builds before the suite runs', async () => {
+    const files = { 'build.js': "require('fs').writeFileSync('built.txt', '');\n", 'tests/built.test.js': "require('fs').accessSync('built.txt');\n" };
+    expect(await repoAt(1, files, 'node build.js').runTests()).toMatchObject({ exitCode: 0, buildFailed: false });
+  });
+
+  it('returns a failed build without running the suite', async () => {
+    const tree = repoAt(1, { 'build.js': 'process.exit(3);\n', 'tests/ran.test.js': "require('fs').writeFileSync('ran.txt', '');\n" }, 'node build.js');
+    const run = await tree.runTests();
+    expect(run.buildFailed).toBe(true);
+    expect(run.exitCode).not.toBe(0);
+    expect(run.output).toMatch(/The build failed/);
+    expect(existsSync(path.join(tree.root, 'ran.txt'))).toBe(false);
+  });
+});
+
+describe('a test patch that breaks the build', () => {
+  const broken = { id: 't', kind: 'test' as const, description: 'broken', diff: BROKEN_TEST_PATCH };
+
+  it('does not count as a failing test', async () => {
+    const tree = repoAt(2, { 'build.js': BUILD }, 'node build.js');
+    expect((await verifyDemonstration(tree, broken, undefined)).testFails).toBe(false);
+  });
+
+  it('makes a recheck unusable rather than still failing', async () => {
+    const tree = repoAt(2, { 'build.js': BUILD }, 'node build.js');
+    expect(await recheckDemonstration(tree, BROKEN_TEST_PATCH, LIMITS)).toMatchObject({ result: 'unusable', runs: 1 });
+  });
 });

@@ -21,6 +21,8 @@ These are enforced by the harness code in `src/`, not requested of the model.
 
 The agent has four tools: `read_file`, `run_tests`, `propose_patch`, and `finish`. No shell, no network, no search. A test patch may only add tests; a fix patch may not touch only tests; both are capped at 200 changed lines across 6 files.
 
+Before the agent starts, the harness builds the PR commit and runs its suite in the sandbox. If that fails, nothing can be verified, so the agent does not run and one comment shows the output; a later run whose baseline passes deletes it. Every harness run after that builds first, so a patch to the source is compiled before it is tested, and a test that breaks the build demonstrates nothing.
+
 The agent's own test runs are for investigation and decide nothing. When it calls `finish`, the harness redoes each demonstration from a clean reset of the PR commit:
 
 - A **bug** is verified when the test patch alone makes the suite fail.
