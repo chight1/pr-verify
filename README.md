@@ -32,7 +32,7 @@ A finding whose test does not fail on the clean commit is downgraded to unverifi
 
 On a later push, the harness re-runs each open verified finding's test against the new commit, up to three per push. If it passes, the finding is reported resolved, wherever the fix landed. If it still fails, the finding stays open, even if its line was edited. A finding without a test, or whose test no longer applies, counts as resolved when the line it pointed at changes. Only comments posted by the action's own account are read back, since a finding's test gets run.
 
-Every run writes a JSON record and uploads it as a workflow artifact (30 days): context sizes, the full tool-call trail, each finding and how it verified, token usage, wall time, and which budget tripped if one did. The record is the evidence behind every comment. Finding accuracy is measured by you: a thumbs-down reaction on an inline comment marks it wrong, and `npm run precision -- owner/repo` (with `GITHUB_TOKEN` set) counts those per category, verified and unverified apart.
+Every run writes a JSON record, which the workflow uploads as an artifact (30 days): context sizes, the full tool-call trail, each finding and how it verified, token usage, wall time, and which budget tripped if one did. The record is the evidence behind every comment. Finding accuracy is measured by you: a thumbs-down reaction on an inline comment marks it wrong, and `npm run precision -- owner/repo` (with `GITHUB_TOKEN` set) counts those per category, verified and unverified apart.
 
 ## When the gate is red
 
@@ -106,7 +106,7 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/verify.ts` | Scratch-tree reset, patch policy, apply, harness test runs. |
 | `src/sandbox.ts` | The namespaces every test run executes in. |
 | `src/review.ts` | Posting policy, line-to-diff mapping, markers, prior-finding resolution. |
-| `src/record.ts` | The run record and artifact upload. |
+| `src/record.ts` | The run record. |
 | `src/budget.ts` | Token, time, call and finding counters. |
 | `src/precision.ts` | Thumbs-down counts per category, run locally with `npm run precision`. |
 | `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review. |

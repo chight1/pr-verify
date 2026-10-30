@@ -29,7 +29,7 @@ import {
 } from './context.js';
 import { parseDiff } from './diff.js';
 import { preclassify, scanFailure } from './preclassify.js';
-import { emptyRecord, uploadRecord, writeRecord, type FindingRecord, type RunRecord } from './record.js';
+import { emptyRecord, writeRecord, type FindingRecord, type RunRecord } from './record.js';
 import {
   buildReview,
   deleteComment,
@@ -626,11 +626,7 @@ async function run(): Promise<void> {
     record.wallMs = Date.now() - startedAt;
     core.setOutput('verdict', record.outcome);
     const file = await writeRecord(record, path.join(process.env['RUNNER_TEMP'] ?? repoRoot, 'pr-verify'));
-    try {
-      await uploadRecord(file);
-    } catch (uploadError) {
-      core.warning(`Could not upload the run record: ${(uploadError as Error).message}`);
-    }
+    core.setOutput('record-path', file);
   }
   core.info(`PR Verify finished: ${outcome}`);
   if (outcome === 'refused') {

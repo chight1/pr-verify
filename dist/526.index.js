@@ -2,7 +2,7 @@ export const id = 526;
 export const ids = [526];
 export const modules = {
 
-/***/ 96526:
+/***/ 6526:
 /***/ ((__unused_webpack___webpack_module__, __webpack_exports__, __webpack_require__) => {
 
 // ESM COMPAT FLAG
@@ -31,23 +31,23 @@ __webpack_require__.d(__webpack_exports__, {
 });
 
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/internal/tslib.mjs
-var tslib = __webpack_require__(33364);
+var tslib = __webpack_require__(3364);
 // EXTERNAL MODULE: external "node:fs/promises"
-var promises_ = __webpack_require__(51455);
+var promises_ = __webpack_require__(1455);
 // EXTERNAL MODULE: external "node:fs"
-var external_node_fs_ = __webpack_require__(73024);
+var external_node_fs_ = __webpack_require__(3024);
 // EXTERNAL MODULE: external "node:path"
-var external_node_path_ = __webpack_require__(76760);
+var external_node_path_ = __webpack_require__(6760);
 // EXTERNAL MODULE: external "node:child_process"
-var external_node_child_process_ = __webpack_require__(31421);
+var external_node_child_process_ = __webpack_require__(1421);
 // EXTERNAL MODULE: external "node:crypto"
-var external_node_crypto_ = __webpack_require__(77598);
+var external_node_crypto_ = __webpack_require__(7598);
 // EXTERNAL MODULE: external "node:readline"
-var external_node_readline_ = __webpack_require__(80481);
+var external_node_readline_ = __webpack_require__(481);
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/core/error.mjs
-var error = __webpack_require__(25064);
+var error = __webpack_require__(5064);
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/lib/tools/ToolError.mjs
-var ToolError = __webpack_require__(57618);
+var ToolError = __webpack_require__(7618);
 ;// CONCATENATED MODULE: ./node_modules/@anthropic-ai/sdk/helpers/beta/json-schema.mjs
 
 
@@ -107,7 +107,7 @@ function betaJSONSchemaOutputFormat(jsonSchema, options) {
 }
 //# sourceMappingURL=json-schema.mjs.map
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/internal/utils/promise.mjs
-var promise = __webpack_require__(67793);
+var promise = __webpack_require__(7793);
 ;// CONCATENATED MODULE: ./node_modules/@anthropic-ai/sdk/tools/agent-toolset/fs-util.mjs
 
 
@@ -298,11 +298,11 @@ function fsErrorMessage(err, file) {
 }
 //# sourceMappingURL=fs-util.mjs.map
 // EXTERNAL MODULE: external "node:util"
-var external_node_util_ = __webpack_require__(57975);
+var external_node_util_ = __webpack_require__(7975);
 // EXTERNAL MODULE: external "node:stream"
-var external_node_stream_ = __webpack_require__(57075);
+var external_node_stream_ = __webpack_require__(7075);
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/internal/utils/log.mjs
-var utils_log = __webpack_require__(37412);
+var utils_log = __webpack_require__(7412);
 ;// CONCATENATED MODULE: ./node_modules/@anthropic-ai/sdk/tools/agent-toolset/skills.mjs
 /**
  * Node-only skill plumbing for the agent toolset: downloading a session
@@ -625,9 +625,9 @@ async function readHead(file, n) {
 }
 //# sourceMappingURL=skills.mjs.map
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/internal/utils/bytes.mjs
-var bytes = __webpack_require__(19083);
+var bytes = __webpack_require__(9083);
 // EXTERNAL MODULE: ./node_modules/@anthropic-ai/sdk/internal/utils/backoff.mjs
-var backoff = __webpack_require__(17594);
+var backoff = __webpack_require__(7594);
 ;// CONCATENATED MODULE: ./node_modules/@anthropic-ai/sdk/internal/file-store.mjs
 
 
