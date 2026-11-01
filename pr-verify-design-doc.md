@@ -1,12 +1,12 @@
-﻿# PR Verify â€” Design Doc
+# PR Verify — Design Doc
 
-Working name; rename freely. Supersedes the CI Medic doc. 2026-10-22, fourth revision.
+2026-10-22, fourth revision.
 
 ## Goal
 
 PR Verify is the pull-request pipeline a lead actually wants: when a PR comes in it builds the project, runs every test, audits the dependencies, and only then lets a Claude agent review the change for bugs and security problems, with evidence. The gate is plain CI with no model in it and is what a required status check is made of. The review is advisory feedback to the human reviewer, which on your repositories is you. One short workflow file attaches the whole thing to any project.
 
-It has two jobs. The first is to be useful every day on Tip Stream, Life Map and whatever comes next: a PR that doesn't build or doesn't pass never reaches a person, and a PR that does gets a second pair of eyes that has to prove what it says. The second is to show judgment about where an agent belongs in a pipeline: it never approves, never merges, never pushes, never posts a behavior claim it couldn't demonstrate without labelling it as such, and says nothing when it has nothing. That second job is the README and the Tether application.
+It has two jobs. The first is to be useful every day on Tip Stream, Life Map and whatever comes next: a PR that doesn't build or doesn't pass never reaches a person, and a PR that does gets a second pair of eyes that has to prove what it says. The second is to show judgment about where an agent belongs in a pipeline: it never approves, never merges, never pushes, never posts a behavior claim it couldn't demonstrate without labelling it as such, and says nothing when it has nothing.
 
 Terms used throughout: CI is continuous integration, the automated build-and-test run on every push. PR is pull request. An API is a web interface that programs call, and an SDK is the official client library for one. JSON is plain structured text. "The gate" is the deterministic job (install, build, test, audit). "The review" is the agent job. "The harness" is the deterministic TypeScript around the agent, as opposed to the agent itself. "The runner" is the virtual machine GitHub starts for a job.
 
@@ -78,7 +78,7 @@ Patches in review mode exist only in the comment. Nothing is pushed, committed o
 
 ## Repository guidance
 
-An optional REVIEW.md at the repository root is read into the review brief verbatim, capped at 8 KB. It says what matters in this project: invariants, areas to scrutinize, things to ignore. For Tip Stream that is the stream-ordering invariant, the rule that the model interface is never called in tests, and the dedupe thresholds. It is the one per-project knob, and it is the "repository guidance agents need to work effectively" item from the Tether posting.
+An optional REVIEW.md at the repository root is read into the review brief verbatim, capped at 8 KB. It says what matters in this project: invariants, areas to scrutinize, things to ignore. For Tip Stream that is the stream-ordering invariant, the rule that the model interface is never called in tests, and the dedupe thresholds. It is the one per-project knob.
 
 ## Hard limits
 
@@ -176,14 +176,3 @@ One stage at a time, each finished and running on Tip Stream before the next sta
 No approvals or change requests, no merging, no pushing, no fork PRs, no drafts, no style review, no lockfile or dependency changes, no scheduled runs, no multi-repository configuration beyond the one file per project, no directory or search tool.
 
 Version 2 candidates, in one line each: deterministic code-quality checks (function and file size, dependency cycles) fed to the reviewer as facts and posted on thresholds the project sets; push a verified fix to a branch for a one-click PR; a scheduled mode that runs the suite nightly against the default branch and opens an issue; a search tool once the run records show the agent reading files blind.
-
-## What this gives the application
-
-The Tether posting lists, in its own words, agents in CI that investigate failures and propose fixes (stage three), improving automated pull-request reviews while evaluating finding accuracy and reducing reviewer noise (stage two, the evidence rule, the caps, the silence, the reaction-based precision), the repository guidance agents need (REVIEW.md), and build, test and release workflows that let engineers and agents verify changes reliably (the gate). Code-quality scripts and checks are the first version 2 item.
-
-The form asks three written questions. The first, why Tether, is yours alone.
-
-The second asks for a developer tool or workflow improvement you built and maintained: what problem it solved, how you got engineers to use it, and what evidence showed it helped. PR Verify on your repositories supplies the problem (reviewer time spent on PRs that don't build or don't pass, and on reading diffs for bugs a machine could demonstrate) and the evidence (the run records: gates failed before a person looked, findings posted, verified rate, precision from your own reactions). The adoption part is where the AFS pipeline and OpenShift tooling comes in, since that is the work with other engineers in it.
-
-The third asks for an AI agent or coding-tool integration you introduced into an engineering workflow, how you validated its output and handled failures, with a link to a project. That is this design, visible in the code: the evidence rule that turns a hunch into a failing test before it's posted, harness-side verification as the only path to "verified", the capped unverified lane, the four-tool limit, the budgets, the review that never approves, and the run record behind every comment. The repository link goes in that answer and in the form's links field; the README's guardrails section is what a reviewer reads first.
-
