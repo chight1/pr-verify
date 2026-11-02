@@ -22,7 +22,8 @@ jobs:
       runtime: node
       runtime-version: '24'
       install-command: npm ci
-      build-command: npm run build
+      # The build compiles only src/, so the tests are type-checked first.
+      build-command: npm run typecheck && npm run build
       # The sandbox tests check this never reaches a sandboxed command.
       test-command: PR_VERIFY_CANARY="canary-$GITHUB_RUN_ID" npm test
       audit-command: npm audit --audit-level=high
