@@ -2,7 +2,7 @@
 
 A pull-request pipeline in two stages. The **gate** is plain CI: install, lint, static analysis, build, test, audit, security scan, no model anywhere, and it is the only thing that can block a merge. The **review** runs after a green gate: a Claude agent reads the change and may post findings, but every claim about behavior has to be demonstrated by a test that fails on the PR commit before it is posted. One short workflow file attaches both to a project.
 
-The review is advisory. A person decides what to do with it. For an example of a posted review, see [jobFinder #10](https://github.com/chight1/jobFinder/pull/10).
+The review is advisory. A person decides what to do with it.
 
 ## What it will never do
 

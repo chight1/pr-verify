@@ -228,7 +228,7 @@ describe('ScratchTree.runTests', () => {
 });
 
 describe('a test patch that breaks the build', () => {
-  const broken = { id: 't', kind: 'test' as const, description: 'broken', diff: BROKEN_TEST_PATCH };
+  const broken = { id: 1, kind: 'test' as const, description: 'broken', diff: BROKEN_TEST_PATCH };
 
   it('does not count as a failing test', async () => {
     const tree = repoAt(2, { 'build.js': BUILD }, 'node build.js');
