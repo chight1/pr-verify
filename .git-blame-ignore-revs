@@ -1,0 +1,5 @@
+# Formatting-only commits, which git blame skips with --ignore-revs-file
+# and GitHub skips in its blame view.
+
+# Format the codebase with Prettier
+5c2bfda16e2776eb6e91d58b81cc8eb4839761f4
