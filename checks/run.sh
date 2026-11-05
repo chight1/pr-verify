@@ -210,13 +210,11 @@ fi
 if [ -f go.mod ]; then
   run "go mod tidy" go mod tidy -diff
   # Functions nothing reaches, from main packages and tests. deadcode reports
-  # without failing, so any output fails.
+  # without failing, so anything it prints fails. Go's own notices, such as a
+  # toolchain switch, go to stderr and do not count.
   deadcode_check() {
     local out
-    out="$(go run golang.org/x/tools/cmd/deadcode@v0.52.0 -test ./... 2>&1)" || {
-      echo "$out"
-      return 1
-    }
+    out="$(go run golang.org/x/tools/cmd/deadcode@v0.52.0 -test ./...)" || return 1
     echo "$out"
     [ -z "$out" ]
   }
