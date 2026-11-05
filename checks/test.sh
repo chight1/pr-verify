@@ -92,6 +92,7 @@ printf '// Package main is a fixture.\npackage main\n\nimport "os"\n\nfunc main(
 # The comments the gate rejects outright, written so this file has none of them.
 printf 'x = 1  # pyright%s basic\n' ':' > suppressed.py
 printf '// prettier%signore\nexport const y = 1;\n' '-' > suppressed.ts
+printf '#!/usr/bin/env bash\ncd %s\n' "\$1" > deploy.sh
 printf '#!/usr/bin/env bash\n# shellcheck%sdisable=SC2086\necho %s\n' ' ' "\$1" > suppressed.sh
 # A workflow with an unpinned action and a script injection behind zizmor's ignore comment.
 mkdir -p .github/workflows
@@ -112,5 +113,5 @@ for tool in "ruff check" pyright tsc ESLint golangci-lint whitespace "file size"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
   errcheck suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
-  "notes.txt: no newline" big.bin SC2086 unpinned-uses template-injection DL3006 DL3008
+  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008
 echo "checks: ok"
