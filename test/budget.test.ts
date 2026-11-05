@@ -43,28 +43,32 @@ describe("Budget", () => {
       outputTokens: 100,
       cachedInputTokens: 2000,
     });
-    expectTrip(
-      () =>
-        budget.chargeTokens({
-          input: 300,
-          output: 1,
-          cacheRead: 0,
-          cacheWrite: 0,
-        }),
-      "tokens",
-    );
+    expectTrip(() => {
+      budget.chargeTokens({
+        input: 300,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+      });
+    }, "tokens");
   });
 
   it("caps tool calls, test runs and patch attempts separately", () => {
     const budget = new Budget(LIMITS);
     budget.chargeToolCall();
     budget.chargeTestRun();
-    expectTrip(() => budget.chargeTestRun(), "testRuns");
+    expectTrip(() => {
+      budget.chargeTestRun();
+    }, "testRuns");
     budget.chargePatchAttempt();
-    expectTrip(() => budget.chargePatchAttempt(), "patchAttempts");
+    expectTrip(() => {
+      budget.chargePatchAttempt();
+    }, "patchAttempts");
     budget.chargeToolCall();
     budget.chargeToolCall();
-    expectTrip(() => budget.chargeToolCall(), "toolCalls");
+    expectTrip(() => {
+      budget.chargeToolCall();
+    }, "toolCalls");
   });
 
   it("trips the clock from an injected time source", () => {
@@ -75,8 +79,12 @@ describe("Budget", () => {
     budget.checkClock();
     expect(budget.remainingMs()).toBe(1000);
     now = 61_000;
-    expectTrip(() => budget.checkClock(), "minutes");
-    expectTrip(() => budget.chargeToolCall(), "minutes");
+    expectTrip(() => {
+      budget.checkClock();
+    }, "minutes");
+    expectTrip(() => {
+      budget.chargeToolCall();
+    }, "minutes");
     expect(budget.remainingMs()).toBe(0);
   });
 });

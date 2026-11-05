@@ -14,7 +14,7 @@ import {
 
 const [target, author] = process.argv.slice(2);
 const [owner, repo] = target?.split("/") ?? [];
-const token = process.env["GITHUB_TOKEN"];
+const token = process.env.GITHUB_TOKEN;
 if (!owner || !repo || !token) {
   console.error(
     "usage: GITHUB_TOKEN=... npm run precision -- owner/repo [author]",

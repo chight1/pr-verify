@@ -209,7 +209,7 @@ function repoAt(
   mkdirSync(path.join(dir, "tests"));
   const files: Record<string, string> = {
     "run.js": RUNNER,
-    "value.js": `module.exports = ${value};\n`,
+    "value.js": `module.exports = ${String(value)};\n`,
     "tests/keep.test.js": "\n",
     ...extra,
   };
@@ -283,27 +283,27 @@ describe("verifyStaticAnalysisFix", () => {
     id: 1,
     kind: "fix" as const,
     description: "fix",
-    diff: `diff --git a/value.js b/value.js\n--- a/value.js\n+++ b/value.js\n@@ -1,1 +1,1 @@\n-module.exports = 1;\n+module.exports = ${value};\n`,
+    diff: `diff --git a/value.js b/value.js\n--- a/value.js\n+++ b/value.js\n@@ -1,1 +1,1 @@\n-module.exports = 1;\n+module.exports = ${String(value)};\n`,
   });
 
   it("verifies a fix that clears every finding and keeps the suite passing", async () => {
     const tree = repoAt(1, { "tests/value.test.js": TEST });
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(2), async () => 0),
+      await verifyStaticAnalysisFix(tree, fixTo(2), () => Promise.resolve(0)),
     ).toMatchObject({ fixPasses: true, findingsLeft: 0, runs: 1 });
   });
 
   it("does not run the suite while findings are left", async () => {
     const tree = repoAt(1, { "tests/value.test.js": TEST });
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(2), async () => 2),
+      await verifyStaticAnalysisFix(tree, fixTo(2), () => Promise.resolve(2)),
     ).toMatchObject({ fixPasses: false, findingsLeft: 2, runs: 0 });
   });
 
   it("rejects a fix that clears the findings but breaks the suite, and leaves the tree clean", async () => {
     const tree = repoAt(1, { "tests/value.test.js": TEST });
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(3), async () => 0),
+      await verifyStaticAnalysisFix(tree, fixTo(3), () => Promise.resolve(0)),
     ).toMatchObject({ fixPasses: false, findingsLeft: 0, runs: 1 });
     expect(
       execFileSync("git", ["status", "--porcelain"], {
@@ -315,22 +315,26 @@ describe("verifyStaticAnalysisFix", () => {
   it("says nothing about findings when Semgrep failed or the fix did not apply", async () => {
     const tree = repoAt(1);
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(2), async () => null),
+      await verifyStaticAnalysisFix(tree, fixTo(2), () =>
+        Promise.resolve(null),
+      ),
     ).toMatchObject({ fixPasses: false, findingsLeft: null });
     expect(
-      await verifyStaticAnalysisFix(repoAt(5), fixTo(2), async () => 0),
+      await verifyStaticAnalysisFix(repoAt(5), fixTo(2), () =>
+        Promise.resolve(0),
+      ),
     ).toMatchObject({ fixPasses: false, findingsLeft: null, runs: 0 });
   });
 });
 
 // Real Semgrep, from the pinned image CI sets. A local rule keeps the test off the registry.
-describe.runIf(process.platform === "linux" && process.env["SEMGREP_IMAGE"])(
+describe.runIf(process.platform === "linux" && process.env.SEMGREP_IMAGE)(
   "runStaticAnalysis",
   () => {
     const RULES =
       "rules:\n  - id: no-eval\n    languages: [javascript]\n    severity: ERROR\n    message: eval\n    pattern: eval($X)\n";
     const analysis = {
-      image: process.env["SEMGREP_IMAGE"] ?? "",
+      image: process.env.SEMGREP_IMAGE ?? "",
       args: "--config /src/rules.yml --disable-nosem",
     };
 

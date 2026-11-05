@@ -155,15 +155,23 @@ function readInputs(): Inputs {
   };
 }
 
+/** The fields of the pull_request event payload this action reads. */
+interface PullRequestPayload {
+  number: number;
+  base?: { sha?: string };
+  head?: { sha?: string };
+}
+
 function pullRequestFromEvent(): PullRequestRef {
-  const pr = github.context.payload.pull_request;
+  const pr = github.context.payload.pull_request as
+    PullRequestPayload | undefined;
   if (!pr) throw new Error("this action only runs on pull_request events");
   return {
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
     number: pr.number,
-    baseSha: String(pr["base"]?.sha ?? ""),
-    headSha: String(pr["head"]?.sha ?? ""),
+    baseSha: pr.base?.sha ?? "",
+    headSha: pr.head?.sha ?? "",
   };
 }
 
@@ -202,7 +210,7 @@ function tooLargeNote(
   if (tokens <= limit) return null;
   const kb = Math.round(Buffer.byteLength(diff.text, "utf8") / 1024);
   return (
-    `This diff is about ${kb} KB (≈ ${tokens.toLocaleString("en-US")} tokens), over this project's review limit of ` +
+    `This diff is about ${String(kb)} KB (≈ ${tokens.toLocaleString("en-US")} tokens), over this project's review limit of ` +
     `${limit.toLocaleString("en-US")} tokens, a quarter of its \`max-tokens\` budget. Split it into smaller pull requests to get a review.`
   );
 }
@@ -369,7 +377,7 @@ async function reviewMode(stage: Stage): Promise<void> {
     await tree.reset();
     await core.summary
       .addRaw(
-        `PR Verify: no review posted (${outcome.budgetTripped ? `budget: ${outcome.budgetTripped}` : outcome.stopReason}).`,
+        `PR Verify: no review posted (${outcome.budgetTripped ? `budget: ${outcome.budgetTripped}` : String(outcome.stopReason)}).`,
       )
       .write();
     return;
@@ -405,8 +413,8 @@ async function reviewMode(stage: Stage): Promise<void> {
     tests: executor.trail
       .filter((t) => t.tool === "run_tests")
       .map((t) => ({
-        description: `run ${t.n}`,
-        exitCode: (t.response["exitCode"] as number | null) ?? null,
+        description: `run ${String(t.n)}`,
+        exitCode: (t.response.exitCode as number | null) ?? null,
       })),
     inputTokens: record.usage.inputTokens,
     outputTokens: record.usage.outputTokens,
@@ -435,14 +443,14 @@ async function reviewMode(stage: Stage): Promise<void> {
   record.outcome = "findings";
   await core.summary
     .addRaw(
-      `PR Verify: posted ${kept.length} finding(s), ${resolution.resolved.length} resolved.`,
+      `PR Verify: posted ${String(kept.length)} finding(s), ${String(resolution.resolved.length)} resolved.`,
     )
     .write();
 }
 
 interface Selection {
   kept: Finding[];
-  dropped: Array<{ finding: Finding; reason: string }>;
+  dropped: { finding: Finding; reason: string }[];
 }
 
 /**
@@ -791,7 +799,7 @@ function staticAnalysisNote(findingsLeft: number | null): string {
   if (findingsLeft === null)
     return "Semgrep could not be re-run with the proposed fix applied, so only the diagnosis is shown.";
   if (findingsLeft > 0) {
-    return `Semgrep still reported ${findingsLeft} finding(s) with the proposed fix applied, so only the diagnosis is shown.`;
+    return `Semgrep still reported ${String(findingsLeft)} finding(s) with the proposed fix applied, so only the diagnosis is shown.`;
   }
   return "Semgrep found nothing with the proposed fix applied, but the suite did not pass, so only the diagnosis is shown.";
 }
@@ -801,8 +809,8 @@ async function run(): Promise<void> {
   const inputs = readInputs();
   const pr = pullRequestFromEvent();
   const mode: Mode = inputs.gateResult === "failure" ? "red-gate" : "review";
-  const repoRoot = process.env["GITHUB_WORKSPACE"] ?? process.cwd();
-  const runUrl = `${github.context.serverUrl}/${pr.owner}/${pr.repo}/actions/runs/${github.context.runId}`;
+  const repoRoot = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  const runUrl = `${github.context.serverUrl}/${pr.owner}/${pr.repo}/actions/runs/${String(github.context.runId)}`;
 
   const record = emptyRecord({
     runId: github.context.runId,
@@ -824,7 +832,7 @@ async function run(): Promise<void> {
     runUrl,
   };
 
-  let outcome: Outcome = "error";
+  let outcome: Outcome;
   try {
     if (inputs.gateResult === "cancelled" || inputs.gateResult === "skipped") {
       record.outcome = "abstain";
@@ -844,7 +852,7 @@ async function run(): Promise<void> {
     core.setOutput("verdict", record.outcome);
     const file = await writeRecord(
       record,
-      path.join(process.env["RUNNER_TEMP"] ?? repoRoot, "pr-verify"),
+      path.join(process.env.RUNNER_TEMP ?? repoRoot, "pr-verify"),
     );
     core.setOutput("record-path", file);
   }

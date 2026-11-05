@@ -7,6 +7,10 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 failed=()
+# Configs written at the project root, since pyright and TypeScript resolve the
+# project's imports from the config's own directory. Untracked, and removed on exit.
+written=()
+trap 'rm -f "${written[@]}"' EXIT
 
 # Tracked files a person writes: not lockfiles, minified bundles, source maps,
 # or files .gitattributes marks linguist-generated. The same files the review reads.
@@ -29,6 +33,20 @@ run() {
     failed+=("$name")
     echo "::error title=$name::$name failed. The log group above shows what to fix."
   fi
+}
+
+# golangci-lint from a pinned release, checked against its SHA-256. Prints its path.
+install_golangci_lint() {
+  local version=2.15.0
+  local sha256=9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
+  local name="golangci-lint-$version-linux-amd64"
+  local dir
+  dir="$(mktemp -d)"
+  curl -fsSL -o "$dir/$name.tar.gz" \
+    "https://github.com/golangci/golangci-lint/releases/download/v$version/$name.tar.gz" >&2 \
+    && echo "$sha256  $dir/$name.tar.gz" | sha256sum --check --strict --quiet >&2 \
+    && tar -xzf "$dir/$name.tar.gz" -C "$dir" --strip-components 1 "$name/golangci-lint" >&2 \
+    && echo "$dir/golangci-lint"
 }
 
 # Files are kept apart by type, not by the project's runtime, so a Python
@@ -73,6 +91,64 @@ if [ ${#prettier[@]} -gt 0 ]; then
   run "Prettier" "$here/node_modules/.bin/prettier" --check --no-config --no-editorconfig \
     --ignore-path /dev/null -- "${prettier[@]}"
 fi
+
+# Lint and types, each with the gate's config and none of the project's.
+
+if [ ${#python[@]} -gt 0 ]; then
+  run "ruff check" pipx run ruff==0.17.2 check --config "$here/ruff.toml" --ignore-noqa --no-cache \
+    -- "${python[@]}"
+  # Checks against the Python on PATH, where the install step put the project's dependencies.
+  pyright_config="$PWD/pyrightconfig.pr-verify.json"
+  written+=("$pyright_config")
+  cp "$here/pyrightconfig.json" "$pyright_config"
+  run "pyright" "$here/node_modules/.bin/pyright" --project "$pyright_config" "${python[@]}"
+fi
+
+mapfile -t typescript < <(printf '%s\n' "${files[@]}" | grep -E '\.(ts|tsx|mts|cts)$')
+mapfile -t javascript < <(printf '%s\n' "${files[@]}" | grep -E '\.(js|jsx|mjs|cjs)$')
+tsconfig=""
+if [ ${#typescript[@]} -gt 0 ]; then
+  tsconfig="$PWD/tsconfig.pr-verify.json"
+  written+=("$tsconfig")
+  node "$here/tsconfig.mjs" "$tsconfig" "${typescript[@]}"
+  run "tsc" "$here/node_modules/.bin/tsc" --project "$tsconfig"
+fi
+if [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; then
+  run "ESLint" env PR_VERIFY_TSCONFIG="$tsconfig" "$here/node_modules/.bin/eslint" \
+    --config "$here/eslint.config.mjs" --no-inline-config --max-warnings 0 \
+    -- "${typescript[@]}" "${javascript[@]}"
+fi
+
+if [ ${#go[@]} -gt 0 ]; then
+  run "golangci-lint" bash -c '"$1" run --config "$2" ./...' golangci-lint "$(install_golangci_lint)" \
+    "$here/golangci.yml"
+fi
+
+# Comments that switch a check off, for tools with no flag to ignore them, in
+# each tool's own comment syntax and only in the files it reads, so prose that
+# names a directive does not match. The brackets keep this file from matching.
+grep_files() {
+  local pattern="$1"
+  shift
+  [ $# -gt 0 ] && git grep -nE "$pattern" -- "$@"
+}
+suppressions() {
+  local markup yaml code found=1
+  mapfile -t markup < <(printf '%s\n' "${prettier[@]}" | grep -E '\.(html?|vue|md)$')
+  mapfile -t yaml < <(printf '%s\n' "${prettier[@]}" | grep -E '\.ya?ml$')
+  mapfile -t code < <(printf '%s\n' "${prettier[@]}" | grep -vE '\.(html?|vue|md|ya?ml)$')
+  grep_files '#[ ]*(pyright[:]|fmt[:][ ]*(off|skip)|isort[:][ ]*(off|skip))' "${python[@]}" && found=0
+  grep_files '(//|/[*])[ ]*prettier[-]ignore' "${code[@]}" && found=0
+  grep_files '<!--[ ]*prettier[-]ignore' "${markup[@]}" && found=0
+  grep_files '#[ ]*prettier[-]ignore' "${yaml[@]}" && found=0
+  grep_files '(\{#|<!--)[ ]*djlint[:]off' "${templates[@]}" && found=0
+  grep_files '//[ ]*(nolint|lint[:]ignore)' "${go[@]}" && found=0
+  if [ "$found" -eq 0 ]; then
+    echo "These comments switch a check off. Fix what the check found instead." >&2
+    return 1
+  fi
+}
+run "suppressions" suppressions
 
 if [ ${#failed[@]} -gt 0 ]; then
   {

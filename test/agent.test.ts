@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   buildRedGateBrief,
@@ -41,11 +41,11 @@ const text = (t: string): Anthropic.TextBlock => ({
  */
 function fakeClient(responses: Response[]) {
   const requests: Anthropic.MessageCreateParams[] = [];
-  const create = vi.fn(async (params: Anthropic.MessageCreateParams) => {
+  const create = vi.fn((params: Anthropic.MessageCreateParams) => {
     requests.push(structuredClone(params));
     const next = responses.shift();
-    if (!next) throw new Error("no more scripted responses");
-    return {
+    if (!next) return Promise.reject(new Error("no more scripted responses"));
+    return Promise.resolve({
       ...next,
       usage: {
         input_tokens: 100,
@@ -54,7 +54,7 @@ function fakeClient(responses: Response[]) {
         cache_creation_input_tokens: 0,
         ...next.usage,
       },
-    };
+    });
   });
   return {
     client: { messages: { create } } as unknown as Anthropic,
@@ -64,17 +64,19 @@ function fakeClient(responses: Response[]) {
 }
 
 function fakeExecutor(finishOn: string) {
-  const execute = vi.fn(async (block: Anthropic.ToolUseBlock) => ({
-    block: {
-      type: "tool_result" as const,
-      tool_use_id: block.id,
-      content: "ok",
-    },
-    finished:
-      block.name === finishOn
-        ? { mode: "review" as const, findings: [] }
-        : null,
-  }));
+  const execute = vi.fn((block: Anthropic.ToolUseBlock) =>
+    Promise.resolve({
+      block: {
+        type: "tool_result" as const,
+        tool_use_id: block.id,
+        content: "ok",
+      },
+      finished:
+        block.name === finishOn
+          ? { mode: "review" as const, findings: [] }
+          : null,
+    }),
+  );
   return { executor: { execute } as unknown as ToolExecutor, execute };
 }
 
@@ -117,11 +119,10 @@ describe("runAgent", () => {
       stopReason: null,
       turns: 2,
     });
-    expect(
-      execute.mock.calls.map((c) => (c[0] as Anthropic.ToolUseBlock).id),
-    ).toEqual(["a", "b", "c"]);
+    expect(execute.mock.calls.map((c) => c[0].id)).toEqual(["a", "b", "c"]);
 
-    const second = requests[1]!;
+    const second = requests[1];
+    assert.isDefined(second);
     expect(second.messages).toHaveLength(3);
     expect(second.messages[2]).toEqual({
       role: "user",
@@ -167,7 +168,7 @@ describe("runAgent", () => {
               .filter((b) => "cache_control" in b && b.cache_control)
               .map(() => i),
       );
-    expect(requests[0]!.messages[0]).toEqual({
+    expect(requests[0]?.messages[0]).toEqual({
       role: "user",
       content: [
         { type: "text", text: "brief", cache_control: { type: "ephemeral" } },
@@ -190,12 +191,13 @@ describe("runAgent", () => {
       executor,
       budget: budget(),
     });
-    const params = requests[0]!;
+    const params = requests[0];
+    assert.isDefined(params);
     const system = params.system as Anthropic.TextBlockParam[];
     expect(system).toHaveLength(2);
-    expect(system[0]!.cache_control).toEqual({ type: "ephemeral" });
-    expect(system[0]!.text).toContain("investigate why the gate failed");
-    expect(system[1]!.text).toContain("README.md");
+    expect(system[0]?.cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0]?.text).toContain("investigate why the gate failed");
+    expect(system[1]?.text).toContain("README.md");
     expect(params.tools?.map((t) => ("name" in t ? t.name : t.type))).toEqual([
       "read_file",
       "run_tests",
@@ -226,10 +228,16 @@ describe("runAgent", () => {
       turns: 3,
     });
     expect(create).toHaveBeenCalledTimes(3);
-    const last = requests[2]!;
+    const last = requests[2];
+    assert.isDefined(last);
     expect(last.messages.at(-1)).toMatchObject({
       role: "user",
-      content: [{ type: "text", text: expect.stringContaining("Call finish") }],
+      content: [
+        {
+          type: "text",
+          text: "Call finish to end the run. Report an empty list if there is nothing to report.",
+        },
+      ],
     });
   });
 
@@ -273,9 +281,7 @@ describe("runAgent", () => {
   it("propagates API errors", async () => {
     const client = {
       messages: {
-        create: vi.fn(async () => {
-          throw new Error("401");
-        }),
+        create: vi.fn(() => Promise.reject(new Error("401"))),
       },
     } as unknown as Anthropic;
     const { executor } = fakeExecutor("finish");

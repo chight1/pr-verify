@@ -1,0 +1,27 @@
+# The gate's Python lint rules: every rule, minus docstring style, a copyright
+# header in every file, and the rules that conflict with the formatter.
+[lint]
+select = ["ALL"]
+ignore = [
+  "D",
+  "DOC",
+  "CPY",
+  # A TODO that names an issue is allowed; TD003 fails the ones that don't.
+  "FIX002",
+  "TD002",
+  "W191",
+  "E111",
+  "E114",
+  "E117",
+  "COM812",
+  "COM819",
+  "ISC002",
+  "Q000",
+  "Q001",
+  "Q002",
+  "Q003",
+]
+
+[lint.per-file-ignores]
+# Tests assert, compare with literal expected values, and need no package.
+"{**/test_*.py,**/*_test.py,**/tests/**,**/conftest.py}" = ["S101", "PLR2004", "INP001"]

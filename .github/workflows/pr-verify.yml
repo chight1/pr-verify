@@ -29,14 +29,14 @@ on:
         required: true
         type: string
       lint:
-        description: Run a linter in the gate
+        description: Run lint-command in the gate
         required: false
         type: boolean
         default: true
       lint-command:
         description: >-
-          Replaces the default linter, which is ruff for python, go vet for go,
-          and for node the project's own lint script or else Biome.
+          A linter of the project's own, run in addition to the gate's
+          code-quality checks, which always run.
         required: false
         type: string
         default: ""
@@ -123,7 +123,9 @@ jobs:
         id: install
         run: ${{ inputs.install-command }}
 
-      # PR Verify's own settings, not the project's, so a PR cannot loosen them.
+      # Formatting, lint and types, with PR Verify's own settings rather than the
+      # project's, so a PR cannot loosen them. After install, since type checks
+      # need the project's dependencies.
       - name: code quality
         if: ${{ !cancelled() }}
         uses: chight1/pr-verify/checks@v1
@@ -131,23 +133,6 @@ jobs:
       - name: lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command != '' }}
         run: ${{ inputs.lint-command }}
-
-      # Defaults that need no config in the project.
-      - name: lint
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command == '' }}
-        env:
-          RUNTIME: ${{ inputs.runtime }}
-        run: |
-          case "$RUNTIME" in
-            python) pipx run ruff==0.17.2 check . ;;
-            go) go vet ./... ;;
-            node)
-              if node -e "process.exit(require('./package.json').scripts?.lint ? 0 : 1)"; then
-                npm run lint
-              else
-                npx --yes @biomejs/biome@2.6.3 lint --vcs-enabled=true --vcs-client-kind=git --vcs-use-ignore-file=true .
-              fi ;;
-          esac
 
       # Lint finds smells; this follows untrusted input to a dangerous call.
       - name: static analysis

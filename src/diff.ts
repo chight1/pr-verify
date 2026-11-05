@@ -234,19 +234,19 @@ export function recountHunks(text: string): string {
   const plain = !lines.some((l) => l.startsWith("diff --git "));
   const out: string[] = [];
 
-  let i = 0;
-  while (i < lines.length) {
-    const header = HUNK_HEADER.exec(lines[i]!);
+  // Lines before `resume` were taken into the previous hunk's body.
+  let resume = 0;
+  for (const [i, current] of lines.entries()) {
+    if (i < resume) continue;
+    const header = HUNK_HEADER.exec(current);
     if (!header) {
-      out.push(lines[i]!);
-      i += 1;
+      out.push(current);
       continue;
     }
 
     const body: string[] = [];
     let j = i + 1;
-    for (; j < lines.length; j += 1) {
-      const line = lines[j]!;
+    for (const line of lines.slice(j)) {
       if (HUNK_HEADER.test(line) || line.startsWith("diff --git ")) break;
       if (plain && startsPlainFile(lines, j)) break;
       const marker = line[0];
@@ -259,6 +259,7 @@ export function recountHunks(text: string): string {
       )
         break;
       body.push(line);
+      j += 1;
     }
     while (body.length > 0 && body[body.length - 1] === "") body.pop();
 
@@ -274,12 +275,17 @@ export function recountHunks(text: string): string {
       }
     }
 
-    const rest = lines[i]!.slice(header[0].length);
+    const [, oldStart, , newStart] = header;
+    if (oldStart === undefined || newStart === undefined)
+      throw new Error(
+        `hunk header matched without its start lines: ${current}`,
+      );
+    const rest = current.slice(header[0].length);
     out.push(
-      `@@ -${header[1]},${oldCount} +${header[3]},${newCount} @@${rest}`,
+      `@@ -${oldStart},${String(oldCount)} +${newStart},${String(newCount)} @@${rest}`,
       ...body,
     );
-    i = j;
+    resume = j;
   }
 
   while (out.length > 0 && out[out.length - 1] === "") out.pop();
@@ -298,8 +304,7 @@ export function applyHints(recounted: string): string[] {
   const hints: string[] = [];
   let path = "";
   const lines = recounted.split("\n");
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!;
+  for (const [i, line] of lines.entries()) {
     if (line.startsWith("+++ ")) {
       path = headerPath(line);
       continue;
@@ -312,8 +317,8 @@ export function applyHints(recounted: string): string[] {
     let leading = 0;
     let trailing = 0;
     let changed = false;
-    for (let j = i + 1; j < lines.length && remaining > 0; j += 1) {
-      const body = lines[j]!;
+    for (const body of lines.slice(i + 1)) {
+      if (remaining <= 0) break;
       if (body.startsWith("\\")) continue;
       if (body.startsWith("+") || body.startsWith("-")) {
         changed = true;
@@ -327,7 +332,7 @@ export function applyHints(recounted: string): string[] {
     }
     if (changed && leading > 0 && trailing === 0) {
       hints.push(
-        `${path}: the hunk at old line ${oldStart} has ${leading} context line(s) before its change and none after. ` +
+        `${path}: the hunk at old line ${String(oldStart)} has ${String(leading)} context line(s) before its change and none after. ` +
           "git applies a hunk like that only at the end of a file. Add the lines that follow the change as context.",
       );
     }

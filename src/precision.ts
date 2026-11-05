@@ -7,7 +7,11 @@
  */
 
 import type { Octokit } from "./context.js";
-import { DEFAULT_TOKEN_LOGIN, parseFindingMarkers } from "./review.js";
+import {
+  DEFAULT_TOKEN_LOGIN,
+  parseFindingMarkers,
+  postedBy,
+} from "./review.js";
 
 export interface RatedComment {
   body: string;
@@ -25,7 +29,7 @@ export function tallyPrecision(comments: RatedComment[]): PrecisionRow[] {
   const rows = new Map<string, PrecisionRow>();
   for (const comment of comments) {
     for (const finding of parseFindingMarkers(comment.body)) {
-      const key = `${finding.category}:${finding.verified}`;
+      const key = `${finding.category}:${String(finding.verified)}`;
       const row = rows.get(key) ?? {
         category: finding.category,
         verified: finding.verified,
@@ -56,7 +60,7 @@ export async function fetchRatedComments(
     { owner, repo, per_page: 100 },
   );
   return comments
-    .filter((c) => c.user?.login === author)
+    .filter((c) => postedBy(c, author))
     .map((c) => ({ body: c.body, thumbsDown: c.reactions?.["-1"] ?? 0 }));
 }
 
@@ -64,7 +68,7 @@ export function renderPrecision(rows: PrecisionRow[]): string {
   if (rows.length === 0) return "No inline findings posted yet.";
   const lines = rows.map((r) => {
     const precision = Math.round((100 * (r.posted - r.markedWrong)) / r.posted);
-    return `${r.category.padEnd(14)} ${(r.verified ? "verified" : "unverified").padEnd(11)} ${String(r.posted).padStart(6)} ${String(r.markedWrong).padStart(6)} ${`${precision}%`.padStart(9)}`;
+    return `${r.category.padEnd(14)} ${(r.verified ? "verified" : "unverified").padEnd(11)} ${String(r.posted).padStart(6)} ${String(r.markedWrong).padStart(6)} ${`${String(precision)}%`.padStart(9)}`;
   });
   return [
     `${"category".padEnd(14)} ${"kind".padEnd(11)} ${"posted".padStart(6)} ${"wrong".padStart(6)} ${"precision".padStart(9)}`,

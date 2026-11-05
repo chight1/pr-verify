@@ -44,7 +44,9 @@ describe.runIf(canSandbox)("Sandbox", () => {
     dir = mkdtempSync(path.join(os.tmpdir(), "pr-verify-sandbox-"));
     execFileSync("git", ["init", "-q"], { cwd: dir });
   });
-  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   const run = (command: string, timeoutMs = 30_000) =>
     runCommand(command, dir, timeoutMs, 64 * 1024, sandbox);
@@ -68,7 +70,7 @@ describe.runIf(canSandbox)("Sandbox", () => {
     const canary = process.env.PR_VERIFY_CANARY;
     expect(canary).toBeTruthy();
     const result = await run(
-      `env; cat /proc/[0-9]*/environ 2>/dev/null | tr '\\0' '\\n'; test -e /proc/${process.pid} && echo seen || echo unseen`,
+      `env; cat /proc/[0-9]*/environ 2>/dev/null | tr '\\0' '\\n'; test -e /proc/${String(process.pid)} && echo seen || echo unseen`,
     );
     expect(result.output).not.toContain(canary);
     expect(last(result.output)).toBe("unseen");
@@ -89,7 +91,10 @@ describe.runIf(canSandbox)("Sandbox", () => {
   });
 
   it("hides the runner's home directory", async () => {
-    const marker = path.join(os.homedir(), `.pr-verify-marker-${process.pid}`);
+    const marker = path.join(
+      os.homedir(),
+      `.pr-verify-marker-${String(process.pid)}`,
+    );
     writeFileSync(marker, "");
     try {
       const result = await run(

@@ -58,7 +58,8 @@ End with finish: "fix" with the patch id, "diagnosis" with a three-line summary 
 function omittedSection(omitted: string[]): string[] {
   if (omitted.length === 0) return [];
   const shown = omitted.slice(0, 20).join(", ");
-  const more = omitted.length > 20 ? `, and ${omitted.length - 20} more` : "";
+  const more =
+    omitted.length > 20 ? `, and ${String(omitted.length - 20)} more` : "";
   return [
     `## Left out of the diff\n\nThese changed files are machine-written (lockfiles, minified or generated) and are not shown: ${shown}${more}.`,
   ];
@@ -86,7 +87,7 @@ export function buildReviewBrief(input: ReviewBriefInput): string {
     const list = input.openFindings
       .map(
         (f) =>
-          `- ${f.file}:${f.line} [${f.category}${f.verified ? ", verified" : ""}] ${f.title}`,
+          `- ${f.file}:${String(f.line)} [${f.category}${f.verified ? ", verified" : ""}] ${f.title}`,
       )
       .join("\n");
     sections.push(`## Already reported on this pull request\n\n${list}`);
@@ -198,7 +199,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
   let nudges = 0;
 
   try {
-    while (true) {
+    for (;;) {
       budget.checkClock();
       turns += 1;
       moveCacheBreakpoint(messages);

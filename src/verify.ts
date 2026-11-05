@@ -117,13 +117,13 @@ export function checkPatchPolicy(
   if (files.length === 0) violations.push("patch contains no file changes");
   if (files.length > limits.maxFiles) {
     violations.push(
-      `patch touches ${files.length} files; the limit is ${limits.maxFiles}`,
+      `patch touches ${String(files.length)} files; the limit is ${String(limits.maxFiles)}`,
     );
   }
   const changed = totalChangedLines(files);
   if (changed > limits.maxLines) {
     violations.push(
-      `patch changes ${changed} lines; the limit is ${limits.maxLines}`,
+      `patch changes ${String(changed)} lines; the limit is ${String(limits.maxLines)}`,
     );
   }
 
@@ -224,7 +224,9 @@ export function runCommand(
       chunks.push(chunk);
       kept += chunk.byteLength;
       while (kept > tailBytes * 2 && chunks.length > 1) {
-        kept -= chunks.shift()!.byteLength;
+        const oldest = chunks.shift();
+        if (!oldest) throw new Error("no output chunk left to drop");
+        kept -= oldest.byteLength;
       }
     };
     child.stdout.on("data", keep);
@@ -245,7 +247,7 @@ export function runCommand(
       const combined = Buffer.concat(chunks);
       const output =
         combined.byteLength > tailBytes
-          ? `[... ${combined.byteLength - tailBytes} bytes trimmed]\n${combined.subarray(-tailBytes).toString("utf8")}`
+          ? `[... ${String(combined.byteLength - tailBytes)} bytes trimmed]\n${combined.subarray(-tailBytes).toString("utf8")}`
           : combined.toString("utf8");
       resolve({
         exitCode: timedOut ? null : code,
@@ -443,7 +445,7 @@ export async function runStaticAnalysis(
   try {
     const command = [
       "docker run --rm",
-      `--user ${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
+      `--user ${String(process.getuid?.() ?? 0)}:${String(process.getgid?.() ?? 0)}`,
       `-e HOME=/tmp -v "${tree.root}:/src" -v "${out}:/out" -w /src`,
       analysis.image,
       "semgrep scan",

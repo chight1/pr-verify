@@ -1,0 +1,17 @@
+# The gate's Go lint rules. gofmt runs as the formatting check.
+version: "2"
+linters:
+  default: none
+  enable:
+    - errcheck
+    - errorlint
+    - exhaustive
+    - gocritic
+    - govet
+    - ineffassign
+    - revive
+    - staticcheck
+    - unused
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

@@ -19,24 +19,25 @@ class FakeTree {
   applied: string[] = [];
   rejectDiffs = new Set<string>();
   testExitCode = 0;
-  async reset(): Promise<void> {
+  reset(): Promise<void> {
     this.resets += 1;
     this.applied = [];
+    return Promise.resolve();
   }
-  async apply(diff: string): Promise<ApplyResult> {
+  apply(diff: string): Promise<ApplyResult> {
     if (this.rejectDiffs.has(diff))
-      return { applied: false, error: "patch does not apply" };
+      return Promise.resolve({ applied: false, error: "patch does not apply" });
     this.applied.push(diff);
-    return { applied: true };
+    return Promise.resolve({ applied: true });
   }
-  async runTests(): Promise<TestRun> {
-    return {
+  runTests(): Promise<TestRun> {
+    return Promise.resolve({
       exitCode: this.testExitCode,
       output: "suite output",
       durationMs: 5,
       timedOut: false,
       buildFailed: false,
-    };
+    });
   }
 }
 
@@ -60,7 +61,7 @@ beforeAll(async () => {
   await mkdir(path.join(repoRoot, "src"), { recursive: true });
   await writeFile(
     path.join(repoRoot, "src", "a.ts"),
-    Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n"),
+    Array.from({ length: 500 }, (_, i) => `line ${String(i + 1)}`).join("\n"),
   );
   await writeFile(
     path.join(repoRoot, "src", "secret.ts"),
@@ -109,8 +110,8 @@ describe("toolDefinitions", () => {
       "propose_patch",
       "finish",
     ]);
-    expect(review[3]!.input_schema.required).toEqual(["findings"]);
-    expect(red[3]!.input_schema.required).toEqual([
+    expect(review[3]?.input_schema.required).toEqual(["findings"]);
+    expect(red[3]?.input_schema.required).toEqual([
       "verdict",
       "summary",
       "citations",
@@ -125,9 +126,9 @@ describe("read_file", () => {
     const text = whole.block.content as string;
     expect(text.startsWith("1\tline 1\n")).toBe(true);
     expect(text).toContain(
-      `${READ_FILE_MAX_LINES}\tline ${READ_FILE_MAX_LINES}`,
+      `${String(READ_FILE_MAX_LINES)}\tline ${String(READ_FILE_MAX_LINES)}`,
     );
-    expect(text).not.toContain(`${READ_FILE_MAX_LINES + 1}\tline`);
+    expect(text).not.toContain(`${String(READ_FILE_MAX_LINES + 1)}\tline`);
     expect(text).toMatch(/\[truncated: showing lines 1-400 of 500\]$/);
 
     const range = await exec.execute(
@@ -143,7 +144,7 @@ describe("read_file", () => {
       call("read_file", { path: "src/a.ts", start_line: 499, end_line: 600 }),
     );
     expect(result.block.content).toBe("499\tline 499\n500\tline 500");
-    expect(exec.trail[0]!.response).toMatchObject({
+    expect(exec.trail[0]?.response).toMatchObject({
       lines: 2,
       truncated: false,
     });
@@ -220,7 +221,7 @@ describe("propose_patch and run_tests", () => {
     );
     expect(tree.resets).toBe(0);
     expect(exec.patches).toEqual([]);
-    expect(exec.trail[0]!.response).toMatchObject({
+    expect(exec.trail[0]?.response).toMatchObject({
       applied: false,
       diffPreview: FIX_PATCH,
     });
@@ -250,7 +251,7 @@ describe("propose_patch and run_tests", () => {
     );
     expect(result.block.is_error).toBeUndefined();
     expect(tree.applied[0]).toContain("@@ -0,0 +1,1 @@");
-    expect(exec.patches[0]!.diff).toBe(tree.applied[0]);
+    expect(exec.patches[0]?.diff).toBe(tree.applied[0]);
   });
 
   it("explains a rejected hunk that has context before its change and none after", async () => {
@@ -270,7 +271,7 @@ describe("propose_patch and run_tests", () => {
     expect(result.block.content).toContain(
       "src/a.ts: the hunk at old line 5 has 2 context line(s) before its change and none after",
     );
-    expect(exec.trail[0]!.response).toMatchObject({
+    expect(exec.trail[0]?.response).toMatchObject({
       applied: false,
       diffPreview: noTrailing,
     });

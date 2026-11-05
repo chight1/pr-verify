@@ -198,7 +198,7 @@ export function toolDefinitions(mode: Mode): Anthropic.Tool[] {
   return [
     {
       name: "read_file",
-      description: `Read a tracked file from the repository at the PR commit. Returns at most ${READ_FILE_MAX_LINES} lines or ${READ_FILE_MAX_BYTES / 1024} KB per call; use start_line and end_line to read further.`,
+      description: `Read a tracked file from the repository at the PR commit. Returns at most ${String(READ_FILE_MAX_LINES)} lines or ${String(READ_FILE_MAX_BYTES / 1024)} KB per call; use start_line and end_line to read further.`,
       input_schema: {
         type: "object",
         properties: {
@@ -264,7 +264,7 @@ export class ToolExecutor {
     let content: string;
     let isError = false;
     let finished: FinishPayload | null = null;
-    let response: Record<string, unknown> = {};
+    let response: Record<string, unknown>;
 
     try {
       switch (block.name) {
@@ -337,16 +337,16 @@ export class ToolExecutor {
   ): Record<string, unknown> {
     if (tool === "propose_patch") {
       const policy = checkPatchPolicy(
-        String(input["diff"] ?? ""),
-        (input["kind"] as PatchKind) ?? "fix",
+        typeof input.diff === "string" ? input.diff : "",
+        input.kind === "test" ? "test" : "fix",
         {
           maxLines: Number.MAX_SAFE_INTEGER,
           maxFiles: Number.MAX_SAFE_INTEGER,
         },
       );
       return {
-        kind: input["kind"],
-        description: input["description"],
+        kind: input.kind,
+        description: input.description,
         files: policy.files.map((f) => ({
           path: f.path,
           added: f.added,
@@ -396,8 +396,8 @@ export class ToolExecutor {
     let bytes = 0;
     // Truncated means a cap cut the read short, not that end_line ran past the end of the file.
     let truncated = end < wantedEnd;
-    for (let i = 0; i < slice.length; i += 1) {
-      const line = `${start + i}\t${slice[i]}`;
+    for (const [i, text] of slice.entries()) {
+      const line = `${String(start + i)}\t${text}`;
       bytes += Buffer.byteLength(line) + 1;
       if (bytes > READ_FILE_MAX_BYTES) {
         truncated = true;
@@ -409,7 +409,7 @@ export class ToolExecutor {
 
     const lastShown = start + numbered.length - 1;
     const footer = truncated
-      ? `\n[truncated: showing lines ${start}-${lastShown} of ${all.length}]`
+      ? `\n[truncated: showing lines ${String(start)}-${String(lastShown)} of ${String(all.length)}]`
       : "";
     return {
       text: numbered.join("\n") + footer,
@@ -423,7 +423,7 @@ export class ToolExecutor {
     const result = await this.ctx.tree.runTests();
     const status = result.timedOut
       ? "timed out"
-      : `exit code ${result.exitCode}`;
+      : `exit code ${String(result.exitCode)}`;
     return {
       text: `Test run ${status}.\n\n${result.output}`,
       exitCode: result.exitCode,
@@ -448,14 +448,16 @@ export class ToolExecutor {
     const sent = expectString(input, "diff");
     // Policy, apply and the posted comment all use the recounted patch; previews show what was sent.
     const diff = recountHunks(sent);
-    const baseOnRaw = input["base_on"];
+    const baseOnRaw = input.base_on;
     const baseOn: number[] = Array.isArray(baseOnRaw)
       ? baseOnRaw.map(Number)
       : [];
     const bases = baseOn.map((id) => {
       const found = this.patches.find((p) => p.id === id);
       if (!found)
-        throw new ToolInputError(`base_on references unknown patch id ${id}`);
+        throw new ToolInputError(
+          `base_on references unknown patch id ${String(id)}`,
+        );
       return found;
     });
 
@@ -480,7 +482,7 @@ export class ToolExecutor {
       if (!applied.applied) {
         return {
           ok: false,
-          text: `Could not re-apply base patch ${base.id}: ${applied.error ?? "unknown error"}`,
+          text: `Could not re-apply base patch ${String(base.id)}: ${applied.error ?? "unknown error"}`,
           response: { applied: false, failedBase: base.id },
         };
       }
@@ -511,14 +513,14 @@ export class ToolExecutor {
     this.patches.push(patch);
     return {
       ok: true,
-      text: `Patch ${patch.id} (${kind}) applied. The working tree now holds the PR commit plus patches [${[...baseOn, patch.id].join(", ")}]. Run run_tests to see its effect.`,
+      text: `Patch ${String(patch.id)} (${kind}) applied. The working tree now holds the PR commit plus patches [${[...baseOn, patch.id].join(", ")}]. Run run_tests to see its effect.`,
       response: { applied: true, patchId: patch.id, baseOn },
     };
   }
 
   private parseFinish(input: Record<string, unknown>): FinishPayload {
     if (this.ctx.mode === "review") {
-      const raw = input["findings"];
+      const raw = input.findings;
       if (!Array.isArray(raw))
         throw new ToolInputError('"findings" must be an array');
       const findings = raw.map((item, index) => this.parseFinding(item, index));
@@ -529,8 +531,8 @@ export class ToolExecutor {
     if (!VERDICTS.has(verdict))
       throw new ToolInputError('"verdict" must be fix, diagnosis or abstain');
     const summary = expectString(input, "summary");
-    const citations = Array.isArray(input["citations"])
-      ? input["citations"].map(String)
+    const citations = Array.isArray(input.citations)
+      ? input.citations.map(String)
       : [];
     const fixPatch = expectInteger(input, "fix_patch", true);
     if (verdict === "fix" && fixPatch === undefined) {
@@ -550,25 +552,31 @@ export class ToolExecutor {
 
   private parseFinding(item: unknown, index: number): ProposedFinding {
     if (typeof item !== "object" || item === null)
-      throw new ToolInputError(`findings[${index}] must be an object`);
+      throw new ToolInputError(`findings[${String(index)}] must be an object`);
     const f = item as Record<string, unknown>;
     const category = expectString(f, "category");
     if (!CATEGORIES.has(category))
-      throw new ToolInputError(`findings[${index}].category is invalid`);
+      throw new ToolInputError(
+        `findings[${String(index)}].category is invalid`,
+      );
     const confidence = expectString(f, "confidence");
     if (!CONFIDENCES.has(confidence))
-      throw new ToolInputError(`findings[${index}].confidence is invalid`);
+      throw new ToolInputError(
+        `findings[${String(index)}].confidence is invalid`,
+      );
     const file = this.resolveTracked(expectString(f, "file"));
     const line = expectInteger(f, "line");
     if (line < 1)
-      throw new ToolInputError(`findings[${index}].line must be at least 1`);
+      throw new ToolInputError(
+        `findings[${String(index)}].line must be at least 1`,
+      );
     const testPatch = expectInteger(f, "test_patch", true);
     const fixPatch = expectInteger(f, "fix_patch", true);
     if (testPatch !== undefined) this.requirePatch(testPatch, "test");
     if (fixPatch !== undefined) this.requirePatch(fixPatch, "fix");
     if (fixPatch !== undefined && testPatch === undefined) {
       throw new ToolInputError(
-        `findings[${index}] names a fix_patch without a test_patch`,
+        `findings[${String(index)}] names a fix_patch without a test_patch`,
       );
     }
     return {
@@ -585,10 +593,10 @@ export class ToolExecutor {
 
   private requirePatch(id: number, kind: PatchKind): void {
     const patch = this.patches.find((p) => p.id === id);
-    if (!patch) throw new ToolInputError(`patch ${id} does not exist`);
+    if (!patch) throw new ToolInputError(`patch ${String(id)} does not exist`);
     if (patch.kind !== kind)
       throw new ToolInputError(
-        `patch ${id} is a ${patch.kind} patch, not a ${kind} patch`,
+        `patch ${String(id)} is a ${patch.kind} patch, not a ${kind} patch`,
       );
   }
 }

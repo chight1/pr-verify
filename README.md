@@ -38,7 +38,7 @@ Every run writes a JSON record, which the workflow uploads as an artifact (30 da
 
 ## When the gate is red
 
-The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Once the gate passes, that comment says so. Build, lint and formatting failures get a diagnosis only, since no green suite can verify those fixes.
+The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Once the gate passes, that comment says so. Build, lint and code-quality failures get a diagnosis only, since no green suite can verify those fixes.
 
 ## Budgets
 
@@ -67,13 +67,21 @@ The conversation is cached turn by turn, so each request pays full price only fo
 
 Lockfiles, minified files, source maps and files `.gitattributes` marks `linguist-generated` are left out of the diff the agent sees; the brief names them so the agent knows they changed. If what is left would take more than a quarter of the token budget, the review is skipped before any API call and one comment says so and asks for smaller pull requests. It declines rather than fails: the gate still decides the merge. The comment is removed once a later push fits.
 
-## Formatting
+## Code quality
 
-The gate checks formatting with `ruff format` for Python, `gofmt` for Go, djLint for Jinja and Django templates, and Prettier for JavaScript, TypeScript, HTML, CSS, Markdown, YAML and JSON. Tools are picked by the files a project has, not by `runtime`, so a Python project's HTML and JavaScript are checked too. Every tool runs with PR Verify's settings, which are each tool's defaults: a project's own config and ignore files have no effect, so a pull request cannot loosen the check. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out. Each tool runs even when another fails, and the log shows each failure in its own group. The tools are pinned to a version.
+The gate's `code quality` step checks formatting, lint and types. Tools are picked by the files a project has, not by `runtime`, so a Python project's HTML and JavaScript are checked too.
 
-## Linting
+| Check  | Python                                                                                             | Go                                                                                                                 | JavaScript and TypeScript                                                                                                                    |
+| ------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Format | `ruff format`                                                                                      | `gofmt`                                                                                                            | Prettier, which also formats HTML, CSS, Markdown, YAML and JSON; djLint formats Jinja and Django templates                                   |
+| Lint   | `ruff check` with every rule, minus docstring style and the rules that conflict with the formatter | `golangci-lint` with errcheck, errorlint, exhaustive, gocritic, govet, ineffassign, revive, staticcheck and unused | ESLint with typescript-eslint's `strict-type-checked` and `stylistic-type-checked`; JavaScript gets the rules that need no type information  |
+| Types  | pyright in strict mode                                                                             | the compiler                                                                                                       | `tsc` with every strict flag on, plus `noUncheckedIndexedAccess`, `noImplicitOverride`, `noImplicitReturns` and `noFallthroughCasesInSwitch` |
 
-The gate lints with a tool picked from `runtime`, so a project needs no setup: `ruff check` for Python, `go vet` for Go, and for Node the project's own `npm run lint` if it has one, otherwise Biome's recommended rules. `lint-command` replaces the default and `lint: false` turns it off. The default linters are pinned to a version, like the runner image.
+Every tool runs with PR Verify's settings, and a project's own config and ignore files have no effect, so a pull request cannot loosen a check. The one exception is the project's `tsconfig.json`, which the type check extends for module settings and paths, with the strict flags forced on top. Suppression comments do nothing: `# noqa`, `# type: ignore` and ESLint directives are ignored, and an `@ts-` comment is a lint error. Comments that a tool cannot be told to ignore, such as `# pyright:`, `# fmt: off`, `prettier-ignore`, `djlint:off` and `//nolint`, fail the step. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out.
+
+Each tool runs even when another fails, and the log shows each one in its own group. The type checks and typed lint rules run after install, against the project's dependencies. The tools are pinned to a version.
+
+`lint-command` adds a linter of the project's own, run in its own step after the gate's checks; `lint: false` skips it. Neither can turn the code-quality checks off.
 
 ## Static analysis
 
