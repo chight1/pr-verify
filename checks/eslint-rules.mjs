@@ -13,24 +13,51 @@ const CONSTANT_PARTS = new Set([
   "UnaryExpression",
 ]);
 
+// Nodes that end the walk up from a number, each with whether the number is
+// named there. `child` is the node the walk came up through.
+const NAMING_NODES = new Map([
+  [
+    "VariableDeclarator",
+    (node, child) => node.parent.kind === "const" && node.init === child,
+  ],
+  [
+    "PropertyDefinition",
+    (node, child) => node.readonly === true && node.value === child,
+  ],
+  ["TSEnumMember", () => true],
+  ["TSLiteralType", () => true],
+  ["AssignmentPattern", (node, child) => node.right === child],
+]);
+
+function namingCheck(type) {
+  if (type.startsWith("TSType")) return () => true;
+  return NAMING_NODES.get(type);
+}
+
 function isNamed(node) {
   let child = node;
   for (let current = node.parent; current; current = current.parent) {
-    if (current.type === "VariableDeclarator") {
-      return current.parent.kind === "const" && current.init === child;
-    }
-    if (current.type === "PropertyDefinition") {
-      return current.readonly === true && current.value === child;
-    }
-    if (current.type === "TSEnumMember" || current.type.startsWith("TSType")) {
-      return true;
-    }
-    if (current.type === "TSLiteralType") return true;
-    if (current.type === "AssignmentPattern") return current.right === child;
+    const named = namingCheck(current.type);
+    if (named) return named(current, child);
     if (!CONSTANT_PARTS.has(current.type)) return false;
     child = current;
   }
   return false;
+}
+
+// Whether a number, or its negation, may stand without a name.
+function allowed(subject, value) {
+  if (value === 0 || value === 1 || value === -1) return true;
+  const { parent } = subject;
+  // An index into an array or a string needs no name.
+  if (
+    parent.type === "MemberExpression" &&
+    parent.computed &&
+    parent.property === subject
+  ) {
+    return true;
+  }
+  return isNamed(subject);
 }
 
 const noMagicNumbers = {
@@ -54,17 +81,7 @@ const noMagicNumbers = {
           node.parent.operator === "-";
         const subject = negated ? node.parent : node;
         const value = negated ? -node.value : node.value;
-        if (value === 0 || value === 1 || value === -1) return;
-        const { parent } = subject;
-        // An index into an array or a string needs no name.
-        if (
-          parent.type === "MemberExpression" &&
-          parent.computed &&
-          parent.property === subject
-        ) {
-          return;
-        }
-        if (isNamed(subject)) return;
+        if (allowed(subject, value)) return;
         context.report({
           node: subject,
           messageId: "magic",
