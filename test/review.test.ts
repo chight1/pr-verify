@@ -15,6 +15,7 @@ import {
   postingLogin,
   postReview,
   resolvePriorFindings,
+  resolveThreads,
   updateComment,
   upsertComment,
   type PostedFinding,
@@ -581,5 +582,79 @@ describe("deleteComment", () => {
     const none = octokitWith([{ id: 1, body: "unrelated" }]);
     await deleteComment(none.octokit, PR, "too-large");
     expect(none.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveThreads", () => {
+  const resolved = { ...prior, evidence: "line-changed" as const };
+  const thread = (id: string, commentId: number, isResolved = false) => ({
+    id,
+    isResolved,
+    comments: { nodes: [{ databaseId: commentId }] },
+  });
+
+  function octokitWith(
+    comments: { id: number; login: string; body: string }[],
+    threads: ReturnType<typeof thread>[],
+  ) {
+    const resolvedIds: string[] = [];
+    const graphql = vi.fn((query: string, vars: Record<string, unknown>) => {
+      if (query.includes("resolveReviewThread")) {
+        resolvedIds.push(String(vars.threadId));
+        return Promise.resolve({});
+      }
+      return Promise.resolve({
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: threads,
+            },
+          },
+        },
+      });
+    });
+    const octokit = {
+      graphql,
+      paginate: () =>
+        Promise.resolve(
+          comments.map((c) => ({
+            id: c.id,
+            user: { login: c.login },
+            body: c.body,
+          })),
+        ),
+      rest: { pulls: { listReviewComments: {} } },
+    } as never;
+    return { octokit, graphql, resolvedIds };
+  }
+
+  it("resolves the open thread of the action's comment on a resolved finding", async () => {
+    const { octokit, resolvedIds } = octokitWith(
+      [
+        { id: 1, login: "bot", body: findingMarker(prior) },
+        {
+          id: 2,
+          login: "bot",
+          body: findingMarker({ ...prior, title: "Still open" }),
+        },
+        { id: 3, login: "stranger", body: findingMarker(prior) },
+        { id: 4, login: "bot", body: findingMarker(prior) },
+      ],
+      [
+        thread("T1", 1),
+        thread("T2", 2),
+        thread("T3", 3),
+        thread("T4", 4, true),
+      ],
+    );
+    expect(await resolveThreads(octokit, PR, "bot", [resolved])).toBe(1);
+    expect(resolvedIds).toEqual(["T1"]);
+  });
+
+  it("makes no API call when nothing was resolved", async () => {
+    const { octokit, graphql } = octokitWith([], []);
+    expect(await resolveThreads(octokit, PR, "bot", [])).toBe(0);
+    expect(graphql).not.toHaveBeenCalled();
   });
 });

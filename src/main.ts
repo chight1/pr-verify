@@ -49,6 +49,7 @@ import {
   postingLogin,
   postReview,
   resolvePriorFindings,
+  resolveThreads,
   updateComment,
   upsertComment,
   type ReviewTrail,
@@ -256,13 +257,12 @@ async function reviewMode(stage: Stage): Promise<void> {
     `### PR Verify: gate passes\n\nThe gate passes on \`${pr.headSha.slice(0, 7)}\`, so the failure this comment reported earlier no longer applies. [Run record](${stage.runUrl})`,
   );
 
+  const author = await postingLogin(octokit);
   const [diff, tracked, guidance, prior] = await Promise.all([
     collectDiff(pr, repoRoot),
     trackedFiles(repoRoot),
     readGuidance(repoRoot, inputs.guidanceFile),
-    postingLogin(octokit).then((author) =>
-      fetchPriorFindings(octokit, pr, author),
-    ),
+    fetchPriorFindings(octokit, pr, author),
   ]);
   const diffFiles = parseDiff(diff.text);
   const map = buildRepositoryMap(tracked);
@@ -435,6 +435,12 @@ async function reviewMode(stage: Stage): Promise<void> {
     comment.body = scrubber.scrub(comment.body);
 
   record.postedId = await postReview(octokit, pr, draft);
+  // The review is posted either way; a thread left open is only untidy.
+  await resolveThreads(octokit, pr, author, resolution.resolved).catch(
+    (error: unknown) => {
+      core.warning(`Could not resolve review threads: ${String(error)}`);
+    },
+  );
   // Placement is decided by buildReview, so refresh the kept entries now that it has run.
   record.findings = [
     ...kept.map((f, i) => findingRecord(f, i + 1)),
