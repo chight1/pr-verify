@@ -146,13 +146,20 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification. |
 | `src/notes.ts`                    | The too-large and baseline notes.                                                           |
 | `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                       |
-| `src/diff.ts`                     | Unified-diff parser shared by context, review and verify.                                   |
+| `src/diff.ts`                     | Unified-diff parser shared by context, review, prior findings and patch policy.             |
 | `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                  |
 | `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                         |
-| `src/tools.ts`                    | The four tools and their limits.                                                            |
-| `src/verify.ts`                   | Scratch-tree reset, patch policy, apply, harness test runs.                                 |
+| `src/tool-definitions.ts`         | The four tools' schemas, finish shaped per mode.                                            |
+| `src/tool-input.ts`               | Checks on the model's tool input, and the finish payload.                                   |
+| `src/tool-executor.ts`            | Runs each tool call: budget, limits, the call trail.                                        |
+| `src/patch-policy.ts`             | What a patch may touch, decided from the diff alone.                                        |
+| `src/scratch-tree.ts`             | Scratch-tree reset, apply, harness test runs.                                               |
+| `src/proof.ts`                    | Demonstration, recheck, red-gate and static analysis verification.                          |
 | `src/sandbox.ts`                  | The namespaces every test run executes in.                                                  |
-| `src/review.ts`                   | Posting policy, line-to-diff mapping, markers, prior-finding resolution.                    |
+| `src/review.ts`                   | Posting policy, line-to-diff mapping, the review itself.                                    |
+| `src/markers.ts`                  | The hidden markers, and reading findings back from comments.                                |
+| `src/prior-findings.ts`           | Prior findings: which this push resolved, and their review threads.                         |
+| `src/pr-comments.ts`              | The one comment per key: red-gate verdict, too-large and baseline notes.                    |
 | `src/record.ts`                   | The run record.                                                                             |
 | `src/budget.ts`                   | Token, time, call and finding counters.                                                     |
 | `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                      |

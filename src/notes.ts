@@ -5,7 +5,7 @@
 
 import { diffTokenLimit, estimateTokens, type BudgetLimits } from "./budget.js";
 import type { PullRequestDiff } from "./context.js";
-import type { TestRun } from "./verify.js";
+import type { TestRun } from "./scratch-tree.js";
 
 const BYTES_PER_KB = 1024;
 /** How much of the suite's output, from the end, the baseline note quotes. */

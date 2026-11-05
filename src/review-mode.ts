@@ -25,23 +25,21 @@ import {
   type RepositoryMap,
 } from "./context.js";
 import { parseDiff, type DiffFile } from "./diff.js";
-import type { RunRecord } from "./record.js";
+import { postingLogin, type PostedFinding } from "./markers.js";
+import { baselineNote, tooLargeNote } from "./notes.js";
+import { isTestPath } from "./patch-policy.js";
+import { deleteComment, updateComment, upsertComment } from "./pr-comments.js";
 import {
-  buildReview,
-  deleteComment,
   fetchPriorFindings,
   gitDiffBetween,
-  postingLogin,
-  postReview,
   resolvePriorFindings,
   resolveThreads,
-  updateComment,
-  upsertComment,
-  type PostedFinding,
   type Resolution,
-  type ReviewTrail,
-} from "./review.js";
-import { baselineNote, tooLargeNote } from "./notes.js";
+} from "./prior-findings.js";
+import { recheckDemonstration } from "./proof.js";
+import type { RunRecord } from "./record.js";
+import { buildReview, postReview, type ReviewTrail } from "./review.js";
+import type { ScratchTree } from "./scratch-tree.js";
 import { findingRecord, findingRecords, verifyAndSelect } from "./selection.js";
 import {
   BASELINE_KEY,
@@ -52,13 +50,8 @@ import {
   type AgentRun,
   type Stage,
 } from "./stage.js";
-import { ToolExecutor } from "./tools.js";
+import { ToolExecutor } from "./tool-executor.js";
 import type { Finding, PriorFinding, ResolvedFinding } from "./types.js";
-import {
-  isTestPath,
-  recheckDemonstration,
-  type ScratchTree,
-} from "./verify.js";
 
 const TEST_EXAMPLES_SHOWN = 5;
 const TEST_DIRS_SHOWN = 8;
@@ -325,8 +318,7 @@ async function postFindings(
     kept,
     agent.executor.patches,
     resolved,
-    context.diffFiles,
-    pr.headSha,
+    { headSha: pr.headSha, diffFiles: context.diffFiles },
     trail,
   );
   draft.body = scrubber.scrub(draft.body);
