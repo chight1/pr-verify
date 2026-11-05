@@ -101,7 +101,15 @@ printf '{ "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
 printf 'var count = 1;\nexport { count };\n' > lint.js
-printf '// Package main is a fixture.\npackage main\n\nimport "os"\n\nfunc main() {\n\tos.Remove("x")\n}\n\nfunc unused() {}\n' > main.go
+# The patterns agents leave behind: debug output, a magic number, a vague name,
+# a task comment with no issue, and tests that are skipped or check nothing.
+printf 'console.log(count);\nexport const later = setTimeout(() => count, 5000);\n' >> lint.js
+printf '// %s: make this faster\nexport const data = 1;\n' TODO >> lint.ts
+printf 'it.skip("waits", () => {});\nit("runs", () => {});\n' > lint.test.ts
+printf 'data = 1\n' >> suppressed.py
+printf 'import pytest\n\n\n@pytest.mark.skip(reason="later")\ndef test_skipped():\n    assert True\n\n\ndef test_nothing():\n    print(1)\n' > test_lint.py
+printf 'package main\n\nimport "testing"\n\nfunc TestSkipped(t *testing.T) {\n\tt.Skip("later")\n}\n' > main_test.go
+printf '// Package main is a fixture.\npackage main\n\nimport (\n\t"fmt"\n\t"os"\n)\n\nfunc main() {\n\tos.Remove("x")\n\t// %s: make this faster\n\tdata := len(os.Args) * 42\n\tfmt.Println(data)\n}\n\nfunc unused() {}\n' TODO > main.go
 # The comments the gate rejects outright, written so this file has none of them.
 printf 'x = 1  # pyright%s basic\n' ':' > suppressed.py
 printf '// prettier%signore\nexport const y = 1;\n' '-' > suppressed.ts
@@ -125,10 +133,13 @@ if online="$(bash "$here/run.sh" online 2>&1)"; then
 fi
 output+="$online"
 for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip whitespace "file size" actionlint zizmor \
-  shellcheck hadolint suppressions; do
+  shellcheck hadolint suppressions "task comments" "agent patterns"; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
   errcheck DEP001 "unreachable func: unused" left-pad "Unused files" suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
-  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008
+  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008 \
+  no-console pr-verify/no-magic-numbers id-match sonarjs/comment-regex vitest/no-disabled-tests \
+  vitest/expect-expect forbidigo mnd vague-name-python vague-name-go unconditional-skip-python \
+  unconditional-skip-go test-without-assertion-python test-without-assertion-go
 echo "checks: ok"

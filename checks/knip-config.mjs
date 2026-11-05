@@ -4,7 +4,8 @@
 // given as arguments, are ignored, as in every other check.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-const [out, ...generated] = process.argv.slice(2);
+const JSON_INDENT = 2;
+const [, , out, ...generated] = process.argv;
 
 function projectConfig() {
   for (const file of ["knip.json", ".knip.json"]) {
@@ -31,4 +32,4 @@ if (project.workspaces) {
   );
 }
 
-writeFileSync(out, `${JSON.stringify(config, null, 2)}\n`);
+writeFileSync(out, `${JSON.stringify(config, null, JSON_INDENT)}\n`);

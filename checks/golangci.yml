@@ -6,12 +6,23 @@ linters:
     - errcheck
     - errorlint
     - exhaustive
+    - forbidigo
     - gocritic
     - govet
     - ineffassign
+    - mnd
+    - nilerr
     - revive
     - staticcheck
     - unused
+  settings:
+    forbidigo:
+      # Debug output left in. A command writes through a logger or its own writer.
+      forbid:
+        - pattern: ^(fmt\.Print(f|ln)?|print|println)$
+    gocritic:
+      enabled-checks:
+        - commentedOutCode
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
