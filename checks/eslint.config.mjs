@@ -10,6 +10,12 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 import gate from "./eslint-rules.mjs";
 
+const MAX_COGNITIVE_COMPLEXITY = 15;
+const MAX_CYCLOMATIC_COMPLEXITY = 10;
+const MAX_NESTING_DEPTH = 3;
+const MAX_FUNCTION_LINES = 50;
+const MAX_PARAMETERS = 5;
+
 const TESTS = [
   "**/*.{test,spec}.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
   "**/{test,tests,__tests__}/**",
@@ -51,8 +57,15 @@ export default defineConfig(
       // means already controlling PATH. Semgrep follows untrusted input to a
       // command where it matters.
       "sonarjs/no-os-command-from-path": "off",
-      // Turned on with the gate's other size and complexity limits.
-      "sonarjs/cognitive-complexity": "off",
+      // Size and complexity limits, the same in every language.
+      "sonarjs/cognitive-complexity": ["error", MAX_COGNITIVE_COMPLEXITY],
+      complexity: ["error", MAX_CYCLOMATIC_COMPLEXITY],
+      "max-depth": ["error", MAX_NESTING_DEPTH],
+      "max-lines-per-function": [
+        "error",
+        { max: MAX_FUNCTION_LINES, skipBlankLines: true, skipComments: true },
+      ],
+      "max-params": ["error", MAX_PARAMETERS],
       // Names that say nothing about what they hold, where the code declares
       // them. A property key can belong to someone else's API.
       "id-match": [
@@ -101,6 +114,8 @@ export default defineConfig(
       "vitest/no-disabled-tests": "error",
       "vitest/no-focused-tests": "error",
       "pr-verify/no-magic-numbers": "off",
+      // A describe block groups tests; its length is the number of tests.
+      "max-lines-per-function": "off",
     },
   },
 );

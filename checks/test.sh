@@ -123,6 +123,96 @@ printf 'FROM ubuntu\n# hadolint ignore=DL3008\nRUN apt-get install curl\n' > Doc
 # CRLF, trailing whitespace and no final newline, in a file no formatter reads.
 printf 'one\r\ntwo \nthree' > notes.txt
 head -c 1100000 /dev/zero > big.bin
+# Code over the size and complexity limits: too many parameters, too deep and
+# too complex in each language, a function and a file that run too long, and a
+# block copied between two files, one copy behind jscpd's ignore comment.
+cat > complex.py <<'PY'
+def tangle(a, b, c, d, e, f):
+    total = 0
+    for x in a:
+        if x:
+            for y in b:
+                if y and c:
+                    while total < d:
+                        if x > y:
+                            total += e
+                        elif x < y:
+                            total -= f
+                        else:
+                            break
+    return total
+PY
+cat > complex.go <<'GO'
+package main
+
+func tangle(a, b, c, d, e, f int) int {
+	total := 0
+	for i := 0; i < a; i++ {
+		if i > b {
+			for j := 0; j < c; j++ {
+				if j > d && i > e {
+					if total > f {
+						total--
+					} else if total < f {
+						total++
+					} else {
+						break
+					}
+				}
+			}
+		}
+	}
+	return total
+}
+GO
+cat > complex.js <<'JS'
+export function tangle(a, b, c, d, e, f) {
+  let total = 0;
+  for (const x of a) {
+    if (x) {
+      for (const y of b) {
+        if (y && c) {
+          while (total < d) {
+            if (x > y) total += e;
+            else if (x < y) total -= f;
+            else break;
+          }
+        }
+      }
+    }
+  }
+  return total;
+}
+JS
+{
+  echo "export function long() {"
+  echo "  let steps = 0;"
+  for _ in $(seq 55); do echo "  steps += 1;"; done
+  echo "  return steps;"
+  echo "}"
+} >> complex.js
+{
+  echo "#!/usr/bin/env bash"
+  for _ in $(seq 400); do echo "true"; done
+} > long.sh
+copied="$(
+  cat <<'JS'
+export function totals(rows) {
+  const sums = new Map();
+  for (const row of rows) {
+    const key = `${row.region}:${row.product}`;
+    const current = sums.get(key) ?? { count: 0, amount: 0 };
+    current.count += 1;
+    current.amount += row.amount;
+    sums.set(key, current);
+  }
+  return [...sums.entries()].map(([key, sum]) => ({ key, ...sum }));
+}
+JS
+)"
+printf '%s\n' "$copied" > first.js
+printf '%s\n' "$copied" > third.js
+printf '// jscpd%signore-start\n%s\n// jscpd%signore-end\n' ':' "$copied" ':' > second.js
 git add -A
 
 if output="$(bash "$here/run.sh" 2>&1)"; then
@@ -133,7 +223,7 @@ if online="$(bash "$here/run.sh" online 2>&1)"; then
 fi
 output+="$online"
 for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip whitespace "file size" actionlint zizmor \
-  shellcheck hadolint suppressions "task comments" "agent patterns"; do
+  shellcheck hadolint suppressions "task comments" "agent patterns" complexipy "file length" jscpd; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
@@ -141,5 +231,7 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008 \
   no-console pr-verify/no-magic-numbers id-match sonarjs/comment-regex vitest/no-disabled-tests \
   vitest/expect-expect forbidigo mnd vague-name-python vague-name-go unconditional-skip-python \
-  unconditional-skip-go test-without-assertion-python test-without-assertion-go
+  unconditional-skip-go test-without-assertion-python test-without-assertion-go \
+  PLR0913 argument-limit nestif gocognit sonarjs/cognitive-complexity max-depth \
+  max-params max-lines-per-function "long.sh has 401 lines" "Clone found" second.js
 echo "checks: ok"
