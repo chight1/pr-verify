@@ -614,8 +614,9 @@ async function redGateMode(stage: Stage): Promise<void> {
   }
 
   const isTestStep = step.includes("test");
-  // A green suite says nothing about whether a build or lint fix works.
-  const diagnosisOnly = step.includes("build") || step.includes("lint");
+  // A green suite says nothing about whether a build, lint or formatting fix works.
+  const diagnosisOnly =
+    step.includes("build") || step.includes("lint") || step === "code quality";
   const tree = new ScratchTree(
     repoRoot,
     pr.headSha,

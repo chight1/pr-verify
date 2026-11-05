@@ -38,7 +38,7 @@ Every run writes a JSON record, which the workflow uploads as an artifact (30 da
 
 ## When the gate is red
 
-The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Once the gate passes, that comment says so. Build and lint failures get a diagnosis only, since no green suite can verify those fixes.
+The same action runs with a different brief. A rules-only pre-classifier labels network, registry, out-of-memory, disk, cancellation and timeout failures as infrastructure, and the agent never runs. A test failure is re-run once unchanged; a pass is labelled flaky, and the agent never runs. Otherwise the agent investigates and ends with a verified fix, a diagnosis, or nothing, posted as one PR comment that later runs update in place. Once the gate passes, that comment says so. Build, lint and formatting failures get a diagnosis only, since no green suite can verify those fixes.
 
 ## Budgets
 
@@ -66,6 +66,10 @@ The conversation is cached turn by turn, so each request pays full price only fo
 ## Large pull requests
 
 Lockfiles, minified files, source maps and files `.gitattributes` marks `linguist-generated` are left out of the diff the agent sees; the brief names them so the agent knows they changed. If what is left would take more than a quarter of the token budget, the review is skipped before any API call and one comment says so and asks for smaller pull requests. It declines rather than fails: the gate still decides the merge. The comment is removed once a later push fits.
+
+## Formatting
+
+The gate checks formatting with `ruff format` for Python, `gofmt` for Go, djLint for Jinja and Django templates, and Prettier for JavaScript, TypeScript, HTML, CSS, Markdown, YAML and JSON. Tools are picked by the files a project has, not by `runtime`, so a Python project's HTML and JavaScript are checked too. Every tool runs with PR Verify's settings, which are each tool's defaults: a project's own config and ignore files have no effect, so a pull request cannot loosen the check. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out. Each tool runs even when another fails, and the log shows each failure in its own group. The tools are pinned to a version.
 
 ## Linting
 

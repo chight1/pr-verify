@@ -123,6 +123,11 @@ jobs:
         id: install
         run: ${{ inputs.install-command }}
 
+      # PR Verify's own settings, not the project's, so a PR cannot loosen them.
+      - name: code quality
+        if: ${{ !cancelled() }}
+        uses: chight1/pr-verify/checks@v1
+
       - name: lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command != '' }}
         run: ${{ inputs.lint-command }}

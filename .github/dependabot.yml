@@ -11,8 +11,8 @@ updates:
     cooldown:
       default-days: 7
     ignore:
-      # Our own action, which the reusable workflow runs at the v1 branch.
-      - dependency-name: chight1/pr-verify
+      # Our own actions, which the reusable workflow runs at the v1 branch.
+      - dependency-name: chight1/pr-verify*
 
   - package-ecosystem: npm
     directory: /
