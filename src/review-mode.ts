@@ -8,12 +8,9 @@ import path from "node:path";
 import * as core from "@actions/core";
 import {
   buildReviewBrief,
-  createClient,
-  runAgent,
   type AgentOutcome,
   stoppedOutcome,
 } from "./agent.js";
-import { Budget } from "./budget.js";
 import {
   buildRepositoryMap,
   byCodeUnits,
@@ -45,12 +42,12 @@ import {
   BASELINE_KEY,
   createScratchTree,
   RED_GATE_KEY,
-  recordAgentRun,
+  recordContextSizes,
+  runStageAgent,
   TOO_LARGE_KEY,
   type AgentRun,
   type Stage,
 } from "./stage.js";
-import { ToolExecutor } from "./tool-executor.js";
 import type { Finding, PriorFinding, ResolvedFinding } from "./types.js";
 
 const TEST_EXAMPLES_SHOWN = 5;
@@ -135,9 +132,7 @@ async function gatherContext(stage: Stage): Promise<ReviewContext> {
   ]);
   const diffFiles = parseDiff(diff.text);
   const map = buildRepositoryMap(tracked);
-  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
-  record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
-  record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+  recordContextSizes(record, diff, map, guidance);
   return { author, diff, diffFiles, tracked, guidance, prior, map };
 }
 
@@ -238,37 +233,20 @@ async function runReviewAgent(
   context: ReviewContext,
   open: PriorFinding[],
 ): Promise<AgentRun> {
-  const { inputs, scrubber } = stage;
-  const budget = new Budget(inputs.limits);
-  const executor = new ToolExecutor({
-    mode: "review",
-    repoRoot: stage.repoRoot,
-    tracked: new Set(context.tracked),
-    budget,
+  const brief = buildReviewBrief({
+    diff: context.diff.text,
+    omitted: context.diff.omitted,
+    guidance: context.guidance?.text ?? null,
+    openFindings: open,
+    testConventions: describeTestConventions(context.tracked),
+  });
+  return runStageAgent(
+    stage,
+    "review",
     tree,
-    patchLimits: inputs.patchLimits,
-    scrubber,
-  });
-
-  const outcome = await runAgent({
-    client: createClient(inputs.anthropicApiKey),
-    model: inputs.model,
-    mode: "review",
-    repositoryMap: context.map.text,
-    brief: scrubber.scrub(
-      buildReviewBrief({
-        diff: context.diff.text,
-        omitted: context.diff.omitted,
-        guidance: context.guidance?.text ?? null,
-        openFindings: open,
-        testConventions: describeTestConventions(context.tracked),
-      }),
-    ),
-    executor,
-    budget,
-  });
-  recordAgentRun(stage.record, executor, budget, outcome);
-  return { outcome, executor, budget };
+    context,
+    stage.scrubber.scrub(brief),
+  );
 }
 
 function describeTestConventions(files: string[]): string {

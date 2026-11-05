@@ -309,6 +309,36 @@ export async function fetchFailingStepLog(
   return { stepName: failing.name, log: extractStepLog(log, failing.name) };
 }
 
+/** The index of the last `##[group]` line whose header passes `matches`, or -1. */
+function lastGroup(
+  lines: string[],
+  matches: (header: string) => boolean,
+): number {
+  let found = -1;
+  for (const [i, line] of lines.entries()) {
+    if (
+      line.startsWith("##[group]") &&
+      matches(line.slice("##[group]".length).trim())
+    ) {
+      found = i;
+    }
+  }
+  return found;
+}
+
+/** Where the step's section starts in the log's lines, or -1 when no section can be tied to it. */
+function stepGroupStart(lines: string[], stepName: string): number {
+  const named = lastGroup(
+    lines,
+    (header) => header === stepName || header === `Run ${stepName}`,
+  );
+  if (named !== -1) return named;
+  // The group header names the command, not the step. Use the section containing the first error.
+  const errorAt = lines.findIndex((l) => l.startsWith("##[error]"));
+  if (errorAt === -1) return -1;
+  return lastGroup(lines.slice(0, errorAt + 1), () => true);
+}
+
 /**
  * Pulls one step's section out of a job log. GitHub separates steps with a
  * `##[group]` line that names the step; the failing step's section carries
@@ -324,22 +354,7 @@ export function extractStepLog(
     l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/, ""),
   );
 
-  let start = -1;
-  for (const [i, line] of stripped.entries()) {
-    if (line.startsWith("##[group]")) {
-      const header = line.slice("##[group]".length).trim();
-      if (header === stepName || header === `Run ${stepName}`) start = i;
-    }
-  }
-  if (start === -1) {
-    // The group header names the command, not the step. Use the section containing the first error.
-    const errorAt = stripped.findIndex((l) => l.startsWith("##[error]"));
-    if (errorAt !== -1) {
-      for (const [i, line] of stripped.slice(0, errorAt + 1).entries()) {
-        if (line.startsWith("##[group]")) start = i;
-      }
-    }
-  }
+  const start = stepGroupStart(stripped, stepName);
   if (start === -1) return tail(stripped.join("\n"), tailBytes);
 
   const next = stripped.findIndex(

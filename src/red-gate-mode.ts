@@ -6,13 +6,7 @@
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import {
-  buildRedGateBrief,
-  createClient,
-  runAgent,
-  stoppedOutcome,
-} from "./agent.js";
-import { Budget } from "./budget.js";
+import { buildRedGateBrief, stoppedOutcome } from "./agent.js";
 import {
   buildRepositoryMap,
   collectDiff,
@@ -36,11 +30,11 @@ import type { ScratchTree } from "./scratch-tree.js";
 import {
   createScratchTree,
   RED_GATE_KEY,
-  recordAgentRun,
+  recordContextSizes,
+  runStageAgent,
   type AgentRun,
   type Stage,
 } from "./stage.js";
-import { ToolExecutor } from "./tool-executor.js";
 import type { Patch, RedGateResult } from "./types.js";
 
 /** The failing gate step, and what its name says about how a fix can be checked. */
@@ -206,9 +200,7 @@ async function gatherContext(stage: Stage): Promise<RedGateContext> {
     readGuidance(repoRoot, inputs.guidanceFile),
   ]);
   const map = buildRepositoryMap(tracked);
-  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
-  record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
-  record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+  recordContextSizes(record, diff, map, guidance);
   return { diff, tracked, guidance, map };
 }
 
@@ -238,36 +230,20 @@ async function runRedGateAgent(
   tree: ScratchTree,
   context: RedGateContext,
 ): Promise<AgentRun> {
-  const { inputs, scrubber } = stage;
-  const budget = new Budget(inputs.limits);
-  const executor = new ToolExecutor({
-    mode: "red-gate",
-    repoRoot: stage.repoRoot,
-    tracked: new Set(context.tracked),
-    budget,
+  const brief = buildRedGateBrief({
+    diff: context.diff.text,
+    omitted: context.diff.omitted,
+    guidance: context.guidance?.text ?? null,
+    stepName: failure.stepName,
+    log: failure.log,
+  });
+  return runStageAgent(
+    stage,
+    "red-gate",
     tree,
-    patchLimits: inputs.patchLimits,
-    scrubber,
-  });
-  const outcome = await runAgent({
-    client: createClient(inputs.anthropicApiKey),
-    model: inputs.model,
-    mode: "red-gate",
-    repositoryMap: context.map.text,
-    brief: scrubber.scrub(
-      buildRedGateBrief({
-        diff: context.diff.text,
-        omitted: context.diff.omitted,
-        guidance: context.guidance?.text ?? null,
-        stepName: failure.stepName,
-        log: failure.log,
-      }),
-    ),
-    executor,
-    budget,
-  });
-  recordAgentRun(stage.record, executor, budget, outcome);
-  return { outcome, executor, budget };
+    context,
+    stage.scrubber.scrub(brief),
+  );
 }
 
 /** The agent's verdict, keeping a proposed fix only where it can be verified and only once it has been. */

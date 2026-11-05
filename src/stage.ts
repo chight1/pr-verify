@@ -4,14 +4,20 @@
  */
 
 import * as github from "@actions/github";
-import type { AgentOutcome } from "./agent.js";
-import type { Budget } from "./budget.js";
-import { Scrubber, type Octokit } from "./context.js";
+import { createClient, runAgent, type AgentOutcome } from "./agent.js";
+import { Budget } from "./budget.js";
+import {
+  Scrubber,
+  type Guidance,
+  type Octokit,
+  type PullRequestDiff,
+  type RepositoryMap,
+} from "./context.js";
 import type { Inputs } from "./inputs.js";
 import { emptyRecord, type RunRecord } from "./record.js";
 import { Sandbox } from "./sandbox.js";
 import { ScratchTree } from "./scratch-tree.js";
-import type { ToolExecutor } from "./tool-executor.js";
+import { ToolExecutor } from "./tool-executor.js";
 import type { Mode, PullRequestRef } from "./types.js";
 
 export interface Stage {
@@ -77,7 +83,19 @@ export async function createScratchTree(stage: Stage): Promise<ScratchTree> {
   );
 }
 
-export function recordAgentRun(
+/** Records how large each part of the agent's context is. */
+export function recordContextSizes(
+  record: RunRecord,
+  diff: PullRequestDiff,
+  map: RepositoryMap,
+  guidance: Guidance | null,
+): void {
+  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
+  record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
+  record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+}
+
+function recordAgentRun(
   record: RunRecord,
   executor: ToolExecutor,
   budget: Budget,
@@ -91,4 +109,36 @@ export function recordAgentRun(
     cachedInputTokens: usage.cachedInputTokens,
   };
   record.budgetTripped = outcome.budgetTripped;
+}
+
+/** Runs the agent on a fresh budget against the scratch tree, and records its tool calls and usage. */
+export async function runStageAgent(
+  stage: Stage,
+  mode: Mode,
+  tree: ScratchTree,
+  context: { tracked: string[]; map: RepositoryMap },
+  brief: string,
+): Promise<AgentRun> {
+  const { inputs, scrubber } = stage;
+  const budget = new Budget(inputs.limits);
+  const executor = new ToolExecutor({
+    mode,
+    repoRoot: stage.repoRoot,
+    tracked: new Set(context.tracked),
+    budget,
+    tree,
+    patchLimits: inputs.patchLimits,
+    scrubber,
+  });
+  const outcome = await runAgent({
+    client: createClient(inputs.anthropicApiKey),
+    model: inputs.model,
+    mode,
+    repositoryMap: context.map.text,
+    brief,
+    executor,
+    budget,
+  });
+  recordAgentRun(stage.record, executor, budget, outcome);
+  return { outcome, executor, budget };
 }
