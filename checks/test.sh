@@ -106,7 +106,7 @@ printf 'var count = 1;\nexport { count };\n' > lint.js
 printf 'console.log(count);\nexport const later = setTimeout(() => count, 5000);\n' >> lint.js
 printf '// %s: make this faster\nexport const data = 1;\n' TODO >> lint.ts
 printf 'it.skip("waits", () => {});\nit("runs", () => {});\n' > lint.test.ts
-printf 'data = 1\n' >> suppressed.py
+printf 'data = 1\n' >> lint.py
 printf 'import pytest\n\n\n@pytest.mark.skip(reason="later")\ndef test_skipped():\n    assert True\n\n\ndef test_nothing():\n    print(1)\n' > test_lint.py
 printf 'package main\n\nimport "testing"\n\nfunc TestSkipped(t *testing.T) {\n\tt.Skip("later")\n}\n' > main_test.go
 printf '// Package main is a fixture.\npackage main\n\nimport (\n\t"fmt"\n\t"os"\n)\n\nfunc main() {\n\tos.Remove("x")\n\t// %s: make this faster\n\tdata := len(os.Args) * 42\n\tfmt.Println(data)\n}\n\nfunc unused() {}\n' TODO > main.go
