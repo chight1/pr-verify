@@ -1,0 +1,2 @@
+# Every rule, failing on style findings too.
+failure-threshold: style

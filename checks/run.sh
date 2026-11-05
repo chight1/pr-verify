@@ -17,7 +17,9 @@ trap 'rm -f "${written[@]}"' EXIT
 written_files() {
   git ls-files -z \
     | git check-attr -z --stdin linguist-generated \
-    | xargs -0 -n3 sh -c '[ "$2" = set ] || [ "$2" = true ] || printf "%s\n" "$0"' \
+    | while IFS= read -r -d '' path && IFS= read -r -d '' _ && IFS= read -r -d '' value; do
+      [ "$value" = set ] || [ "$value" = true ] || printf '%s\n' "$path"
+    done \
     | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|uv\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|packages\.lock\.json|composer\.lock)$|\.min\.(js|css)$|\.map$'
 }
 
@@ -35,18 +37,39 @@ run() {
   fi
 }
 
-# golangci-lint from a pinned release, checked against its SHA-256. Prints its path.
-install_golangci_lint() {
-  local version=2.15.0
-  local sha256=9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea
-  local name="golangci-lint-$version-linux-amd64"
-  local dir
+# Downloads a pinned release and checks it against its SHA-256, then prints the
+# path of the binary: the download itself, or the named member of its archive.
+fetch_tool() {
+  local url="$1" sha256="$2" member="${3:-}"
+  local dir file
   dir="$(mktemp -d)"
-  curl -fsSL -o "$dir/$name.tar.gz" \
-    "https://github.com/golangci/golangci-lint/releases/download/v$version/$name.tar.gz" >&2 \
-    && echo "$sha256  $dir/$name.tar.gz" | sha256sum --check --strict --quiet >&2 \
-    && tar -xzf "$dir/$name.tar.gz" -C "$dir" --strip-components 1 "$name/golangci-lint" >&2 \
-    && echo "$dir/golangci-lint"
+  file="$dir/$(basename "$url")"
+  curl -fsSL -o "$file" "$url" >&2 \
+    && echo "$sha256  $file" | sha256sum --check --strict --quiet >&2 \
+    || return 1
+  if [ -z "$member" ]; then
+    chmod +x "$file" && echo "$file"
+  else
+    tar -xzf "$file" -C "$dir" "$member" >&2 && echo "$dir/$member"
+  fi
+}
+
+golangci_lint() {
+  fetch_tool https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz \
+    9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea \
+    golangci-lint-2.15.0-linux-amd64/golangci-lint
+}
+actionlint() {
+  fetch_tool https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+    8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 actionlint
+}
+shellcheck() {
+  fetch_tool https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz \
+    b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6 shellcheck-v0.11.0/shellcheck
+}
+hadolint() {
+  fetch_tool https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64 \
+    c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 }
 
 # Files are kept apart by type, not by the project's runtime, so a Python
@@ -74,16 +97,29 @@ fi
 
 if [ ${#go[@]} -gt 0 ]; then
   # Older gofmt exits 0 even when a file needs formatting, so any diff fails too.
-  run "gofmt" bash -c 'out="$(gofmt -d -- "$@" 2>&1)"; status=$?; echo "$out"; [ "$status" -eq 0 ] && [ -z "$out" ]' gofmt "${go[@]}"
+  gofmt_check() {
+    local out status
+    out="$(gofmt -d -- "$@" 2>&1)"
+    status=$?
+    echo "$out"
+    [ "$status" -eq 0 ] && [ -z "$out" ]
+  }
+  run "gofmt" gofmt_check "${go[@]}"
 fi
 
 if [ ${#templates[@]} -gt 0 ]; then
   # djLint reads the project's pyproject.toml even when given a config file, so it
   # checks copies in a directory with no config above them.
-  copies="$(mktemp -d)"
-  printf '%s\0' "${templates[@]}" | xargs -0 cp --parents -t "$copies"
-  run "djLint" bash -c 'cd "$1" && shift && pipx run djlint==1.47.1 --check --profile=jinja -- "$@"' djlint "$copies" "${templates[@]}"
-  rm -rf "$copies"
+  djlint_check() {
+    local copies status
+    copies="$(mktemp -d)"
+    cp --parents -t "$copies" -- "$@"
+    (cd "$copies" && pipx run djlint==1.47.1 --check --profile=jinja -- "$@")
+    status=$?
+    rm -rf "$copies"
+    return "$status"
+  }
+  run "djLint" djlint_check "${templates[@]}"
 fi
 
 if [ ${#prettier[@]} -gt 0 ]; then
@@ -120,8 +156,85 @@ if [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; then
 fi
 
 if [ ${#go[@]} -gt 0 ]; then
-  run "golangci-lint" bash -c '"$1" run --config "$2" ./...' golangci-lint "$(install_golangci_lint)" \
-    "$here/golangci.yml"
+  run "golangci-lint" "$(golangci_lint)" run --config "$here/golangci.yml" ./...
+fi
+
+# Every project, whatever its runtime.
+
+# CRLF line endings, trailing whitespace and a missing final newline, in every
+# text file, including the ones no formatter reads. Markdown is left to Prettier,
+# since two trailing spaces there are a line break.
+whitespace() {
+  local text prose status=0 file
+  mapfile -t text < <(git grep -lI '' -- "${files[@]}")
+  mapfile -t prose < <(printf '%s\n' "${text[@]}" | grep -vE '\.md$')
+  if git grep -nI $'\r$' -- "${text[@]}"; then
+    echo "Use LF line endings." >&2
+    status=1
+  fi
+  if [ ${#prose[@]} -gt 0 ] && git grep -nIE '[[:blank:]]+$' -- "${prose[@]}"; then
+    echo "Remove trailing whitespace." >&2
+    status=1
+  fi
+  for file in "${text[@]}"; do
+    if [ -n "$(tail -c1 "$file")" ]; then
+      echo "$file: no newline at the end of the file" >&2
+      status=1
+    fi
+  done
+  return "$status"
+}
+run "whitespace" whitespace
+
+# Files over 1 MB belong in Git LFS.
+large_files() {
+  local status=0 file
+  for file in "${files[@]}"; do
+    [ "$(stat -c %s "$file")" -gt 1048576 ] || continue
+    git check-attr filter -- "$file" | grep -q ': lfs$' && continue
+    echo "$file is over 1 MB. Store it with Git LFS." >&2
+    status=1
+  done
+  return "$status"
+}
+run "file size" large_files
+
+mapfile -t workflows < <(printf '%s\n' "${files[@]}" | grep -E '^\.github/workflows/[^/]+\.ya?ml$')
+mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml$')
+mapfile -t shell < <(
+  for file in "${files[@]}"; do
+    if [[ "$file" =~ \.(sh|bash)$ ]] || head -n1 "$file" | grep -qE '^#!.*[/ ](ba|da|k)?sh$'; then
+      echo "$file"
+    fi
+  done
+)
+shellcheck_bin=""
+if [ $((${#workflows[@]} + ${#shell[@]})) -gt 0 ]; then
+  shellcheck_bin="$(shellcheck)"
+fi
+if [ ${#workflows[@]} -gt 0 ]; then
+  # actionlint runs shellcheck on every run: block, with the same pinned copy.
+  # 1.7.12 predates GitHub's $/ syntax for same-repository references and
+  # rejects it, so those two messages, and only for $/ references, are ignored.
+  run "actionlint" "$(actionlint)" -config-file "$here/actionlint.yml" -shellcheck "$shellcheck_bin" \
+    -ignore '"\$/[^"]*" at "uses" is not following the format' \
+    -ignore 'action "\$/[^"]*" in invalid format because ref is missing' \
+    -- "${workflows[@]}"
+fi
+if [ $((${#workflows[@]} + ${#actions[@]})) -gt 0 ]; then
+  run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
+    "${workflows[@]}" "${actions[@]}"
+fi
+if [ ${#shell[@]} -gt 0 ]; then
+  run "shellcheck" "$shellcheck_bin" --norc --severity=style -- "${shell[@]}"
+fi
+
+mapfile -t dockerfiles < <(
+  printf '%s\n' "${files[@]}" | grep -E '(^|/)(Dockerfile|Containerfile)([.-][^/]*)?$|\.dockerfile$'
+)
+if [ ${#dockerfiles[@]} -gt 0 ]; then
+  run "hadolint" "$(hadolint)" --config "$here/hadolint.yml" --disable-ignore-pragma \
+    -- "${dockerfiles[@]}"
 fi
 
 # Comments that switch a check off, for tools with no flag to ignore them, in
@@ -143,6 +256,7 @@ suppressions() {
   grep_files '#[ ]*prettier[-]ignore' "${yaml[@]}" && found=0
   grep_files '(\{#|<!--)[ ]*djlint[:]off' "${templates[@]}" && found=0
   grep_files '//[ ]*(nolint|lint[:]ignore)' "${go[@]}" && found=0
+  grep_files '#[ ]*shellcheck[ ]+disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
   if [ "$found" -eq 0 ]; then
     echo "These comments switch a check off. Fix what the check found instead." >&2
     return 1
