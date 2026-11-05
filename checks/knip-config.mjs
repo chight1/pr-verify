@@ -8,7 +8,11 @@
 // fail the check.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-const [outputPath, ...generatedFiles] = process.argv.slice(2);
+// process.argv starts with the paths of node and of this script.
+const FIRST_ARGUMENT = 2;
+const JSON_INDENT = 2;
+
+const [outputPath, ...generatedFiles] = process.argv.slice(FIRST_ARGUMENT);
 const patternCharacters = /[*?[\]{}()!]/;
 const patterns = [];
 
@@ -57,14 +61,14 @@ if (projectConfig.workspaces) {
   }
 }
 
-writeFileSync(outputPath, `${JSON.stringify(gateConfig, null, 2)}\n`);
+writeFileSync(outputPath, `${JSON.stringify(gateConfig, null, JSON_INDENT)}\n`);
 
 if (patterns.length > 0) {
-  console.error(
-    "These knip entry points are patterns. List each entry file by name:",
+  process.stderr.write(
+    "These knip entry points are patterns. List each entry file by name:\n",
   );
   for (const pattern of patterns) {
-    console.error(`  ${pattern}`);
+    process.stderr.write(`  ${pattern}\n`);
   }
   process.exitCode = 1;
 }
