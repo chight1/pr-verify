@@ -118,21 +118,28 @@ jobs:
           go-version: ${{ inputs.runtime-version }}
 
       # Each check below runs even when an earlier one failed, so one run shows
-      # every failure. A step is skipped only when a step it needs failed.
+      # every failure. A step is skipped only when a step it needs failed. The
+      # project's commands reach a step as environment variables rather than
+      # template text, so no value can be read as part of the script around it.
       - name: install
         id: install
-        run: ${{ inputs.install-command }}
+        env:
+          COMMAND: ${{ inputs.install-command }}
+        run: eval "$COMMAND"
 
       # Formatting, lint and types, with PR Verify's own settings rather than the
       # project's, so a PR cannot loosen them. After install, since type checks
-      # need the project's dependencies.
+      # need the project's dependencies. From this workflow's own commit, so a
+      # project gets the checks of the version it calls.
       - name: code quality
         if: ${{ !cancelled() }}
-        uses: chight1/pr-verify/checks@v1
+        uses: $/checks
 
       - name: lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command != '' }}
-        run: ${{ inputs.lint-command }}
+        env:
+          COMMAND: ${{ inputs.lint-command }}
+        run: eval "$COMMAND"
 
       # Lint finds smells; this follows untrusted input to a dangerous call.
       - name: static analysis
@@ -144,21 +151,28 @@ jobs:
             strict | loose) ;;
             *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
           esac
+          read -ra args <<< "$SEMGREP_ARGS"
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
-            "$SEMGREP_IMAGE" semgrep scan $SEMGREP_ARGS --error --metrics off --disable-version-check
+            "$SEMGREP_IMAGE" semgrep scan "${args[@]}" --error --metrics off --disable-version-check
 
       - name: build
         id: build
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: ${{ inputs.build-command }}
+        env:
+          COMMAND: ${{ inputs.build-command }}
+        run: eval "$COMMAND"
 
       - name: test
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-        run: ${{ inputs.test-command }}
+        env:
+          COMMAND: ${{ inputs.test-command }}
+        run: eval "$COMMAND"
 
       - name: audit
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.audit-command != '' }}
-        run: ${{ inputs.audit-command }}
+        env:
+          COMMAND: ${{ inputs.audit-command }}
+        run: eval "$COMMAND"
 
       # Installed from a pinned, immutable release and checked against its
       # hash rather than through trivy-action, whose tags were rewritten to
@@ -279,7 +293,9 @@ jobs:
           go-version: ${{ inputs.runtime-version }}
 
       - name: install
-        run: ${{ inputs.install-command }}
+        env:
+          COMMAND: ${{ inputs.install-command }}
+        run: eval "$COMMAND"
 
       - name: PR Verify
         id: pr-verify

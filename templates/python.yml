@@ -8,14 +8,15 @@ concurrency:
   group: pr-verify-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  pull-requests: write
-  actions: read
+permissions: {}
 
 jobs:
   pr-verify:
     uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     with:
       runtime: python
       runtime-version: "3.12"
@@ -23,4 +24,5 @@ jobs:
       build-command: python -m compileall -q src
       test-command: pytest
       audit-command: pip-audit
-    secrets: inherit
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

@@ -8,14 +8,15 @@ concurrency:
   group: pr-verify-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  pull-requests: write
-  actions: read
+permissions: {}
 
 jobs:
   pr-verify:
     uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     with:
       runtime: go
       runtime-version: "1.23"
@@ -23,4 +24,5 @@ jobs:
       build-command: go build ./... && go vet ./...
       test-command: go test ./...
       audit-command: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-    secrets: inherit
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

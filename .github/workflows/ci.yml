@@ -10,14 +10,15 @@ concurrency:
   group: ci-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  pull-requests: write
-  actions: read
+permissions: {}
 
 jobs:
   pr-verify:
-    uses: ./.github/workflows/pr-verify.yml
+    uses: $/.github/workflows/pr-verify.yml
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     with:
       runtime: node
       runtime-version: "24"
@@ -27,7 +28,8 @@ jobs:
       # The sandbox tests check this never reaches a sandboxed command.
       test-command: PR_VERIFY_CANARY="canary-$GITHUB_RUN_ID" npm test
       audit-command: npm audit --audit-level=high
-    secrets: inherit
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   dist:
     runs-on: ubuntu-24.04
@@ -54,8 +56,8 @@ jobs:
             exit 1
           fi
 
-  # The code-quality checks from this commit, on this commit and on a scratch
-  # project built to fail them.
+  # The code-quality checks on scratch projects built to fail them. The gate
+  # above runs the same checks, from this commit, on PR Verify itself.
   quality:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -65,13 +67,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The type checks need the project's dependencies, as in the gate.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-          cache: npm
-      - run: npm ci
-      - uses: ./checks
+      - name: install check tools
+        run: npm ci --prefix checks --ignore-scripts --no-audit --no-fund
       - name: checks test
-        if: ${{ !cancelled() }}
         run: bash checks/test.sh
