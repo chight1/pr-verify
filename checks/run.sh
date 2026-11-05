@@ -13,57 +13,15 @@ failed=()
 written=()
 trap 'rm -f "${written[@]}"' EXIT
 
-# Files a package manager writes rather than a person.
-lockfiles=(
-  package-lock.json npm-shrinkwrap.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb
-  poetry.lock Pipfile.lock uv.lock
-  go.sum Cargo.lock Gemfile.lock packages.lock.json composer.lock
-)
-
-is_lockfile() {
-  local name="${1##*/}" lockfile
-  for lockfile in "${lockfiles[@]}"; do
-    [ "$name" = "$lockfile" ] && return 0
-  done
-  return 1
-}
-
-# Lockfiles, minified bundles and source maps.
-is_machine_written() {
-  local path="$1"
-  is_lockfile "$path" || [[ "$path" == *.min.js || "$path" == *.min.css || "$path" == *.map ]]
-}
-
-# Tracked files a person writes: not machine-written ones, or files
-# .gitattributes marks linguist-generated. The same files the review reads.
-written_files() {
-  local path value
-  # check-attr prints three fields for each path, each ending in a NUL: the
-  # path, the attribute's name and its value.
-  git ls-files -z | git check-attr -z --stdin linguist-generated \
-    | while IFS= read -r -d '' path && IFS= read -r -d '' _ && IFS= read -r -d '' value; do
-      if [ "$value" = set ] || [ "$value" = true ] || is_machine_written "$path"; then
-        continue
-      fi
-      printf '%s\n' "$path"
-    done
-}
-
-# The given paths that match the extended regular expression.
-matching() {
-  local regex="$1"
-  shift
-  printf '%s\n' "$@" | grep -E "$regex"
-}
+# Which files are checked, and the pinned tools that check them.
+# shellcheck source=checks/project-files.sh
+source "$here/project-files.sh"
+# shellcheck source=checks/tool-downloads.sh
+source "$here/tool-downloads.sh"
 
 # The project's files that match the extended regular expression.
 files_matching() {
   matching "$1" "${files[@]}"
-}
-
-# Succeeds when given any paths, for checks that run only when there are files to check.
-any() {
-  [ $# -gt 0 ]
 }
 
 # Runs one tool in a collapsible log group and records it if it fails.
@@ -92,41 +50,6 @@ summarize() {
     printf -- '- %s failed\n' "${failed[@]}"
   } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
   return 1
-}
-
-# Downloads a pinned release and checks it against its SHA-256, then prints the
-# path of the binary: the download itself, or the named member of its archive.
-fetch_tool() {
-  local url="$1" sha256="$2" member="${3:-}"
-  local dir file
-  dir="$(mktemp -d)"
-  file="$dir/$(basename "$url")"
-  curl -fsSL -o "$file" "$url" >&2 \
-    && echo "$sha256  $file" | sha256sum --check --strict --quiet >&2 \
-    || return 1
-  if [ -z "$member" ]; then
-    chmod +x "$file" && echo "$file"
-  else
-    tar -xzf "$file" -C "$dir" "$member" >&2 && echo "$dir/$member"
-  fi
-}
-
-golangci_lint() {
-  fetch_tool https://github.com/golangci/golangci-lint/releases/download/v2.15.0/golangci-lint-2.15.0-linux-amd64.tar.gz \
-    9b7fe6a6bf6334b98decf8d86b11415ea7889afdabdd1959fdce23af2a9ebcea \
-    golangci-lint-2.15.0-linux-amd64/golangci-lint
-}
-actionlint() {
-  fetch_tool https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
-    8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 actionlint
-}
-shellcheck() {
-  fetch_tool https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz \
-    b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6 shellcheck-v0.11.0/shellcheck
-}
-hadolint() {
-  fetch_tool https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64 \
-    c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 }
 
 mapfile -t files < <(written_files)
@@ -181,6 +104,9 @@ for file in "${files[@]}"; do
     shell+=("$file")
   fi
 done
+
+# Code in every language, for the size checks that treat them all alike.
+source_code=("${python[@]}" "${go[@]}" "${typescript[@]}" "${javascript[@]}" "${shell[@]}")
 
 # Formatting.
 
@@ -269,6 +195,33 @@ if any "${python[@]}" "${go[@]}"; then
     -v "$here/semgrep.yml:/rules.yml:ro" -w /src "$semgrep_image" \
     semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem \
     -- "${python[@]}" "${go[@]}"
+fi
+
+# Size and complexity. ESLint, ruff and golangci-lint hold each function to the
+# limits in their configs; these cover the rest, with the same numbers.
+
+if any "${python[@]}"; then
+  # Cognitive complexity, which ruff does not measure.
+  run "complexipy" pipx run complexipy==8.3.0 --isolated --no-ignore --snapshot-ignore \
+    --max-complexity-allowed 15 --plain "${python[@]}"
+fi
+
+long_files() {
+  local status=0 file lines
+  for file in "$@"; do
+    lines="$(wc -l < "$file")"
+    if [ "$lines" -gt 400 ]; then
+      echo "$file has $lines lines, over 400. Split it by what each part does." >&2
+      status=1
+    fi
+  done
+  return "$status"
+}
+run "file length" long_files "${source_code[@]}"
+
+if any "${source_code[@]}"; then
+  run "jscpd" "$here/node_modules/.bin/jscpd" --config "$here/jscpd.json" --min-tokens 50 \
+    --threshold 0 --exit-code 1 --reporters console --no-colors "${source_code[@]}"
 fi
 
 # Dead code and dependencies.
@@ -417,6 +370,7 @@ suppressions() {
   grep_files '# *prettier-ignore' "${yaml[@]}" && found=0
   grep_files '(\{#|<!--) *djlint:off' "${templates[@]}" && found=0
   grep_files '// *(nolint|lint:ignore)' "${go[@]}" && found=0
+  grep_files 'jscpd: *ignore' "${source_code[@]}" && found=0
   grep_files '# *shellcheck +disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
   if [ "$found" -eq 0 ]; then
     echo "These comments switch a check off. Fix what the check found instead." >&2

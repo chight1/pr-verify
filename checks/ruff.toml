@@ -26,6 +26,14 @@ ignore = [
   "Q003",
 ]
 
+# The size and complexity limits, the same in every language.
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 5
+max-statements = 30
+
 [lint.per-file-ignores]
 # Tests assert, compare with literal expected values, and need no package.
 "{**/test_*.py,**/*_test.py,**/tests/**,**/conftest.py}" = ["S101", "PLR2004", "INP001"]
