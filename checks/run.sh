@@ -285,6 +285,10 @@ if [ -f package.json ] && [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; 
   run "knip" knip_check
 fi
 
+# A dependency the pull request adds that its registry has had for under 30
+# days, or does not have: a name a model made up, or one registered to catch it.
+run "new dependencies" python3 "$here/new_dependencies.py" "${files[@]}"
+
 # Every project, whatever its runtime.
 
 # CRLF line endings, trailing whitespace and a missing final newline, in every

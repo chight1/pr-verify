@@ -111,6 +111,8 @@ Dead code and dependencies are checked too:
 - **Go:** `go mod tidy -diff` must show no changes, and `deadcode` fails a function that nothing reaches from a main package or a test.
 - **JavaScript and TypeScript:** knip fails unused files, exports and types, imports of packages `package.json` does not list, duplicate exports and import cycles. knip cannot find every entry point on its own, so from a project's knip config the gate keeps only `entry`, `project` and `workspaces`, and none of its ignores or rules.
 
+A dependency a pull request adds to `package.json`, `pyproject.toml`, `requirements*.txt` or `go.mod` fails when its registry (npm, PyPI or the Go module proxy) has had it for less than 30 days, or has no such package: the mark of a name a model made up, or of one registered to catch that name. The manifests are compared with the pull request's base commit.
+
 Every project also gets, whatever its runtime:
 
 - LF line endings, no trailing whitespace and a final newline in every text file, including the ones no formatter reads.
