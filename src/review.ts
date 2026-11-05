@@ -41,6 +41,17 @@ export const DEFAULT_TOKEN_LOGIN = "github-actions[bot]";
  * can comment on a pull request, and a prior finding's test is run on the
  * next push, so a marker from anyone else would be a stranger's code.
  */
+/**
+ * Whether `author` posted a comment. GitHub can return a comment with no user,
+ * though some versions of Octokit's types say otherwise.
+ */
+export function postedBy(
+  comment: { user: { login: string } | null },
+  author: string,
+): boolean {
+  return comment.user?.login === author;
+}
+
 export async function postingLogin(octokit: Octokit): Promise<string> {
   try {
     return (await octokit.rest.users.getAuthenticated()).data.login;
@@ -151,7 +162,7 @@ export async function fetchPriorFindings(
     }),
   ]);
   const texts = [...reviews, ...comments]
-    .filter((c) => c.user?.login === author)
+    .filter((c) => postedBy(c, author))
     .map((c) => c.body);
 
   const resolved = new Set<string>();

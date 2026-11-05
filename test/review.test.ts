@@ -11,6 +11,7 @@ import {
   MAX_RECHECKS,
   parseFindingMarkers,
   parsePostedFindings,
+  postedBy,
   postingLogin,
   postReview,
   resolvePriorFindings,
@@ -326,6 +327,14 @@ describe("reading findings back from posted comments", () => {
     expect(await fetchPriorFindings(octokitWith(reviews), PR, "bot")).toEqual(
       [],
     );
+  });
+});
+
+describe("postedBy", () => {
+  it("matches the author, and is false for a comment with no user", () => {
+    expect(postedBy({ user: { login: "bot" } }, "bot")).toBe(true);
+    expect(postedBy({ user: { login: "stranger" } }, "bot")).toBe(false);
+    expect(postedBy({ user: null }, "bot")).toBe(false);
   });
 });
 

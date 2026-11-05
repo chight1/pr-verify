@@ -7,7 +7,11 @@
  */
 
 import type { Octokit } from "./context.js";
-import { DEFAULT_TOKEN_LOGIN, parseFindingMarkers } from "./review.js";
+import {
+  DEFAULT_TOKEN_LOGIN,
+  parseFindingMarkers,
+  postedBy,
+} from "./review.js";
 
 export interface RatedComment {
   body: string;
@@ -56,7 +60,7 @@ export async function fetchRatedComments(
     { owner, repo, per_page: 100 },
   );
   return comments
-    .filter((c) => c.user.login === author)
+    .filter((c) => postedBy(c, author))
     .map((c) => ({ body: c.body, thumbsDown: c.reactions?.["-1"] ?? 0 }));
 }
 
