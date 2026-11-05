@@ -1,0 +1,6 @@
+{
+  "workspaces": {
+    ".": { "entry": ["src/main.ts", "src/precision-cli.ts"] },
+    "checks": { "entry": ["*.mjs"] }
+  }
+}
