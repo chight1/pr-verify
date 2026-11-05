@@ -24,7 +24,7 @@ import {
 } from "./verify.js";
 
 export const READ_FILE_MAX_LINES = 400;
-export const READ_FILE_MAX_BYTES = 32 * 1024;
+const READ_FILE_MAX_BYTES = 32 * 1024;
 
 const CATEGORIES = new Set(["bug", "security", "missing-test"]);
 const CONFIDENCES = new Set(["low", "medium", "high"]);
@@ -601,6 +601,6 @@ export class ToolExecutor {
   }
 }
 
-export function clipLines(text: string, maxLines: number): string {
+function clipLines(text: string, maxLines: number): string {
   return text.trim().split("\n").slice(0, maxLines).join("\n");
 }

@@ -5,7 +5,7 @@
  * plain unified diffs without git's headers.
  */
 
-export interface Hunk {
+interface Hunk {
   oldStart: number;
   oldLines: number;
   newStart: number;

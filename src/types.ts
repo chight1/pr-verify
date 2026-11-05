@@ -9,7 +9,7 @@ export type GateResult = "success" | "failure" | "cancelled" | "skipped";
 
 export type FindingCategory = "bug" | "security" | "missing-test";
 
-export type Confidence = "low" | "medium" | "high";
+type Confidence = "low" | "medium" | "high";
 
 export type PatchKind = "test" | "fix";
 
@@ -61,7 +61,7 @@ export interface Patch {
   diff: string;
 }
 
-export type RedGateVerdict = "fix" | "diagnosis" | "abstain";
+type RedGateVerdict = "fix" | "diagnosis" | "abstain";
 
 export interface RedGateResult {
   verdict: RedGateVerdict;

@@ -23,7 +23,7 @@ Prefer silence to a weak claim. A reader who gets nothing from you learns that t
 
 End every run by calling finish. Do not write a prose summary instead of calling it.`;
 
-export const REVIEW_SYSTEM_PROMPT = `${SHARED_RULES}
+const REVIEW_SYSTEM_PROMPT = `${SHARED_RULES}
 
 Your job in this run is to review a pull request whose build, tests and dependency audit already passed.
 
@@ -42,7 +42,7 @@ Report a finding on a line outside the diff only when the PR's change is what ex
 
 Do not repeat a finding listed under "Already reported"; those are still open on the PR and the reader has seen them.`;
 
-export const RED_GATE_SYSTEM_PROMPT = `${SHARED_RULES}
+const RED_GATE_SYSTEM_PROMPT = `${SHARED_RULES}
 
 Your job in this run is to investigate why the gate failed on this pull request. The failing step's log is in the brief. Infrastructure failures and flaky tests have already been ruled out by the harness.
 
@@ -160,7 +160,7 @@ export interface AgentRunInput {
  * result again. With the two system breakpoints this uses three of the four
  * the API allows.
  */
-export function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
+function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
   for (const message of messages) {
     if (message.role !== "user" || typeof message.content === "string")
       continue;
