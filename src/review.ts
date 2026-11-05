@@ -4,8 +4,9 @@
  * everything so a later run can find what was already said.
  */
 
+import { MS_PER_SECOND } from "./budget.js";
 import type { Octokit } from "./context.js";
-import { git } from "./context.js";
+import { git, PAGE_SIZE } from "./context.js";
 import { isCommentable, parseDiff, type DiffFile } from "./diff.js";
 import type {
   Finding,
@@ -32,6 +33,8 @@ const TEST_BLOCK = new RegExp(
   `<summary>${TEST_SUMMARY}</summary>\\s*\`\`\`diff\\n([\\s\\S]*?)\\n\`\`\``,
   "g",
 );
+/** A finding this many lines or fewer from an open one in the same file and category repeats it. */
+const DUPLICATE_LINE_DISTANCE = 2;
 
 /** The login every comment made with the default GITHUB_TOKEN is posted under. */
 export const DEFAULT_TOKEN_LOGIN = "github-actions[bot]";
@@ -152,13 +155,13 @@ export async function fetchPriorFindings(
       owner: pr.owner,
       repo: pr.repo,
       pull_number: pr.number,
-      per_page: 100,
+      per_page: PAGE_SIZE,
     }),
     octokit.paginate(octokit.rest.pulls.listReviewComments, {
       owner: pr.owner,
       repo: pr.repo,
       pull_number: pr.number,
-      per_page: 100,
+      per_page: PAGE_SIZE,
     }),
   ]);
   const texts = [...reviews, ...comments]
@@ -309,7 +312,12 @@ export async function resolveThreads(
   const keys = new Set(resolved.map((f) => `${findingKey(f)}:${f.headSha}`));
   const comments = await octokit.paginate(
     octokit.rest.pulls.listReviewComments,
-    { owner: pr.owner, repo: pr.repo, pull_number: pr.number, per_page: 100 },
+    {
+      owner: pr.owner,
+      repo: pr.repo,
+      pull_number: pr.number,
+      per_page: PAGE_SIZE,
+    },
   );
   const commentIds = new Set(
     comments
@@ -369,7 +377,7 @@ export function isDuplicate(finding: Finding, open: PriorFinding[]): boolean {
       p.file === finding.file &&
       p.category === finding.category &&
       (p.title.trim().toLowerCase() === title ||
-        Math.abs(p.line - finding.line) <= 2),
+        Math.abs(p.line - finding.line) <= DUPLICATE_LINE_DISTANCE),
   );
 }
 
@@ -486,9 +494,8 @@ export function buildReview(
     `${String(findings.filter((f) => !f.verified).length)} unverified`,
     `${String(resolved.length)} resolved since the last review`,
   ].join(", ");
-  sections.push(
-    `### PR Verify review\n\n${summary}.${inlineCount > 0 ? ` ${String(inlineCount)} inline.` : ""}`,
-  );
+  const inline = inlineCount > 0 ? ` ${String(inlineCount)} inline.` : "";
+  sections.push(`### PR Verify review\n\n${summary}.${inline}`);
 
   if (verified.length > 0) {
     sections.push(
@@ -508,8 +515,9 @@ export function buildReview(
     sections.push(`### Resolved by this push\n\n${entries.join("\n")}`);
   }
 
+  const filesRead = trail.filesRead.map((f) => `\`${f}\``).join(", ");
   const trailLines = [
-    `Files read: ${trail.filesRead.length > 0 ? trail.filesRead.map((f) => `\`${f}\``).join(", ") : "none"}`,
+    `Files read: ${trail.filesRead.length > 0 ? filesRead : "none"}`,
     `Tests run by the agent: ${
       trail.tests.length > 0
         ? trail.tests
@@ -521,11 +529,12 @@ export function buildReview(
         : "none"
     }`,
     `Tokens: ${String(trail.inputTokens)} in, ${String(trail.cachedInputTokens)} cached, ${String(trail.outputTokens)} out`,
-    `Wall time: ${String(Math.round(trail.wallMs / 1000))}s`,
+    `Wall time: ${String(Math.round(trail.wallMs / MS_PER_SECOND))}s`,
     `[Run record](${trail.runUrl})`,
   ];
+  const trailList = trailLines.map((l) => `- ${l}`).join("\n");
   sections.push(
-    `<details><summary>Trail</summary>\n\n${trailLines.map((l) => `- ${l}`).join("\n")}\n\n</details>`,
+    `<details><summary>Trail</summary>\n\n${trailList}\n\n</details>`,
   );
   sections.push(`<!-- ${MARKER}:review ${headSha} -->`);
 
@@ -564,7 +573,7 @@ async function findComment(
     owner: pr.owner,
     repo: pr.repo,
     issue_number: pr.number,
-    per_page: 100,
+    per_page: PAGE_SIZE,
   });
   return existing.find((c) => (c.body ?? "").includes(marker));
 }

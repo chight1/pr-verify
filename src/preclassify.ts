@@ -12,6 +12,8 @@ interface Rule {
   patterns: RegExp[];
 }
 
+const EVIDENCE_MAX_CHARS = 300;
+
 const RULES: Rule[] = [
   {
     label: "cancelled",
@@ -106,7 +108,10 @@ export function preclassify(log: string): PreclassifyResult | null {
     for (const pattern of rule.patterns) {
       const hit = lines.find((line) => pattern.test(line));
       if (hit !== undefined) {
-        return { label: rule.label, evidence: hit.trim().slice(0, 300) };
+        return {
+          label: rule.label,
+          evidence: hit.trim().slice(0, EVIDENCE_MAX_CHARS),
+        };
       }
     }
   }
