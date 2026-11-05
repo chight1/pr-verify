@@ -1,6 +1,6 @@
 """When a package, or one version of it, first appeared on the npm registry, PyPI
-or the Go module proxy. Each lookup returns None when the registry has no such
-package or version.
+or the Go module proxy, and whether an advisory names a version as a fix. Each
+date lookup returns None when the registry has no such package or version.
 """
 
 from __future__ import annotations
@@ -33,12 +33,14 @@ def normalized(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def fetch(host: str, path: str) -> bytes | None:
-    """The body of an HTTPS GET, or None when the registry has no such package."""
+def fetch(host: str, path: str, query: bytes | None = None) -> bytes | None:
+    """The body of an HTTPS GET, or a POST when there is a query to send, or None
+    when the registry has no such package."""
     connection = http.client.HTTPSConnection(host, timeout=REQUEST_TIMEOUT_SECONDS)
     headers = {"Accept": "application/json", "Accept-Encoding": "gzip"}
+    method = "GET" if query is None else "POST"
     try:
-        connection.request("GET", path, headers=headers)
+        connection.request(method, path, body=query, headers=headers)
         response = connection.getresponse()
         body = response.read()
     finally:
@@ -53,8 +55,11 @@ def fetch(host: str, path: str) -> bytes | None:
     return body
 
 
-def fetch_json(host: str, path: str) -> dict[str, Any] | None:
-    body = fetch(host, path)
+def fetch_json(
+    host: str, path: str, query: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
+    encoded = json.dumps(query).encode() if query is not None else None
+    body = fetch(host, path, encoded)
     return json.loads(body) if body is not None else None
 
 
@@ -124,6 +129,57 @@ def go_created(module: str) -> datetime | None:
         latest = fetch_json("proxy.golang.org", f"/{go_escaped(module)}/@latest")
         return datetime.fromisoformat(latest["Time"]) if latest else None
     return go_released(module, min(versions, key=go_version_key))
+
+
+OSV_ECOSYSTEMS = {"npm": "npm", "pypi": "PyPI", "go": "Go"}
+
+
+def osv_advisories(ecosystem: str, name: str) -> list[dict[str, Any]]:
+    """Every advisory OSV holds for a package, which includes GitHub's."""
+    query: dict[str, Any] = {
+        "package": {"name": name, "ecosystem": OSV_ECOSYSTEMS[ecosystem]}
+    }
+    advisories: list[dict[str, Any]] = []
+    while True:
+        page = fetch_json("api.osv.dev", "/v1/query", query) or {}
+        advisories.extend(page.get("vulns", []))
+        if "next_page_token" not in page:
+            return advisories
+        query["page_token"] = page["next_page_token"]
+
+
+def same_package(ecosystem: str, first: str, second: str) -> bool:
+    if ecosystem == "pypi":
+        return normalized(first) == normalized(second)
+    return first == second
+
+
+def fixed_versions(advisory: dict[str, Any], ecosystem: str, name: str) -> set[str]:
+    """The versions an advisory names as fixing the package. OSV writes Go
+    versions without their leading v."""
+    affected: list[dict[str, Any]] = advisory.get("affected", [])
+    ranges = [
+        version_range
+        for entry in affected
+        if same_package(ecosystem, entry.get("package", {}).get("name", ""), name)
+        for version_range in entry.get("ranges", [])
+    ]
+    fixes = {
+        event["fixed"]
+        for version_range in ranges
+        for event in version_range["events"]
+        if "fixed" in event
+    }
+    return {f"v{fix}" for fix in fixes} if ecosystem == "go" else fixes
+
+
+def fixes_advisory(ecosystem: str, name: str, version: str) -> bool:
+    """Whether a published advisory names this version as a vulnerability's fix."""
+    advisories = osv_advisories(ecosystem, name)
+    current = (advisory for advisory in advisories if "withdrawn" not in advisory)
+    return any(
+        version in fixed_versions(advisory, ecosystem, name) for advisory in current
+    )
 
 
 CREATED: dict[str, Callable[[str], datetime | None]] = {

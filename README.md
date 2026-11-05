@@ -114,7 +114,7 @@ Dead code and dependencies are checked too:
 New dependencies are checked against their registry (npm, PyPI or the Go module proxy), compared with the pull request's base commit, which the check fetches with the workflow's token, so it runs in the `online checks` step with zizmor:
 
 - A package added to `package.json`, `pyproject.toml`, `requirements*.txt` or `go.mod` fails when the registry has no such package, the mark of a name a model made up, or has had it for under 30 days, which may mean it was registered to catch that name.
-- A version added to a lockfile fails when the registry has no such version, or published it under 7 days ago, the window in which a hijacked release is usually caught. That covers transitive dependencies. Read: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `go.sum`, and `==` pins in `requirements*.txt`. Packages from git, a path or another registry are skipped.
+- A version added to a lockfile fails when the registry has no such version, or published it under 7 days ago, the window in which a hijacked release is usually caught, unless an advisory in [OSV](https://osv.dev) names it as the fix for a vulnerability. That covers transitive dependencies. Read: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `go.sum`, and `==` pins in `requirements*.txt`. Packages from git, a path or another registry are skipped.
 
 Every project also gets, whatever its runtime:
 

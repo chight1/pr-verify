@@ -2,7 +2,8 @@
 of a package name a model made up, or one too new to trust: a direct dependency
 the registry has had for less than 30 days, which may be registered to catch a
 made-up name, or any locked version published less than 7 days ago, which is
-how a hijacked maintainer account ships malware before anyone notices.
+how a hijacked maintainer account ships malware before anyone notices. A version
+a published advisory names as the fix for a vulnerability is not held back.
 
 Usage: new_dependencies.py. Compares each tracked manifest and lockfile with its
 copy on the pull request's base commit, read from the event GitHub Actions provides.
@@ -25,7 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from lockfiles import lockfile_parser
-from registries import CREATED, RELEASED, normalized
+from registries import CREATED, RELEASED, fixes_advisory, normalized
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -206,6 +207,9 @@ def package_problem(dependency: Dependency, now: datetime) -> str | None:
 
 def version_problem(locked: LockedVersion, now: datetime) -> str | None:
     released = RELEASED[locked.ecosystem](locked.name, locked.version)
+    too_new = released is not None and now - released < MINIMUM_VERSION_AGE
+    if too_new and fixes_advisory(locked.ecosystem, locked.name, locked.version):
+        return None
     return age_problem(str(locked), released, now, MINIMUM_VERSION_AGE)
 
 
