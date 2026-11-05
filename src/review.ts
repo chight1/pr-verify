@@ -264,6 +264,88 @@ export async function resolvePriorFindings(
   return { resolved, open, rechecks };
 }
 
+const REVIEW_THREADS = `query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+      }
+    }
+  }
+}`;
+
+const RESOLVE_THREAD = `mutation($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) { thread { id } }
+}`;
+
+interface ReviewThreadsPage {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: {
+          id: string;
+          isResolved: boolean;
+          comments: { nodes: { databaseId: number | null }[] };
+        }[];
+      };
+    };
+  };
+}
+
+/**
+ * Marks resolved the threads of `author`'s inline comments whose findings this
+ * push resolved, so the conversation agrees with the review that says so.
+ * Returns how many threads it resolved.
+ */
+export async function resolveThreads(
+  octokit: Octokit,
+  pr: PullRequestRef,
+  author: string,
+  resolved: ResolvedFinding[],
+): Promise<number> {
+  if (resolved.length === 0) return 0;
+  const keys = new Set(resolved.map((f) => `${findingKey(f)}:${f.headSha}`));
+  const comments = await octokit.paginate(
+    octokit.rest.pulls.listReviewComments,
+    { owner: pr.owner, repo: pr.repo, pull_number: pr.number, per_page: 100 },
+  );
+  const commentIds = new Set(
+    comments
+      .filter(
+        (c) =>
+          postedBy(c, author) &&
+          parseFindingMarkers(c.body).some((f) =>
+            keys.has(`${findingKey(f)}:${f.headSha}`),
+          ),
+      )
+      .map((c) => c.id),
+  );
+  if (commentIds.size === 0) return 0;
+
+  let count = 0;
+  let after: string | null = null;
+  do {
+    const page: ReviewThreadsPage = await octokit.graphql(REVIEW_THREADS, {
+      owner: pr.owner,
+      repo: pr.repo,
+      number: pr.number,
+      after,
+    });
+    const threads = page.repository.pullRequest.reviewThreads;
+    for (const thread of threads.nodes) {
+      const first = thread.comments.nodes[0]?.databaseId;
+      if (thread.isResolved || typeof first !== "number") continue;
+      if (!commentIds.has(first)) continue;
+      await octokit.graphql(RESOLVE_THREAD, { threadId: thread.id });
+      count += 1;
+    }
+    after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
+  } while (after !== null);
+  return count;
+}
+
 export function lineChanged(
   files: DiffFile[],
   file: string,
