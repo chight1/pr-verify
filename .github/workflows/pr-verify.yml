@@ -66,8 +66,10 @@ on:
         type: string
         default: REVIEW.md
     secrets:
+      # Optional, so a run without it still gets a gate: Dependabot's pull
+      # requests get Dependabot's secrets, not the repository's.
       ANTHROPIC_API_KEY:
-        required: true
+        required: false
 
 # Semgrep 1.182.0, defined once: the gate runs it, and the review job hands it
 # to the action to check a proposed fix. The rule packs come from Semgrep's
@@ -217,9 +219,29 @@ jobs:
       contents: read
     steps: *gate-steps
 
+  # Says whether the review can run, from outside the job that would use the key.
+  key:
+    name: key
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - name: check for the Anthropic key
+        id: check
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No Anthropic key is available to this run, so the review does not run. The gate still decides the merge." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   review:
     name: review
-    needs: gate
+    needs: [gate, key]
     # The condition starts with a status-check function on purpose. GitHub
     # silently prepends success() to any job condition that lacks one, and
     # that is false once the gate has failed, which would stop the red-gate
@@ -227,6 +249,7 @@ jobs:
     if: >-
       !cancelled()
       && inputs.review
+      && needs.key.outputs.present == 'true'
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04

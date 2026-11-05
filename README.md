@@ -88,7 +88,7 @@ Every action the workflows use is pinned to a commit SHA. Dependabot proposes up
 ## Attaching it to a project
 
 1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present, and the tests without network access.
-2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`.
+2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`. A run without it, such as on a Dependabot pull request, which gets Dependabot's secrets instead, still runs the gate and skips the review.
 3. Copy the matching file from `templates/` to `.github/workflows/pr-verify.yml` and fill in the commands.
 4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and the canary optional; they never block.
 5. Optionally add a `REVIEW.md` at the repository root (8 KB cap) saying what matters in this project: invariants, areas to scrutinize, things to ignore. It is read into the review brief verbatim.
