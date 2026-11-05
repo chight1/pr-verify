@@ -15,8 +15,10 @@ import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { MS_PER_SECOND } from "./budget.js";
 
 const execFileAsync = promisify(execFile);
+const PROBE_TIMEOUT_MS = 30_000;
 
 /** The only variables a test sees from the job: what toolchains need to run, and nothing that holds a credential. */
 const PASSED_THROUGH = [
@@ -55,7 +57,7 @@ export function testEnvironment(
     HOME: home,
     CI: "true",
     GOPROXY: "off",
-    GOCACHE: "/tmp/go-build",
+    GOCACHE: `${home}/.cache/go-build`,
   };
 }
 
@@ -145,7 +147,7 @@ export class Sandbox {
       [...new Set(readOnly)],
     );
 
-    const probe = sandbox.wrap("true", home, 30_000);
+    const probe = sandbox.wrap("true", home, PROBE_TIMEOUT_MS);
     try {
       await execFileAsync(probe.file, probe.args);
     } catch (error) {
@@ -174,7 +176,7 @@ export class Sandbox {
         "timeout",
         "-s",
         "KILL",
-        `${String(Math.ceil(timeoutMs / 1000))}s`,
+        `${String(Math.ceil(timeoutMs / MS_PER_SECOND))}s`,
         "unshare",
         "--net",
         "--pid",

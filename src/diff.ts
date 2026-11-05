@@ -30,6 +30,9 @@ export interface DiffFile {
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const DEV_NULL = "/dev/null";
+const PLAIN_FILE_HEADER_LINES = 3;
+/** A context line counts toward both the old and the new side of a hunk. */
+const SIDES_PER_CONTEXT_LINE = 2;
 
 function stripPrefix(path: string): string {
   return path.replace(/^[ab]\//, "");
@@ -37,7 +40,7 @@ function stripPrefix(path: string): string {
 
 /** The path in a `--- ` or `+++ ` line, without a/b prefix or a traditional diff's tab-separated timestamp. */
 function headerPath(line: string): string {
-  const raw = line.slice(4).split("\t")[0] ?? "";
+  const raw = line.slice("--- ".length).split("\t")[0] ?? "";
   return raw === DEV_NULL
     ? DEV_NULL
     : stripPrefix(raw.replace(/^"(.*)"$/, "$1"));
@@ -120,7 +123,7 @@ export function parseDiff(text: string): DiffFile[] {
     if (line.startsWith("\\")) continue;
 
     if (line.startsWith("diff --git ")) {
-      const match = /^diff --git (?:"?)(.+?)(?:"?) (?:"?)(.+?)(?:"?)$/.exec(
+      const match = /^diff --git "?(.[^ \n\r\u2028\u2029]*?)"? "?(.+?)"?$/.exec(
         line,
       );
       current = emptyFile(
@@ -206,10 +209,14 @@ export function parseDiff(text: string): DiffFile[] {
 
 /** True when the line at `i` starts the next file of a plain unified diff: `--- `, then `+++ `, then a hunk header. */
 function startsPlainFile(lines: string[], i: number): boolean {
+  const [oldHeader = "", newHeader = "", hunkHeader = ""] = lines.slice(
+    i,
+    i + PLAIN_FILE_HEADER_LINES,
+  );
   return (
-    (lines[i] ?? "").startsWith("--- ") &&
-    (lines[i + 1] ?? "").startsWith("+++ ") &&
-    HUNK_HEADER.test(lines[i + 2] ?? "")
+    oldHeader.startsWith("--- ") &&
+    newHeader.startsWith("+++ ") &&
+    HUNK_HEADER.test(hunkHeader)
   );
 }
 
@@ -327,7 +334,7 @@ export function applyHints(recounted: string): string[] {
       } else {
         if (changed) trailing += 1;
         else leading += 1;
-        remaining -= 2;
+        remaining -= SIDES_PER_CONTEXT_LINE;
       }
     }
     if (changed && leading > 0 && trailing === 0) {

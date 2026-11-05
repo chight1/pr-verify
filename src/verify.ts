@@ -13,6 +13,10 @@ import { git } from "./context.js";
 import type { Sandbox } from "./sandbox.js";
 import type { Patch, PatchKind } from "./types.js";
 
+/** Output held in memory before the oldest chunks are dropped, as a multiple of the tail returned. */
+const OUTPUT_BUFFER_TAILS = 2;
+const SEMGREP_OUTPUT_TAIL_BYTES = 16 * 1024;
+
 const TEST_DIR_SEGMENTS = new Set([
   "test",
   "tests",
@@ -223,7 +227,7 @@ export function runCommand(
     const keep = (chunk: Buffer) => {
       chunks.push(chunk);
       kept += chunk.byteLength;
-      while (kept > tailBytes * 2 && chunks.length > 1) {
+      while (kept > tailBytes * OUTPUT_BUFFER_TAILS && chunks.length > 1) {
         const oldest = chunks.shift();
         if (!oldest) throw new Error("no output chunk left to drop");
         kept -= oldest.byteLength;
@@ -452,7 +456,12 @@ export async function runStaticAnalysis(
       analysis.args,
       "--metrics off --disable-version-check --json --output /out/results.json",
     ].join(" ");
-    const result = await runCommand(command, tree.root, timeoutMs, 16 * 1024);
+    const result = await runCommand(
+      command,
+      tree.root,
+      timeoutMs,
+      SEMGREP_OUTPUT_TAIL_BYTES,
+    );
     if (result.exitCode !== 0)
       return {
         findings: null,
@@ -528,11 +537,7 @@ export async function recheckDemonstration(
   if ((await tree.apply(testDiff)).applied || (await tree.contains(testDiff))) {
     runs = 1;
     const run = await tree.runTests();
-    result = run.buildFailed
-      ? "unusable"
-      : run.exitCode === 0
-        ? "passes"
-        : "fails";
+    if (!run.buildFailed) result = run.exitCode === 0 ? "passes" : "fails";
   }
   await tree.reset();
   return { result, runs, durationMs: Date.now() - startedAt };

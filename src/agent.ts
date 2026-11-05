@@ -14,6 +14,11 @@ export const DEFAULT_MODEL = "claude-sonnet-5-5";
 const MAX_OUTPUT_TOKENS = 16_000;
 /** How many times the model may end a turn without calling finish before we stop asking. */
 const MAX_NUDGES = 2;
+/** The floor on one API request's timeout, so a nearly spent clock still gets a real attempt. */
+const MIN_REQUEST_TIMEOUT_MS = 10_000;
+const API_MAX_RETRIES = 2;
+/** How many omitted file names the brief lists before summarizing the rest as a count. */
+const OMITTED_SHOWN = 20;
 
 const SHARED_RULES = `You are PR Verify, an automated reviewer running inside a CI job. You are advisory: a person decides what to do with what you say. You never approve, request changes, merge or push.
 
@@ -57,9 +62,11 @@ End with finish: "fix" with the patch id, "diagnosis" with a three-line summary 
 /** Names the machine-written files left out of the diff, so the agent knows they changed. */
 function omittedSection(omitted: string[]): string[] {
   if (omitted.length === 0) return [];
-  const shown = omitted.slice(0, 20).join(", ");
+  const shown = omitted.slice(0, OMITTED_SHOWN).join(", ");
   const more =
-    omitted.length > 20 ? `, and ${String(omitted.length - 20)} more` : "";
+    omitted.length > OMITTED_SHOWN
+      ? `, and ${String(omitted.length - OMITTED_SHOWN)} more`
+      : "";
   return [
     `## Left out of the diff\n\nThese changed files are machine-written (lockfiles, minified or generated) and are not shown: ${shown}${more}.`,
   ];
@@ -205,7 +212,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
       moveCacheBreakpoint(messages);
       const response = await client.messages.create(
         { model, max_tokens: MAX_OUTPUT_TOKENS, system, tools, messages },
-        { timeout: Math.max(10_000, budget.remainingMs()) },
+        { timeout: Math.max(MIN_REQUEST_TIMEOUT_MS, budget.remainingMs()) },
       );
       budget.chargeTokens({
         input: response.usage.input_tokens,
@@ -294,5 +301,5 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
 }
 
 export function createClient(apiKey: string): Anthropic {
-  return new Anthropic({ apiKey, maxRetries: 2 });
+  return new Anthropic({ apiKey, maxRetries: API_MAX_RETRIES });
 }

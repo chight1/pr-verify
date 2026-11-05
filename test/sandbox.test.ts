@@ -24,7 +24,7 @@ describe("testEnvironment", () => {
       HOME: "/home/runner",
       CI: "true",
       GOPROXY: "off",
-      GOCACHE: "/tmp/go-build",
+      GOCACHE: "/home/runner/.cache/go-build",
     });
   });
 });

@@ -20,10 +20,12 @@ import {
   Budget,
   diffTokenLimit,
   estimateTokens,
+  MS_PER_MINUTE,
   type BudgetLimits,
 } from "./budget.js";
 import {
   buildRepositoryMap,
+  byCodeUnits,
   collectDiff,
   fetchFailingStepLog,
   readGuidance,
@@ -103,6 +105,13 @@ const GATE_RESULTS = new Set<GateResult>([
   "skipped",
 ]);
 
+const TEST_EXAMPLES_SHOWN = 5;
+const TEST_DIRS_SHOWN = 8;
+const BYTES_PER_KB = 1024;
+/** How much of the suite's output, from the end, the baseline note quotes. */
+const BASELINE_OUTPUT_CHARS = 3000;
+const SHORT_SHA_LENGTH = 7;
+
 function integerInput(name: string): number {
   const raw = core.getInput(name, { required: true });
   const value = Number(raw);
@@ -149,7 +158,7 @@ function readInputs(): Inputs {
       maxLines: integerInput("max-patch-lines"),
       maxFiles: integerInput("max-patch-files"),
     },
-    testTimeoutMs: integerInput("test-timeout-minutes") * 60_000,
+    testTimeoutMs: integerInput("test-timeout-minutes") * MS_PER_MINUTE,
     staticAnalysis: semgrepImage
       ? { image: semgrepImage, args: core.getInput("semgrep-args") }
       : null,
@@ -183,12 +192,15 @@ function describeTestConventions(files: string[]): string {
     if (!isTestPath(file)) continue;
     const dir = path.posix.dirname(file);
     dirs.add(dir);
-    if (examples.length < 5) examples.push(file);
+    if (examples.length < TEST_EXAMPLES_SHOWN) examples.push(file);
   }
   if (dirs.size === 0) {
     return "No test files were recognised. A test patch may still add files under a test/ or tests/ directory, or files named *.test.* / *_test.* / test_*.";
   }
-  const topDirs = [...dirs].sort().slice(0, 8).join(", ");
+  const topDirs = [...dirs]
+    .sort(byCodeUnits)
+    .slice(0, TEST_DIRS_SHOWN)
+    .join(", ");
   return `Test files live under: ${topDirs}. Examples: ${examples.join(", ")}. A test patch may add files in these locations or add to these files.`;
 }
 
@@ -209,7 +221,7 @@ function tooLargeNote(
   const tokens = estimateTokens(diff.text);
   const limit = diffTokenLimit(limits);
   if (tokens <= limit) return null;
-  const kb = Math.round(Buffer.byteLength(diff.text, "utf8") / 1024);
+  const kb = Math.round(Buffer.byteLength(diff.text, "utf8") / BYTES_PER_KB);
   return (
     `This diff is about ${String(kb)} KB (≈ ${tokens.toLocaleString("en-US")} tokens), over this project's review limit of ` +
     `${limit.toLocaleString("en-US")} tokens, a quarter of its \`max-tokens\` budget. Split it into smaller pull requests to get a review.`
@@ -226,20 +238,21 @@ interface Stage {
   runUrl: string;
 }
 
+function baselineFailure(run: TestRun): string {
+  if (run.timedOut) return "The suite timed out";
+  if (run.buildFailed) return "The build failed";
+  return "The suite failed";
+}
+
 /** The note posted instead of a review when the unchanged PR commit does not pass in the sandbox. */
 function baselineNote(run: TestRun, runUrl: string): string {
-  const what = run.timedOut
-    ? "The suite timed out"
-    : run.buildFailed
-      ? "The build failed"
-      : "The suite failed";
   return [
     "### PR Verify: not reviewed",
     "",
-    `${what} on this commit in the review's sandbox, which has no network and only toolchain variables, so no finding could be verified. The gate runs the suite outside the sandbox and still decides the merge.`,
+    `${baselineFailure(run)} on this commit in the review's sandbox, which has no network and only toolchain variables, so no finding could be verified. The gate runs the suite outside the sandbox and still decides the merge.`,
     "",
     "```",
-    run.output.slice(-3000).trimEnd(),
+    run.output.slice(-BASELINE_OUTPUT_CHARS).trimEnd(),
     "```",
     "",
     `[Run record](${runUrl})`,
@@ -254,7 +267,7 @@ async function reviewMode(stage: Stage): Promise<void> {
     octokit,
     pr,
     RED_GATE_KEY,
-    `### PR Verify: gate passes\n\nThe gate passes on \`${pr.headSha.slice(0, 7)}\`, so the failure this comment reported earlier no longer applies. [Run record](${stage.runUrl})`,
+    `### PR Verify: gate passes\n\nThe gate passes on \`${pr.headSha.slice(0, SHORT_SHA_LENGTH)}\`, so the failure this comment reported earlier no longer applies. [Run record](${stage.runUrl})`,
   );
 
   const author = await postingLogin(octokit);
@@ -375,10 +388,11 @@ async function reviewMode(stage: Stage): Promise<void> {
   if (outcome.finished?.mode !== "review") {
     record.outcome = stoppedOutcome(outcome);
     await tree.reset();
+    const reason = outcome.budgetTripped
+      ? `budget: ${outcome.budgetTripped}`
+      : String(outcome.stopReason);
     await core.summary
-      .addRaw(
-        `PR Verify: no review posted (${outcome.budgetTripped ? `budget: ${outcome.budgetTripped}` : String(outcome.stopReason)}).`,
-      )
+      .addRaw(`PR Verify: no review posted (${reason}).`)
       .write();
     return;
   }
@@ -409,7 +423,7 @@ async function reviewMode(stage: Stage): Promise<void> {
   }
 
   const trail: ReviewTrail = {
-    filesRead: [...executor.filesRead].sort(),
+    filesRead: [...executor.filesRead].sort(byCodeUnits),
     tests: executor.trail
       .filter((t) => t.tool === "run_tests")
       .map((t) => ({
