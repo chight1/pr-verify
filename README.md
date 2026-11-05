@@ -136,22 +136,28 @@ Nothing here runs on a push to the default branch, only on pull requests.
 
 ## Repository layout
 
-| File                              | Concern                                                                                       |
-| --------------------------------- | --------------------------------------------------------------------------------------------- |
-| `src/main.ts`                     | Reads inputs, picks the mode from the gate result, runs the stages, always writes the record. |
-| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                         |
-| `src/diff.ts`                     | Unified-diff parser shared by context, review and verify.                                     |
-| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                    |
-| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                           |
-| `src/tools.ts`                    | The four tools and their limits.                                                              |
-| `src/verify.ts`                   | Scratch-tree reset, patch policy, apply, harness test runs.                                   |
-| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                    |
-| `src/review.ts`                   | Posting policy, line-to-diff mapping, markers, prior-finding resolution.                      |
-| `src/record.ts`                   | The run record.                                                                               |
-| `src/budget.ts`                   | Token, time, call and finding counters.                                                       |
-| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                        |
-| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                  |
-| `templates/`                      | The one-file workflow a project copies, per runtime.                                          |
+| File                              | Concern                                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------- |
+| `src/main.ts`                     | Picks the mode from the gate result, runs it, always writes the record.                     |
+| `src/inputs.ts`                   | The action's inputs and the pull request from the event.                                    |
+| `src/stage.ts`                    | What both modes share: the stage, the comment keys, the scratch tree.                       |
+| `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.            |
+| `src/selection.ts`                | Verification and caps that turn proposals into posted findings.                             |
+| `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification. |
+| `src/notes.ts`                    | The too-large and baseline notes.                                                           |
+| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                       |
+| `src/diff.ts`                     | Unified-diff parser shared by context, review and verify.                                   |
+| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                  |
+| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                         |
+| `src/tools.ts`                    | The four tools and their limits.                                                            |
+| `src/verify.ts`                   | Scratch-tree reset, patch policy, apply, harness test runs.                                 |
+| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                  |
+| `src/review.ts`                   | Posting policy, line-to-diff mapping, markers, prior-finding resolution.                    |
+| `src/record.ts`                   | The run record.                                                                             |
+| `src/budget.ts`                   | Token, time, call and finding counters.                                                     |
+| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                      |
+| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                |
+| `templates/`                      | The one-file workflow a project copies, per runtime.                                        |
 
 `dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
 
