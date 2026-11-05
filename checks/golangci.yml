@@ -43,6 +43,8 @@ linters:
     gocritic:
       enabled-checks:
         - commentedOutCode
+# Every finding, even several on one line.
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  uniq-by-line: false
