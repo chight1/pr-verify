@@ -24,8 +24,15 @@ import {
   type RepositoryMap,
 } from "./context.js";
 import { tooLargeNote } from "./notes.js";
+import { upsertComment } from "./pr-comments.js";
 import { preclassify, scanFailure } from "./preclassify.js";
-import { upsertComment } from "./review.js";
+import {
+  runStaticAnalysis,
+  verifyRedGateFix,
+  verifyStaticAnalysisFix,
+  type StaticAnalysis,
+} from "./proof.js";
+import type { ScratchTree } from "./scratch-tree.js";
 import {
   createScratchTree,
   RED_GATE_KEY,
@@ -33,15 +40,8 @@ import {
   type AgentRun,
   type Stage,
 } from "./stage.js";
-import { ToolExecutor } from "./tools.js";
+import { ToolExecutor } from "./tool-executor.js";
 import type { Patch, RedGateResult } from "./types.js";
-import {
-  runStaticAnalysis,
-  verifyRedGateFix,
-  verifyStaticAnalysisFix,
-  type ScratchTree,
-  type StaticAnalysis,
-} from "./verify.js";
 
 /** The failing gate step, and what its name says about how a fix can be checked. */
 interface GateFailure {
