@@ -11,5 +11,8 @@
     "pyright": "1.1.414",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1"
+  },
+  "overrides": {
+    "minimatch": "11.0.3"
   }
 }
