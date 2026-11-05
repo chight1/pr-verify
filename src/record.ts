@@ -106,7 +106,7 @@ export async function writeRecord(
   dir: string,
 ): Promise<string> {
   await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `run-${record.identity.runId}.json`);
+  const file = path.join(dir, `run-${String(record.identity.runId)}.json`);
   await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
   return file;
 }

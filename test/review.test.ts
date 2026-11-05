@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import { parseDiff } from "../src/diff.js";
 import {
   buildReview,
@@ -120,13 +120,13 @@ describe("resolvePriorFindings", () => {
     f: PriorFinding,
     testPatch = "test patch",
   ): PostedFinding => ({ finding: f, testPatch });
-  const noRecheck = vi.fn(async () => "passes" as const);
+  const noRecheck = vi.fn(() => Promise.resolve("passes" as const));
 
   it("without a test, splits prior findings by whether their lines changed, using git only", async () => {
     const changed = { ...prior, line: 12 };
     const untouched = { ...prior, line: 40, title: "Other" };
     const samePush = { ...prior, headSha: "head2", title: "Same push" };
-    const diffBetween = vi.fn(async () => LINE_12_CHANGED);
+    const diffBetween = vi.fn(() => Promise.resolve(LINE_12_CHANGED));
 
     const result = await resolvePriorFindings(
       [changed, untouched, samePush].map(untested),
@@ -146,7 +146,7 @@ describe("resolvePriorFindings", () => {
       [untested(prior)],
       "head2",
       noRecheck,
-      async () => null,
+      () => Promise.resolve(null),
     );
     expect(result.open).toEqual([prior]);
     expect(result.resolved).toEqual([]);
@@ -154,12 +154,12 @@ describe("resolvePriorFindings", () => {
 
   it("resolves a finding whose test passes now, even though its line never changed", async () => {
     const untouched = { ...prior, line: 40 };
-    const recheck = vi.fn(async () => "passes" as const);
+    const recheck = vi.fn(() => Promise.resolve("passes" as const));
     const result = await resolvePriorFindings(
       [tested(untouched, "the test")],
       "head2",
       recheck,
-      async () => LINE_12_CHANGED,
+      () => Promise.resolve(LINE_12_CHANGED),
     );
     expect(recheck).toHaveBeenCalledWith("the test");
     expect(result).toEqual({
@@ -173,8 +173,8 @@ describe("resolvePriorFindings", () => {
     const result = await resolvePriorFindings(
       [tested(prior)],
       "head2",
-      async () => "fails",
-      async () => LINE_12_CHANGED,
+      () => Promise.resolve("fails"),
+      () => Promise.resolve(LINE_12_CHANGED),
     );
     expect(result.resolved).toEqual([]);
     expect(result.open).toEqual([prior]);
@@ -184,23 +184,23 @@ describe("resolvePriorFindings", () => {
     const result = await resolvePriorFindings(
       [tested(prior)],
       "head2",
-      async () => "unusable",
-      async () => LINE_12_CHANGED,
+      () => Promise.resolve("unusable"),
+      () => Promise.resolve(LINE_12_CHANGED),
     );
     expect(result.resolved).toEqual([{ ...prior, evidence: "line-changed" }]);
   });
 
-  it(`re-checks at most ${MAX_RECHECKS} findings and does not re-check one posted on this head`, async () => {
+  it(`re-checks at most ${String(MAX_RECHECKS)} findings and does not re-check one posted on this head`, async () => {
     const many = Array.from({ length: MAX_RECHECKS + 2 }, (_, i) =>
-      tested({ ...prior, line: 100 + i, title: `t${i}` }),
+      tested({ ...prior, line: 100 + i, title: `t${String(i)}` }),
     );
     const samePush = tested({ ...prior, headSha: "head2", title: "Same push" });
-    const recheck = vi.fn(async () => "passes" as const);
+    const recheck = vi.fn(() => Promise.resolve("passes" as const));
     const result = await resolvePriorFindings(
       [samePush, ...many],
       "head2",
       recheck,
-      async () => LINE_12_CHANGED,
+      () => Promise.resolve(LINE_12_CHANGED),
     );
     expect(recheck).toHaveBeenCalledTimes(MAX_RECHECKS);
     expect(result.rechecks).toBe(MAX_RECHECKS);
@@ -276,15 +276,17 @@ describe("reading findings back from posted comments", () => {
   });
 
   function octokitWith(
-    reviews: Array<{ login: string; body: string }>,
-    comments: Array<{ login: string; body: string }> = [],
+    reviews: { login: string; body: string }[],
+    comments: { login: string; body: string }[] = [],
   ) {
     const listReviews = Symbol("listReviews");
     const listReviewComments = Symbol("listReviewComments");
-    const toApi = (items: Array<{ login: string; body: string }>) =>
+    const toApi = (items: { login: string; body: string }[]) =>
       items.map((i) => ({ user: { login: i.login }, body: i.body }));
-    const paginate = vi.fn(async (method: symbol) =>
-      method === listReviews ? toApi(reviews) : toApi(comments),
+    const paginate = vi.fn((method: symbol) =>
+      Promise.resolve(
+        method === listReviews ? toApi(reviews) : toApi(comments),
+      ),
     );
     return {
       paginate,
@@ -332,7 +334,8 @@ describe("postingLogin", () => {
     const pat = {
       rest: {
         users: {
-          getAuthenticated: async () => ({ data: { login: "someone" } }),
+          getAuthenticated: () =>
+            Promise.resolve({ data: { login: "someone" } }),
         },
       },
     } as never;
@@ -412,9 +415,11 @@ describe("buildReview", () => {
     expect(inline.placement).toBe("inline");
     expect(outside.placement).toBe("body");
 
-    expect(draft.comments[0]!.body).toContain("Test that fails on this commit");
-    expect(draft.comments[0]!.body).toContain("Fix that makes it pass");
-    expect(draft.comments[0]!.body).toContain("<!-- pr-verify:finding ");
+    const [comment] = draft.comments;
+    assert.isDefined(comment);
+    expect(comment.body).toContain("Test that fails on this commit");
+    expect(comment.body).toContain("Fix that makes it pass");
+    expect(comment.body).toContain("<!-- pr-verify:finding ");
 
     expect(draft.body).toContain("1 verified, 1 unverified, 1 resolved");
     expect(draft.body).toContain("### Unverified");
@@ -436,14 +441,16 @@ describe("buildReview", () => {
       testPatch: 1,
     });
     const draft = buildReview([f], patches, [], diffFiles, "head2", TRAIL);
-    expect(draft.comments[0]!.body).not.toContain("Test that fails");
-    expect(draft.comments[0]!.body).toContain("Unverified, high confidence");
+    const [comment] = draft.comments;
+    assert.isDefined(comment);
+    expect(comment.body).not.toContain("Test that fails");
+    expect(comment.body).toContain("Unverified, high confidence");
   });
 });
 
 describe("postReview", () => {
   it("posts one review with the comment event and right-side inline comments", async () => {
-    const createReview = vi.fn(async () => ({ data: { id: 99 } }));
+    const createReview = vi.fn(() => Promise.resolve({ data: { id: 99 } }));
     const octokit = { rest: { pulls: { createReview } } } as never;
     const id = await postReview(octokit, PR, {
       body: "b",
@@ -463,11 +470,11 @@ describe("postReview", () => {
 });
 
 describe("upsertComment", () => {
-  function octokitWith(existing: Array<{ id: number; body: string }>) {
-    const updateComment = vi.fn(async () => ({}));
-    const createComment = vi.fn(async () => ({ data: { id: 500 } }));
+  function octokitWith(existing: { id: number; body: string }[]) {
+    const updateComment = vi.fn(() => Promise.resolve({}));
+    const createComment = vi.fn(() => Promise.resolve({ data: { id: 500 } }));
     const octokit = {
-      paginate: vi.fn(async () => existing),
+      paginate: vi.fn(() => Promise.resolve(existing)),
       rest: { issues: { listComments: {}, updateComment, createComment } },
     } as never;
     return { octokit, updateComment, createComment };
@@ -501,11 +508,11 @@ describe("upsertComment", () => {
 });
 
 describe("updateComment", () => {
-  function octokitWith(existing: Array<{ id: number; body: string }>) {
-    const update = vi.fn(async () => ({}));
-    const create = vi.fn(async () => ({ data: { id: 500 } }));
+  function octokitWith(existing: { id: number; body: string }[]) {
+    const update = vi.fn(() => Promise.resolve({}));
+    const create = vi.fn(() => Promise.resolve({ data: { id: 500 } }));
     const octokit = {
-      paginate: vi.fn(async () => existing),
+      paginate: vi.fn(() => Promise.resolve(existing)),
       rest: {
         issues: {
           listComments: {},
@@ -541,10 +548,10 @@ describe("updateComment", () => {
 });
 
 describe("deleteComment", () => {
-  function octokitWith(existing: Array<{ id: number; body: string }>) {
-    const remove = vi.fn(async () => ({}));
+  function octokitWith(existing: { id: number; body: string }[]) {
+    const remove = vi.fn(() => Promise.resolve({}));
     const octokit = {
-      paginate: vi.fn(async () => existing),
+      paginate: vi.fn(() => Promise.resolve(existing)),
       rest: { issues: { listComments: {}, deleteComment: remove } },
     } as never;
     return { octokit, remove };

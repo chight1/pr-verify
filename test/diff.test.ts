@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
   applyHints,
   isCommentable,
@@ -60,15 +60,17 @@ describe("parseDiff", () => {
   });
 
   it("counts added and removed lines per file", () => {
-    const order = files[0]!;
+    const order = files[0];
+    assert.isDefined(order);
     expect(order.added).toBe(2);
     expect(order.removed).toBe(1);
-    expect(files[1]!.added).toBe(3);
+    expect(files[1]?.added).toBe(3);
     expect(totalChangedLines(files)).toBe(2 + 1 + 3 + 2);
   });
 
   it("tracks new-side line numbers through a hunk", () => {
-    const order = files[0]!;
+    const order = files[0];
+    assert.isDefined(order);
     // New side: context 10,11; added 12,13; context 14,15,16. Old side: 10..15 with 12 removed.
     expect([...order.rightLines].sort((a, b) => a - b)).toEqual([
       10, 11, 12, 13, 14, 15, 16,
@@ -79,16 +81,16 @@ describe("parseDiff", () => {
   });
 
   it("flags binary files and records renames", () => {
-    expect(files[2]!.binary).toBe(true);
-    expect(files[3]!.oldPath).toBe("old.ts");
-    expect(files[4]!.oldPath).toBe("gone.ts");
+    expect(files[2]?.binary).toBe(true);
+    expect(files[3]?.oldPath).toBe("old.ts");
+    expect(files[4]?.oldPath).toBe("gone.ts");
   });
 
   it("detects symlinks by mode", () => {
     const link = parseDiff(
       `diff --git a/link b/link\nnew file mode 120000\nindex 0000000..1111111\n--- /dev/null\n+++ b/link\n@@ -0,0 +1 @@\n+../etc/passwd\n`,
     );
-    expect(link[0]!.symlink).toBe(true);
+    expect(link[0]?.symlink).toBe(true);
   });
 });
 
@@ -138,9 +140,10 @@ describe("hunk bodies", () => {
         "",
       ].join("\n"),
     );
+    assert.isDefined(file);
     expect(file).toMatchObject({ path: "q.sql", added: 1, removed: 1 });
-    expect([...file!.rightLines]).toEqual([1, 2]);
-    expect([...file!.leftLines]).toEqual([1, 2]);
+    expect([...file.rightLines]).toEqual([1, 2]);
+    expect([...file.leftLines]).toEqual([1, 2]);
   });
 
   it("ends a hunk that overstates its counts at the next file instead of swallowing it", () => {

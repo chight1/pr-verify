@@ -60,6 +60,14 @@ export function resolvedMarker(finding: PriorFinding): string {
   return `<!-- ${MARKER}:resolved ${JSON.stringify({ category, file, line, title, verified, headSha })} -->`;
 }
 
+/** The JSON a marker pattern captured. Its one group takes part in every match. */
+function markerJson(match: RegExpMatchArray): string {
+  const json = match[1];
+  if (json === undefined)
+    throw new Error(`marker matched without its JSON: ${match[0]}`);
+  return json;
+}
+
 function readPrior(json: string): PriorFinding | null {
   try {
     const parsed = JSON.parse(json) as Partial<PriorFinding>;
@@ -102,11 +110,10 @@ export function parsePostedFindings(text: string): PostedFinding[] {
   for (const match of text.matchAll(FINDING_MARKER)) {
     const segment = text.slice(segmentStart, match.index);
     segmentStart = match.index + match[0].length;
-    const finding = readPrior(match[1]!);
+    const finding = readPrior(markerJson(match));
     if (!finding) continue;
-    const tests = [...segment.matchAll(TEST_BLOCK)];
-    const last = tests[tests.length - 1];
-    out.push({ finding, testPatch: last ? `${last[1]!}\n` : null });
+    const test = [...segment.matchAll(TEST_BLOCK)].at(-1)?.[1];
+    out.push({ finding, testPatch: test === undefined ? null : `${test}\n` });
   }
   return out;
 }
@@ -116,7 +123,7 @@ export function parseFindingMarkers(text: string): PriorFinding[] {
 }
 
 function findingKey(finding: PriorFinding): string {
-  return `${finding.file}:${finding.line}:${finding.category}:${finding.title}`;
+  return `${finding.file}:${String(finding.line)}:${finding.category}:${finding.title}`;
 }
 
 /**
@@ -145,12 +152,12 @@ export async function fetchPriorFindings(
   ]);
   const texts = [...reviews, ...comments]
     .filter((c) => c.user?.login === author)
-    .map((c) => c.body ?? "");
+    .map((c) => c.body);
 
   const resolved = new Set<string>();
   for (const text of texts) {
     for (const match of text.matchAll(RESOLVED_MARKER)) {
-      const finding = readPrior(match[1]!);
+      const finding = readPrior(markerJson(match));
       if (finding) resolved.add(`${findingKey(finding)}:${finding.headSha}`);
     }
   }
@@ -275,7 +282,7 @@ export function isDuplicate(finding: Finding, open: PriorFinding[]): boolean {
 
 export interface ReviewTrail {
   filesRead: string[];
-  tests: Array<{ description: string; exitCode: number | null }>;
+  tests: { description: string; exitCode: number | null }[];
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
@@ -285,7 +292,7 @@ export interface ReviewTrail {
 
 export interface ReviewDraft {
   body: string;
-  comments: Array<{ path: string; line: number; body: string }>;
+  comments: { path: string; line: number; body: string }[];
 }
 
 const RESOLVED_BY: Record<ResolvedFinding["evidence"], string> = {
@@ -315,7 +322,7 @@ function renderFinding(
     ? "Verified"
     : `Unverified, ${finding.confidence} confidence`;
   const lines = [`**${finding.title}** · ${finding.category} · ${badge}`];
-  if (withLocation) lines.push(`\`${finding.file}:${finding.line}\``);
+  if (withLocation) lines.push(`\`${finding.file}:${String(finding.line)}\``);
   lines.push("", finding.explanation);
 
   const test =
@@ -382,12 +389,12 @@ export function buildReview(
 
   const inlineCount = comments.length;
   const summary = [
-    `${findings.filter((f) => f.verified).length} verified`,
-    `${findings.filter((f) => !f.verified).length} unverified`,
-    `${resolved.length} resolved since the last review`,
+    `${String(findings.filter((f) => f.verified).length)} verified`,
+    `${String(findings.filter((f) => !f.verified).length)} unverified`,
+    `${String(resolved.length)} resolved since the last review`,
   ].join(", ");
   sections.push(
-    `### PR Verify review\n\n${summary}.${inlineCount > 0 ? ` ${inlineCount} inline.` : ""}`,
+    `### PR Verify review\n\n${summary}.${inlineCount > 0 ? ` ${String(inlineCount)} inline.` : ""}`,
   );
 
   if (verified.length > 0) {
@@ -403,7 +410,7 @@ export function buildReview(
   if (resolved.length > 0) {
     const entries = resolved.map(
       (r) =>
-        `- \`${r.file}:${r.line}\` ${r.title} (${RESOLVED_BY[r.evidence]}) ${resolvedMarker(r)}`,
+        `- \`${r.file}:${String(r.line)}\` ${r.title} (${RESOLVED_BY[r.evidence]}) ${resolvedMarker(r)}`,
     );
     sections.push(`### Resolved by this push\n\n${entries.join("\n")}`);
   }
@@ -413,12 +420,15 @@ export function buildReview(
     `Tests run by the agent: ${
       trail.tests.length > 0
         ? trail.tests
-            .map((t) => `${t.description} (exit ${t.exitCode ?? "timeout"})`)
+            .map(
+              (t) =>
+                `${t.description} (exit ${String(t.exitCode ?? "timeout")})`,
+            )
             .join("; ")
         : "none"
     }`,
-    `Tokens: ${trail.inputTokens} in, ${trail.cachedInputTokens} cached, ${trail.outputTokens} out`,
-    `Wall time: ${Math.round(trail.wallMs / 1000)}s`,
+    `Tokens: ${String(trail.inputTokens)} in, ${String(trail.cachedInputTokens)} cached, ${String(trail.outputTokens)} out`,
+    `Wall time: ${String(Math.round(trail.wallMs / 1000))}s`,
     `[Run record](${trail.runUrl})`,
   ];
   sections.push(

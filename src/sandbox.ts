@@ -151,6 +151,7 @@ export class Sandbox {
     } catch (error) {
       throw new Error(
         `Could not build the sandbox test runs need. It uses passwordless sudo, unshare and setpriv, as on GitHub-hosted Ubuntu runners: ${(error as Error).message}`,
+        { cause: error },
       );
     }
     return sandbox;
@@ -173,7 +174,7 @@ export class Sandbox {
         "timeout",
         "-s",
         "KILL",
-        `${Math.ceil(timeoutMs / 1000)}s`,
+        `${String(Math.ceil(timeoutMs / 1000))}s`,
         "unshare",
         "--net",
         "--pid",

@@ -30,7 +30,7 @@ export async function git(
   });
   if (result.exitCode !== 0) {
     throw new Error(
-      `git ${args.join(" ")} failed (${result.exitCode}): ${result.stderr.trim()}`,
+      `git ${args.join(" ")} failed (${String(result.exitCode)}): ${result.stderr.trim()}`,
     );
   }
   return result.stdout;
@@ -74,9 +74,10 @@ export function dropNoise(
 ): PullRequestDiff {
   const sections: string[][] = [];
   for (const line of diffText.split("\n")) {
-    if (line.startsWith("diff --git ") || sections.length === 0)
-      sections.push([]);
-    sections[sections.length - 1]!.push(line);
+    const current = sections.at(-1);
+    if (line.startsWith("diff --git ") || current === undefined)
+      sections.push([line]);
+    else current.push(line);
   }
   const kept: string[] = [];
   const omitted: string[] = [];
@@ -105,8 +106,12 @@ async function generatedPaths(
   const fields = out.split("\0");
   const generated = new Set<string>();
   for (let i = 0; i + 2 < fields.length; i += 3) {
-    if (fields[i + 2] === "true" || fields[i + 2] === "set")
-      generated.add(fields[i]!);
+    const file = fields[i];
+    if (
+      file !== undefined &&
+      (fields[i + 2] === "true" || fields[i + 2] === "set")
+    )
+      generated.add(file);
   }
   return generated;
 }
@@ -156,7 +161,9 @@ export function buildRepositoryMap(
   for (const file of sorted) {
     const cost = Buffer.byteLength(file, "utf8") + 1;
     if (bytes + cost > capBytes) {
-      lines.push(`... ${sorted.length - lines.length} more files omitted`);
+      lines.push(
+        `... ${String(sorted.length - lines.length)} more files omitted`,
+      );
       return {
         text: lines.join("\n"),
         fileCount: sorted.length,
@@ -201,7 +208,7 @@ export function capUtf8(raw: Buffer, capBytes: number): Guidance {
   }
   // Cut on a UTF-8 boundary so we never emit a half character.
   let end = capBytes;
-  while (end > 0 && (raw[end]! & 0xc0) === 0x80) end -= 1;
+  while (end > 0 && (raw.readUInt8(end) & 0xc0) === 0x80) end -= 1;
   return {
     text: raw.subarray(0, end).toString("utf8"),
     bytes: end,
@@ -224,7 +231,7 @@ export class Scrubber {
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   ];
 
-  constructor(secrets: Array<string | undefined>) {
+  constructor(secrets: (string | undefined)[]) {
     this.secrets = secrets
       .filter((s): s is string => typeof s === "string" && s.length >= 8)
       .sort((a, b) => b.length - a.length);
@@ -298,8 +305,7 @@ export function extractStepLog(
   );
 
   let start = -1;
-  for (let i = 0; i < stripped.length; i += 1) {
-    const line = stripped[i]!;
+  for (const [i, line] of stripped.entries()) {
     if (line.startsWith("##[group]")) {
       const header = line.slice("##[group]".length).trim();
       if (header === stepName || header === `Run ${stepName}`) start = i;
@@ -309,23 +315,17 @@ export function extractStepLog(
     // The group header names the command, not the step. Use the section containing the first error.
     const errorAt = stripped.findIndex((l) => l.startsWith("##[error]"));
     if (errorAt !== -1) {
-      for (let i = errorAt; i >= 0; i -= 1) {
-        if (stripped[i]!.startsWith("##[group]")) {
-          start = i;
-          break;
-        }
+      for (const [i, line] of stripped.slice(0, errorAt + 1).entries()) {
+        if (line.startsWith("##[group]")) start = i;
       }
     }
   }
   if (start === -1) return tail(stripped.join("\n"), tailBytes);
 
-  let end = stripped.length;
-  for (let i = start + 1; i < stripped.length; i += 1) {
-    if (stripped[i]!.startsWith("##[group]")) {
-      end = i;
-      break;
-    }
-  }
+  const next = stripped.findIndex(
+    (l, i) => i > start && l.startsWith("##[group]"),
+  );
+  const end = next === -1 ? stripped.length : next;
   return tail(stripped.slice(start, end).join("\n"), tailBytes);
 }
 
@@ -334,5 +334,5 @@ export function tail(text: string, bytes: number): string {
   if (buffer.byteLength <= bytes) return text;
   const slice = buffer.subarray(buffer.byteLength - bytes);
   const firstNewline = slice.indexOf(0x0a);
-  return `[... ${buffer.byteLength - bytes} bytes trimmed]\n${slice.subarray(firstNewline + 1).toString("utf8")}`;
+  return `[... ${String(buffer.byteLength - bytes)} bytes trimmed]\n${slice.subarray(firstNewline + 1).toString("utf8")}`;
 }
