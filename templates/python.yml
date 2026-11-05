@@ -18,7 +18,7 @@ jobs:
     uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
     with:
       runtime: python
-      runtime-version: '3.12'
+      runtime-version: "3.12"
       install-command: pip install -e . pytest pip-audit
       build-command: python -m compileall -q src
       test-command: pytest

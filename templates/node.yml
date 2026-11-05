@@ -18,7 +18,7 @@ jobs:
     uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
     with:
       runtime: node
-      runtime-version: '24'
+      runtime-version: "24"
       install-command: npm ci
       build-command: npm run build
       test-command: npm test

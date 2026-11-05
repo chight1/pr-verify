@@ -1,0 +1,9 @@
+{
+  "name": "pr-verify-checks",
+  "private": true,
+  "description": "The tools the gate's code-quality checks run, pinned by this directory's lockfile.",
+  "license": "MIT",
+  "dependencies": {
+    "prettier": "3.9.10"
+  }
+}

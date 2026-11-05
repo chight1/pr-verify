@@ -4,13 +4,13 @@
  * charges the budget, and stops when `finish` arrives or a budget trips.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-import { type Budget, BudgetExceeded, type BudgetName } from './budget.js';
-import type { FinishPayload, ToolExecutor } from './tools.js';
-import { toolDefinitions } from './tools.js';
-import type { Mode, Outcome, PriorFinding } from './types.js';
+import Anthropic from "@anthropic-ai/sdk";
+import { type Budget, BudgetExceeded, type BudgetName } from "./budget.js";
+import type { FinishPayload, ToolExecutor } from "./tools.js";
+import { toolDefinitions } from "./tools.js";
+import type { Mode, Outcome, PriorFinding } from "./types.js";
 
-export const DEFAULT_MODEL = 'claude-sonnet-5-5';
+export const DEFAULT_MODEL = "claude-sonnet-5-5";
 const MAX_OUTPUT_TOKENS = 16_000;
 /** How many times the model may end a turn without calling finish before we stop asking. */
 const MAX_NUDGES = 2;
@@ -57,9 +57,11 @@ End with finish: "fix" with the patch id, "diagnosis" with a three-line summary 
 /** Names the machine-written files left out of the diff, so the agent knows they changed. */
 function omittedSection(omitted: string[]): string[] {
   if (omitted.length === 0) return [];
-  const shown = omitted.slice(0, 20).join(', ');
-  const more = omitted.length > 20 ? `, and ${omitted.length - 20} more` : '';
-  return [`## Left out of the diff\n\nThese changed files are machine-written (lockfiles, minified or generated) and are not shown: ${shown}${more}.`];
+  const shown = omitted.slice(0, 20).join(", ");
+  const more = omitted.length > 20 ? `, and ${omitted.length - 20} more` : "";
+  return [
+    `## Left out of the diff\n\nThese changed files are machine-written (lockfiles, minified or generated) and are not shown: ${shown}${more}.`,
+  ];
 }
 
 export interface ReviewBriefInput {
@@ -73,18 +75,30 @@ export interface ReviewBriefInput {
 export function buildReviewBrief(input: ReviewBriefInput): string {
   const sections: string[] = [];
   if (input.guidance) {
-    sections.push(`## Repository guidance (REVIEW.md)\n\n${input.guidance.trim()}`);
+    sections.push(
+      `## Repository guidance (REVIEW.md)\n\n${input.guidance.trim()}`,
+    );
   }
-  sections.push(`## Test conventions inferred from the repository\n\n${input.testConventions}`);
+  sections.push(
+    `## Test conventions inferred from the repository\n\n${input.testConventions}`,
+  );
   if (input.openFindings.length > 0) {
     const list = input.openFindings
-      .map((f) => `- ${f.file}:${f.line} [${f.category}${f.verified ? ', verified' : ''}] ${f.title}`)
-      .join('\n');
+      .map(
+        (f) =>
+          `- ${f.file}:${f.line} [${f.category}${f.verified ? ", verified" : ""}] ${f.title}`,
+      )
+      .join("\n");
     sections.push(`## Already reported on this pull request\n\n${list}`);
   }
-  sections.push(`## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``, ...omittedSection(input.omitted));
-  sections.push('Review the change. Read whatever files you need, demonstrate what you can, then call finish.');
-  return sections.join('\n\n');
+  sections.push(
+    `## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``,
+    ...omittedSection(input.omitted),
+  );
+  sections.push(
+    "Review the change. Read whatever files you need, demonstrate what you can, then call finish.",
+  );
+  return sections.join("\n\n");
 }
 
 export interface RedGateBriefInput {
@@ -98,27 +112,34 @@ export interface RedGateBriefInput {
 export function buildRedGateBrief(input: RedGateBriefInput): string {
   const sections: string[] = [];
   if (input.guidance) {
-    sections.push(`## Repository guidance (REVIEW.md)\n\n${input.guidance.trim()}`);
+    sections.push(
+      `## Repository guidance (REVIEW.md)\n\n${input.guidance.trim()}`,
+    );
   }
   sections.push(`## Failing step\n\n\`${input.stepName}\``);
-  sections.push(`## Log of the failing step\n\n\`\`\`\n${input.log.trimEnd()}\n\`\`\``);
-  sections.push(`## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``, ...omittedSection(input.omitted));
-  sections.push('Investigate the failure, then call finish.');
-  return sections.join('\n\n');
+  sections.push(
+    `## Log of the failing step\n\n\`\`\`\n${input.log.trimEnd()}\n\`\`\``,
+  );
+  sections.push(
+    `## Pull request diff\n\n\`\`\`diff\n${input.diff.trimEnd()}\n\`\`\``,
+    ...omittedSection(input.omitted),
+  );
+  sections.push("Investigate the failure, then call finish.");
+  return sections.join("\n\n");
 }
 
 export interface AgentOutcome {
   finished: FinishPayload | null;
   budgetTripped: BudgetName | null;
   /** Why the loop ended when it ended without finish and without a budget. */
-  stopReason: 'refusal' | 'max_tokens' | 'no_finish' | 'context_window' | null;
+  stopReason: "refusal" | "max_tokens" | "no_finish" | "context_window" | null;
   turns: number;
 }
 
 /** The run outcome when the agent stopped without calling finish. A refusal is its own outcome so the job can fail on it. */
 export function stoppedOutcome(outcome: AgentOutcome): Outcome {
-  if (outcome.budgetTripped) return 'budget';
-  return outcome.stopReason === 'refusal' ? 'refused' : 'abstain';
+  if (outcome.budgetTripped) return "budget";
+  return outcome.stopReason === "refusal" ? "refused" : "abstain";
 }
 
 export interface AgentRunInput {
@@ -140,34 +161,39 @@ export interface AgentRunInput {
  */
 export function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
   for (const message of messages) {
-    if (message.role !== 'user' || typeof message.content === 'string') continue;
+    if (message.role !== "user" || typeof message.content === "string")
+      continue;
     for (const block of message.content) {
-      if ('cache_control' in block) delete block.cache_control;
+      if ("cache_control" in block) delete block.cache_control;
     }
   }
   const last = messages[messages.length - 1];
-  if (last?.role !== 'user') return;
-  if (typeof last.content === 'string') last.content = [{ type: 'text', text: last.content }];
+  if (last?.role !== "user") return;
+  if (typeof last.content === "string")
+    last.content = [{ type: "text", text: last.content }];
   const block = last.content[last.content.length - 1];
-  if (block && block.type !== 'thinking' && block.type !== 'redacted_thinking') block.cache_control = { type: 'ephemeral' };
+  if (block && block.type !== "thinking" && block.type !== "redacted_thinking")
+    block.cache_control = { type: "ephemeral" };
 }
 
 export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
   const { client, model, mode, executor, budget } = input;
   const system: Anthropic.TextBlockParam[] = [
     {
-      type: 'text',
-      text: mode === 'review' ? REVIEW_SYSTEM_PROMPT : RED_GATE_SYSTEM_PROMPT,
-      cache_control: { type: 'ephemeral' },
+      type: "text",
+      text: mode === "review" ? REVIEW_SYSTEM_PROMPT : RED_GATE_SYSTEM_PROMPT,
+      cache_control: { type: "ephemeral" },
     },
     {
-      type: 'text',
+      type: "text",
       text: `## Repository map\n\n${input.repositoryMap}`,
-      cache_control: { type: 'ephemeral' },
+      cache_control: { type: "ephemeral" },
     },
   ];
   const tools = toolDefinitions(mode);
-  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: input.brief }];
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: input.brief },
+  ];
   let turns = 0;
   let nudges = 0;
 
@@ -186,45 +212,81 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
         cacheRead: response.usage.cache_read_input_tokens ?? 0,
         cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
       });
-      messages.push({ role: 'assistant', content: response.content });
+      messages.push({ role: "assistant", content: response.content });
 
       switch (response.stop_reason) {
-        case 'tool_use': {
+        case "tool_use": {
           const results: Anthropic.ToolResultBlockParam[] = [];
           let finished: FinishPayload | null = null;
           for (const block of response.content) {
-            if (block.type !== 'tool_use') continue;
+            if (block.type !== "tool_use") continue;
             // Tools run one at a time: propose_patch and run_tests share the working tree.
             const result = await executor.execute(block);
             results.push(result.block);
             if (result.finished && !finished) finished = result.finished;
           }
-          if (finished) return { finished, budgetTripped: null, stopReason: null, turns };
-          messages.push({ role: 'user', content: results });
+          if (finished)
+            return { finished, budgetTripped: null, stopReason: null, turns };
+          messages.push({ role: "user", content: results });
           continue;
         }
-        case 'pause_turn':
+        case "pause_turn":
           continue;
-        case 'end_turn':
-        case 'stop_sequence': {
-          if (nudges >= MAX_NUDGES) return { finished: null, budgetTripped: null, stopReason: 'no_finish', turns };
+        case "end_turn":
+        case "stop_sequence": {
+          if (nudges >= MAX_NUDGES)
+            return {
+              finished: null,
+              budgetTripped: null,
+              stopReason: "no_finish",
+              turns,
+            };
           nudges += 1;
-          messages.push({ role: 'user', content: 'Call finish to end the run. Report an empty list if there is nothing to report.' });
+          messages.push({
+            role: "user",
+            content:
+              "Call finish to end the run. Report an empty list if there is nothing to report.",
+          });
           continue;
         }
-        case 'max_tokens':
-          return { finished: null, budgetTripped: null, stopReason: 'max_tokens', turns };
-        case 'refusal':
-          return { finished: null, budgetTripped: null, stopReason: 'refusal', turns };
-        case 'model_context_window_exceeded':
-          return { finished: null, budgetTripped: null, stopReason: 'context_window', turns };
+        case "max_tokens":
+          return {
+            finished: null,
+            budgetTripped: null,
+            stopReason: "max_tokens",
+            turns,
+          };
+        case "refusal":
+          return {
+            finished: null,
+            budgetTripped: null,
+            stopReason: "refusal",
+            turns,
+          };
+        case "model_context_window_exceeded":
+          return {
+            finished: null,
+            budgetTripped: null,
+            stopReason: "context_window",
+            turns,
+          };
         default:
-          return { finished: null, budgetTripped: null, stopReason: 'no_finish', turns };
+          return {
+            finished: null,
+            budgetTripped: null,
+            stopReason: "no_finish",
+            turns,
+          };
       }
     }
   } catch (error) {
     if (error instanceof BudgetExceeded) {
-      return { finished: null, budgetTripped: error.budget, stopReason: null, turns };
+      return {
+        finished: null,
+        budgetTripped: error.budget,
+        stopReason: null,
+        turns,
+      };
     }
     throw error;
   }

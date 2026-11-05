@@ -3,11 +3,17 @@
  * It is the evidence behind every comment and the data for tuning budgets.
  */
 
-import { mkdir, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import type { BudgetName } from './budget.js';
-import type { ToolCallRecord } from './tools.js';
-import type { FindingCategory, GateResult, Mode, Outcome, ResolvedFinding } from './types.js';
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import type { BudgetName } from "./budget.js";
+import type { ToolCallRecord } from "./tools.js";
+import type {
+  FindingCategory,
+  GateResult,
+  Mode,
+  Outcome,
+  ResolvedFinding,
+} from "./types.js";
 
 export interface FindingRecord {
   n: number;
@@ -19,7 +25,7 @@ export interface FindingRecord {
   title: string;
   testPatchVerified: boolean | null;
   fixPatchVerified: boolean | null;
-  placement: 'inline' | 'body' | 'dropped';
+  placement: "inline" | "body" | "dropped";
   dropReason?: string;
 }
 
@@ -56,7 +62,11 @@ export interface RunRecord {
     cachedInputTokens: number;
   };
   /** The build and suite on the unchanged PR commit, in the sandbox, before any patch. Null when it did not run. */
-  baseline: { passed: boolean; buildFailed: boolean; durationMs: number } | null;
+  baseline: {
+    passed: boolean;
+    buildFailed: boolean;
+    durationMs: number;
+  } | null;
   wallMs: number;
   outcome: Outcome;
   postedId: number | null;
@@ -66,10 +76,16 @@ export interface RunRecord {
 }
 
 /** Starts a record with every field present, so a crash mid-run still writes something readable. */
-export function emptyRecord(identity: RunRecord['identity']): RunRecord {
+export function emptyRecord(identity: RunRecord["identity"]): RunRecord {
   return {
     identity,
-    contextSizes: { diffBytes: 0, repositoryMapBytes: 0, guidanceBytes: 0, priorFindingsBytes: 0, failingLogBytes: 0 },
+    contextSizes: {
+      diffBytes: 0,
+      repositoryMapBytes: 0,
+      guidanceBytes: 0,
+      priorFindingsBytes: 0,
+      failingLogBytes: 0,
+    },
     toolCalls: [],
     findings: [],
     resolvedPriorFindings: [],
@@ -77,7 +93,7 @@ export function emptyRecord(identity: RunRecord['identity']): RunRecord {
     usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
     baseline: null,
     wallMs: 0,
-    outcome: 'error',
+    outcome: "error",
     postedId: null,
     budgetTripped: null,
     preclassification: null,
@@ -85,9 +101,12 @@ export function emptyRecord(identity: RunRecord['identity']): RunRecord {
   };
 }
 
-export async function writeRecord(record: RunRecord, dir: string): Promise<string> {
+export async function writeRecord(
+  record: RunRecord,
+  dir: string,
+): Promise<string> {
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `run-${record.identity.runId}.json`);
-  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
   return file;
 }

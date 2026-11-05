@@ -16,7 +16,7 @@ export interface DiffFile {
   /** Path on the new side; for a deletion, the old path. */
   path: string;
   oldPath: string | null;
-  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  status: "added" | "modified" | "deleted" | "renamed";
   binary: boolean;
   symlink: boolean;
   added: number;
@@ -29,23 +29,25 @@ export interface DiffFile {
 }
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
-const DEV_NULL = '/dev/null';
+const DEV_NULL = "/dev/null";
 
 function stripPrefix(path: string): string {
-  return path.replace(/^[ab]\//, '');
+  return path.replace(/^[ab]\//, "");
 }
 
 /** The path in a `--- ` or `+++ ` line, without a/b prefix or a traditional diff's tab-separated timestamp. */
 function headerPath(line: string): string {
-  const raw = line.slice(4).split('\t')[0] ?? '';
-  return raw === DEV_NULL ? DEV_NULL : stripPrefix(raw.replace(/^"(.*)"$/, '$1'));
+  const raw = line.slice(4).split("\t")[0] ?? "";
+  return raw === DEV_NULL
+    ? DEV_NULL
+    : stripPrefix(raw.replace(/^"(.*)"$/, "$1"));
 }
 
 function emptyFile(path: string, oldPath: string | null): DiffFile {
   return {
     path,
     oldPath,
-    status: 'modified',
+    status: "modified",
     binary: false,
     symlink: false,
     added: 0,
@@ -77,26 +79,30 @@ export function parseDiff(text: string): DiffFile[] {
   let oldRemaining = 0;
   let newRemaining = 0;
 
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
 
     if (current && (oldRemaining > 0 || newRemaining > 0)) {
       const marker = line[0];
-      if (marker === '+' && newRemaining > 0) {
+      if (marker === "+" && newRemaining > 0) {
         current.added += 1;
         current.rightLines.add(newLine);
         newLine += 1;
         newRemaining -= 1;
         continue;
       }
-      if (marker === '-' && oldRemaining > 0) {
+      if (marker === "-" && oldRemaining > 0) {
         current.removed += 1;
         current.leftLines.add(oldLine);
         oldLine += 1;
         oldRemaining -= 1;
         continue;
       }
-      if ((marker === ' ' || line === '') && oldRemaining > 0 && newRemaining > 0) {
+      if (
+        (marker === " " || line === "") &&
+        oldRemaining > 0 &&
+        newRemaining > 0
+      ) {
         // A blank line inside a hunk is a context line whose trailing space was stripped.
         current.rightLines.add(newLine);
         current.leftLines.add(oldLine);
@@ -106,34 +112,39 @@ export function parseDiff(text: string): DiffFile[] {
         newRemaining -= 1;
         continue;
       }
-      if (marker === '\\') continue; // "\ No newline at end of file"
+      if (marker === "\\") continue; // "\ No newline at end of file"
       // Not a line this hunk can hold: the header overstated its counts. End it here.
       oldRemaining = 0;
       newRemaining = 0;
     }
-    if (line.startsWith('\\')) continue;
+    if (line.startsWith("\\")) continue;
 
-    if (line.startsWith('diff --git ')) {
-      const match = /^diff --git (?:"?)(.+?)(?:"?) (?:"?)(.+?)(?:"?)$/.exec(line);
-      current = emptyFile(match ? stripPrefix(match[2] ?? '') : '', match ? stripPrefix(match[1] ?? '') : '');
+    if (line.startsWith("diff --git ")) {
+      const match = /^diff --git (?:"?)(.+?)(?:"?) (?:"?)(.+?)(?:"?)$/.exec(
+        line,
+      );
+      current = emptyFile(
+        match ? stripPrefix(match[2] ?? "") : "",
+        match ? stripPrefix(match[1] ?? "") : "",
+      );
       files.push(current);
       gitHeaderOpen = true;
       continue;
     }
 
-    if (line.startsWith('--- ')) {
+    if (line.startsWith("--- ")) {
       if (gitHeaderOpen) continue; // git's own header lines repeat what `diff --git` and the mode lines said
       const oldPath = headerPath(line);
       current = emptyFile(oldPath, oldPath === DEV_NULL ? null : oldPath);
-      if (oldPath === DEV_NULL) current.status = 'added';
+      if (oldPath === DEV_NULL) current.status = "added";
       files.push(current);
       continue;
     }
-    if (line.startsWith('+++ ')) {
+    if (line.startsWith("+++ ")) {
       if (gitHeaderOpen || !current) continue;
       const newPath = headerPath(line);
       if (newPath === DEV_NULL) {
-        current.status = 'deleted';
+        current.status = "deleted";
       } else {
         current.path = newPath;
       }
@@ -141,31 +152,34 @@ export function parseDiff(text: string): DiffFile[] {
     }
     if (!current) continue;
 
-    if (line.startsWith('new file mode')) {
-      current.status = 'added';
+    if (line.startsWith("new file mode")) {
+      current.status = "added";
       current.oldPath = null;
-      if (line.endsWith('120000')) current.symlink = true;
+      if (line.endsWith("120000")) current.symlink = true;
       continue;
     }
-    if (line.startsWith('deleted file mode')) {
-      current.status = 'deleted';
+    if (line.startsWith("deleted file mode")) {
+      current.status = "deleted";
       current.path = current.oldPath ?? current.path;
       continue;
     }
-    if (line.startsWith('old mode') || line.startsWith('new mode')) {
-      if (line.endsWith('120000')) current.symlink = true;
+    if (line.startsWith("old mode") || line.startsWith("new mode")) {
+      if (line.endsWith("120000")) current.symlink = true;
       continue;
     }
-    if (line.startsWith('rename from ')) {
-      current.status = 'renamed';
-      current.oldPath = line.slice('rename from '.length);
+    if (line.startsWith("rename from ")) {
+      current.status = "renamed";
+      current.oldPath = line.slice("rename from ".length);
       continue;
     }
-    if (line.startsWith('rename to ')) {
-      current.path = line.slice('rename to '.length);
+    if (line.startsWith("rename to ")) {
+      current.path = line.slice("rename to ".length);
       continue;
     }
-    if (line.startsWith('Binary files') || line.startsWith('GIT binary patch')) {
+    if (
+      line.startsWith("Binary files") ||
+      line.startsWith("GIT binary patch")
+    ) {
       current.binary = true;
       continue;
     }
@@ -193,7 +207,9 @@ export function parseDiff(text: string): DiffFile[] {
 /** True when the line at `i` starts the next file of a plain unified diff: `--- `, then `+++ `, then a hunk header. */
 function startsPlainFile(lines: string[], i: number): boolean {
   return (
-    (lines[i] ?? '').startsWith('--- ') && (lines[i + 1] ?? '').startsWith('+++ ') && HUNK_HEADER.test(lines[i + 2] ?? '')
+    (lines[i] ?? "").startsWith("--- ") &&
+    (lines[i + 1] ?? "").startsWith("+++ ") &&
+    HUNK_HEADER.test(lines[i + 2] ?? "")
   );
 }
 
@@ -212,8 +228,10 @@ function startsPlainFile(lines: string[], i: number): boolean {
  * them indistinguishable from the gap between files.
  */
 export function recountHunks(text: string): string {
-  const lines = text.split('\n').map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
-  const plain = !lines.some((l) => l.startsWith('diff --git '));
+  const lines = text
+    .split("\n")
+    .map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
+  const plain = !lines.some((l) => l.startsWith("diff --git "));
   const out: string[] = [];
 
   let i = 0;
@@ -229,20 +247,27 @@ export function recountHunks(text: string): string {
     let j = i + 1;
     for (; j < lines.length; j += 1) {
       const line = lines[j]!;
-      if (HUNK_HEADER.test(line) || line.startsWith('diff --git ')) break;
+      if (HUNK_HEADER.test(line) || line.startsWith("diff --git ")) break;
       if (plain && startsPlainFile(lines, j)) break;
       const marker = line[0];
-      if (line !== '' && marker !== ' ' && marker !== '+' && marker !== '-' && marker !== '\\') break;
+      if (
+        line !== "" &&
+        marker !== " " &&
+        marker !== "+" &&
+        marker !== "-" &&
+        marker !== "\\"
+      )
+        break;
       body.push(line);
     }
-    while (body.length > 0 && body[body.length - 1] === '') body.pop();
+    while (body.length > 0 && body[body.length - 1] === "") body.pop();
 
     let oldCount = 0;
     let newCount = 0;
     for (const line of body) {
-      if (line.startsWith('+')) newCount += 1;
-      else if (line.startsWith('-')) oldCount += 1;
-      else if (line.startsWith('\\')) continue;
+      if (line.startsWith("+")) newCount += 1;
+      else if (line.startsWith("-")) oldCount += 1;
+      else if (line.startsWith("\\")) continue;
       else {
         oldCount += 1;
         newCount += 1;
@@ -250,12 +275,15 @@ export function recountHunks(text: string): string {
     }
 
     const rest = lines[i]!.slice(header[0].length);
-    out.push(`@@ -${header[1]},${oldCount} +${header[3]},${newCount} @@${rest}`, ...body);
+    out.push(
+      `@@ -${header[1]},${oldCount} +${header[3]},${newCount} @@${rest}`,
+      ...body,
+    );
     i = j;
   }
 
-  while (out.length > 0 && out[out.length - 1] === '') out.pop();
-  return `${out.join('\n')}\n`;
+  while (out.length > 0 && out[out.length - 1] === "") out.pop();
+  return `${out.join("\n")}\n`;
 }
 
 /**
@@ -268,11 +296,11 @@ export function recountHunks(text: string): string {
  */
 export function applyHints(recounted: string): string[] {
   const hints: string[] = [];
-  let path = '';
-  const lines = recounted.split('\n');
+  let path = "";
+  const lines = recounted.split("\n");
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
-    if (line.startsWith('+++ ')) {
+    if (line.startsWith("+++ ")) {
       path = headerPath(line);
       continue;
     }
@@ -286,8 +314,8 @@ export function applyHints(recounted: string): string[] {
     let changed = false;
     for (let j = i + 1; j < lines.length && remaining > 0; j += 1) {
       const body = lines[j]!;
-      if (body.startsWith('\\')) continue;
-      if (body.startsWith('+') || body.startsWith('-')) {
+      if (body.startsWith("\\")) continue;
+      if (body.startsWith("+") || body.startsWith("-")) {
         changed = true;
         trailing = 0;
         remaining -= 1;
@@ -300,7 +328,7 @@ export function applyHints(recounted: string): string[] {
     if (changed && leading > 0 && trailing === 0) {
       hints.push(
         `${path}: the hunk at old line ${oldStart} has ${leading} context line(s) before its change and none after. ` +
-          'git applies a hunk like that only at the end of a file. Add the lines that follow the change as context.',
+          "git applies a hunk like that only at the end of a file. Add the lines that follow the change as context.",
       );
     }
   }
@@ -308,8 +336,12 @@ export function applyHints(recounted: string): string[] {
 }
 
 /** True when `line` of `path` on the PR head is a line GitHub will accept an inline comment on. */
-export function isCommentable(files: DiffFile[], path: string, line: number): boolean {
-  const file = files.find((f) => f.path === path && f.status !== 'deleted');
+export function isCommentable(
+  files: DiffFile[],
+  path: string,
+  line: number,
+): boolean {
+  const file = files.find((f) => f.path === path && f.status !== "deleted");
   return file !== undefined && !file.binary && file.rightLines.has(line);
 }
 

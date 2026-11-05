@@ -39,7 +39,7 @@ on:
           and for node the project's own lint script or else Biome.
         required: false
         type: string
-        default: ''
+        default: ""
       security-scan:
         description: >-
           strict fails on anything Trivy or Semgrep finds; loose fails only on
@@ -51,7 +51,7 @@ on:
         description: Dependency vulnerability scan. Leave empty to skip the audit step.
         required: false
         type: string
-        default: ''
+        default: ""
       review:
         description: Run the Claude review after the gate
         required: false
@@ -90,9 +90,9 @@ jobs:
     permissions:
       contents: read
     steps: &gate-steps
-      # No token left in .git/config for the project's code to read.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # No token left in .git/config for the project's code to read.
           persist-credentials: false
 
       - name: Set up Node
@@ -115,16 +115,19 @@ jobs:
         with:
           go-version: ${{ inputs.runtime-version }}
 
+      # Each check below runs even when an earlier one failed, so one run shows
+      # every failure. A step is skipped only when a step it needs failed.
       - name: install
+        id: install
         run: ${{ inputs.install-command }}
 
       - name: lint
-        if: inputs.lint && inputs.lint-command != ''
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command != '' }}
         run: ${{ inputs.lint-command }}
 
       # Defaults that need no config in the project.
       - name: lint
-        if: inputs.lint && inputs.lint-command == ''
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command == '' }}
         env:
           RUNTIME: ${{ inputs.runtime }}
         run: |
@@ -141,6 +144,7 @@ jobs:
 
       # Lint finds smells; this follows untrusted input to a dangerous call.
       - name: static analysis
+        if: ${{ !cancelled() }}
         env:
           MODE: ${{ inputs.security-scan }}
         run: |
@@ -152,19 +156,24 @@ jobs:
             "$SEMGREP_IMAGE" semgrep scan $SEMGREP_ARGS --error --metrics off --disable-version-check
 
       - name: build
+        id: build
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ${{ inputs.build-command }}
 
       - name: test
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ${{ inputs.test-command }}
 
       - name: audit
-        if: inputs.audit-command != ''
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.audit-command != '' }}
         run: ${{ inputs.audit-command }}
 
       # Installed from a pinned, immutable release and checked against its
       # hash rather than through trivy-action, whose tags were rewritten to
       # steal CI secrets in March 2026.
       - name: install security scanner
+        id: trivy
+        if: ${{ !cancelled() }}
         env:
           TRIVY_VERSION: 0.76.1
           TRIVY_SHA256: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
@@ -176,6 +185,7 @@ jobs:
 
       # node_modules is skipped because the lockfile already lists everything in it.
       - name: security scan
+        if: ${{ !cancelled() && steps.trivy.outcome == 'success' }}
         env:
           MODE: ${{ inputs.security-scan }}
         run: |
@@ -200,7 +210,7 @@ jobs:
   # Not a required check, and nothing needs it: a red canary never blocks a
   # merge or starts an investigation. It says the pin is not safe to move yet.
   canary:
-    name: 'canary: ubuntu-latest (non-blocking)'
+    name: "canary: ubuntu-latest (non-blocking)"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

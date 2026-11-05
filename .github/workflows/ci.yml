@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/pr-verify.yml
     with:
       runtime: node
-      runtime-version: '24'
+      runtime-version: "24"
       install-command: npm ci
       # The build compiles only src/, so the tests are type-checked first.
       build-command: npm run typecheck && npm run build
@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -53,3 +53,19 @@ jobs:
             git diff dist | head -80 >&2
             exit 1
           fi
+
+  # The code-quality checks from this commit, on this commit and on a scratch
+  # project built to fail them.
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./checks
+      - name: checks test
+        if: ${{ !cancelled() }}
+        run: bash checks/test.sh

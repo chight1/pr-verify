@@ -18,7 +18,7 @@ jobs:
     uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
     with:
       runtime: go
-      runtime-version: '1.23'
+      runtime-version: "1.23"
       install-command: go mod download
       build-command: go build ./... && go vet ./...
       test-command: go test ./...

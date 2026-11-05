@@ -1,0 +1,14 @@
+name: PR Verify checks
+description: >-
+  The gate's code-quality checks, with settings that ship with PR Verify rather
+  than the project's own.
+runs:
+  using: composite
+  steps:
+    # From this directory's lockfile, without install scripts.
+    - name: install check tools
+      shell: bash
+      run: npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund
+    - name: code quality
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/run.sh"
