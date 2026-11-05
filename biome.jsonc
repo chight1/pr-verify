@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": { "includes": ["src/**", "test/**", "scripts/**"] },
-  // Lint only. Formatting is a separate decision and would rewrite every file.
+  // Lint only. The gate's formatting check runs Prettier.
   "formatter": { "enabled": false },
   "assist": { "enabled": false },
   "linter": {
