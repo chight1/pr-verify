@@ -39,7 +39,7 @@ mkdir "$scratch/format" && cd "$scratch/format"
 git init -q
 loosen
 printf 'x=1\n' > app.py
-printf 'package main\nfunc main(){}\n' > main.go
+printf '// Package main is a fixture.\npackage main\nfunc main(){}\n' > main.go
 printf 'export const a = {b:1}\n' > app.ts
 printf '*  item\n' > notes.md
 printf '<ul><li>one</li><li>two</li></ul>\n' > page.html
@@ -79,7 +79,7 @@ printf 'def double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
 printf '/* eslint-disable */\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
 printf 'var count = 1;\nexport { count };\n' > lint.js
-printf 'package main\n\nimport "os"\n\nfunc main() {\n\tos.Remove("x")\n}\n' > main.go
+printf '// Package main is a fixture.\npackage main\n\nimport "os"\n\nfunc main() {\n\tos.Remove("x")\n}\n' > main.go
 # The comments the gate rejects outright, written so this file has none of them.
 printf 'x = 1  # pyright%s basic\n' ':' > suppressed.py
 printf '// prettier%signore\nexport const y = 1;\n' '-' > suppressed.ts
