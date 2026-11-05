@@ -331,6 +331,19 @@ large_files() {
 }
 run "file size" large_files
 
+# Misspelled words in code, comments, docs and file names. A project's typos
+# config can teach typos a word, such as a name in its license, and nothing else.
+typos_check() {
+  local config status
+  config="$(mktemp --suffix .toml)"
+  python3 "$here/typos_config.py" "$config" \
+    && pipx run typos==1.51.1 --isolated --config "$config" --format brief -- "${files[@]}"
+  status=$?
+  rm -f "$config"
+  return "$status"
+}
+run "typos" typos_check
+
 shellcheck_bin=""
 if any "${workflows[@]}" "${shell[@]}"; then
   shellcheck_bin="$(shellcheck)"
