@@ -107,6 +107,13 @@ export GITHUB_EVENT_PATH="$scratch/event.json"
 printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
 # A dependency no registry has, as a made-up name would be.
 printf '{\n  "name": "fixture",\n  "private": true,\n  "dependencies": { "pr-verify-fixture-made-up-name": "1.0.0" }\n}\n' > package.json
+# A locked version no registry has, beside one old enough to pass.
+locked() {
+  printf '"node_modules/%s": {"version": "%s", "resolved": "https://registry.npmjs.org/%s/-/%s-%s.tgz"}' \
+    "$1" "$2" "$1" "$1" "$2"
+}
+printf '{"lockfileVersion": 3, "packages": {%s, %s}}\n' "$(locked left-pad 99.0.0)" "$(locked is-number 7.0.0)" \
+  > package-lock.json
 printf '{ "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
@@ -250,8 +257,12 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   unconditional-skip-go test-without-assertion-python test-without-assertion-go \
   PLR0913 argument-limit nestif gocognit sonarjs/cognitive-complexity max-depth \
   max-params max-lines-per-function "long.sh has 401 lines" "Clone found" second.js \
-  "pr-verify-fixture-made-up-name (npm) is not on its registry" "\`$misspelled\` should be"
+  "pr-verify-fixture-made-up-name (npm) is not on its registry" "\`$misspelled\` should be" \
+  "left-pad@99.0.0 (npm) is not on its registry"
 if grep -qF "\`$accepted\`" <<< "$output"; then
   fail "typos rejected a word the project accepts"
+fi
+if grep -qF "is-number@" <<< "$output"; then
+  fail "new dependencies rejected a version old enough to pass"
 fi
 echo "checks: ok"

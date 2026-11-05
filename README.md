@@ -111,7 +111,10 @@ Dead code and dependencies are checked too:
 - **Go:** `go mod tidy -diff` must show no changes, and `deadcode` fails a function that nothing reaches from a main package or a test.
 - **JavaScript and TypeScript:** knip fails unused files, exports and types, imports of packages `package.json` does not list, duplicate exports and import cycles. knip cannot find every entry point on its own, so from a project's knip config the gate keeps only `entry`, `project` and `workspaces`, and none of its ignores or rules.
 
-A dependency a pull request adds to `package.json`, `pyproject.toml`, `requirements*.txt` or `go.mod` fails when its registry (npm, PyPI or the Go module proxy) has had it for less than 30 days, or has no such package: the mark of a name a model made up, or of one registered to catch that name. The manifests are compared with the pull request's base commit, which this check fetches with the workflow's token, so it runs in the `online checks` step with zizmor.
+New dependencies are checked against their registry (npm, PyPI or the Go module proxy), compared with the pull request's base commit, which the check fetches with the workflow's token, so it runs in the `online checks` step with zizmor:
+
+- A package added to `package.json`, `pyproject.toml`, `requirements*.txt` or `go.mod` fails when the registry has no such package, the mark of a name a model made up, or has had it for under 30 days, which may mean it was registered to catch that name.
+- A version added to a lockfile fails when the registry has no such version, or published it under 7 days ago, the window in which a hijacked release is usually caught. That covers transitive dependencies. Read: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `poetry.lock`, `Pipfile.lock`, `go.sum`, and `==` pins in `requirements*.txt`. Packages from git, a path or another registry are skipped.
 
 Every project also gets, whatever its runtime:
 

@@ -1,34 +1,38 @@
-"""Fails a pull request that adds a direct dependency its registry has had for
-less than 30 days, or does not have at all: the mark of a package name a model
-made up, or of one registered to catch that name.
+"""Fails a pull request that adds a dependency its registry does not have, the mark
+of a package name a model made up, or one too new to trust: a direct dependency
+the registry has had for less than 30 days, which may be registered to catch a
+made-up name, or any locked version published less than 7 days ago, which is
+how a hijacked maintainer account ships malware before anyone notices.
 
-Usage: new_dependencies.py MANIFEST... Compares each manifest with its copy on
-the pull request's base commit, read from the event GitHub Actions provides.
+Usage: new_dependencies.py. Compares each tracked manifest and lockfile with its
+copy on the pull request's base commit, read from the event GitHub Actions provides.
 """
 
 from __future__ import annotations
 
 import base64
-import http.client
 import json
 import os
 import re
 import subprocess
 import sys
 import tomllib
-import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
+
+from lockfiles import lockfile_parser
+from registries import CREATED, RELEASED, normalized
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-MINIMUM_AGE = timedelta(days=30)
-REQUEST_TIMEOUT_SECONDS = 20
-HTTP_OK = 200
-MISSING_STATUSES = frozenset({404, 410})
+MINIMUM_PACKAGE_AGE = timedelta(days=30)
+MINIMUM_VERSION_AGE = timedelta(days=7)
+LOOKUP_THREADS = 16
 NPM_SECTIONS = (
     "dependencies",
     "devDependencies",
@@ -37,7 +41,8 @@ NPM_SECTIONS = (
 )
 REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 GO_REQUIREMENT_FIELDS = 2
-GO_VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)")
+
+Parsed = TypeVar("Parsed")
 
 
 @dataclass(frozen=True)
@@ -45,10 +50,18 @@ class Dependency:
     ecosystem: str
     name: str
 
+    def __str__(self) -> str:
+        return f"{self.name} ({self.ecosystem})"
 
-def normalized(name: str) -> str:
-    """A Python package name as PyPI compares it."""
-    return re.sub(r"[-_.]+", "-", name).lower()
+
+@dataclass(frozen=True)
+class LockedVersion:
+    ecosystem: str
+    name: str
+    version: str
+
+    def __str__(self) -> str:
+        return f"{self.name}@{self.version} ({self.ecosystem})"
 
 
 def requirement_name(spec: str) -> str | None:
@@ -105,7 +118,7 @@ def go_names(text: str) -> set[str]:
     return names
 
 
-def parser_for(path: str) -> tuple[str, Callable[[str], set[str]]] | None:
+def manifest_parser(path: str) -> tuple[str, Callable[[str], set[str]]] | None:
     file_name = Path(path).name
     if file_name == "package.json":
         return "npm", npm_names
@@ -141,130 +154,83 @@ def fetch_commit(sha: str) -> None:
     git("-c", header, "fetch", "--depth", "1", "--no-tags", "origin", sha)
 
 
-def names_at(sha: str | None, path: str, parse: Callable[[str], set[str]]) -> set[str]:
+def parsed_at(
+    sha: str | None, path: str, parse: Callable[[str], set[Parsed]]
+) -> set[Parsed]:
+    """What a file holds in the working tree, or on a commit when one is given."""
     if sha is None:
-        text = Path(path).read_text(encoding="utf-8")
-    else:
-        shown = git("show", f"{sha}:{path}")
-        if shown.returncode != 0:
-            return set()
-        text = shown.stdout
-    return parse(text)
+        return parse(Path(path).read_text(encoding="utf-8"))
+    shown = git("show", f"{sha}:{path}")
+    return parse(shown.stdout) if shown.returncode == 0 else set()
 
 
-class RegistryError(Exception):
-    """A registry answered with neither the package nor its absence."""
+def added(path: str, base: str, parse: Callable[[str], set[Parsed]]) -> set[Parsed]:
+    return parsed_at(None, path, parse) - parsed_at(base, path, parse)
 
 
-def fetch(host: str, path: str) -> bytes | None:
-    """The body of an HTTPS GET, or None when the registry has no such package."""
-    connection = http.client.HTTPSConnection(host, timeout=REQUEST_TIMEOUT_SECONDS)
-    try:
-        connection.request("GET", path, headers={"Accept": "application/json"})
-        response = connection.getresponse()
-        body = response.read()
-    finally:
-        connection.close()
-    if response.status in MISSING_STATUSES:
-        return None
-    if response.status != HTTP_OK:
-        message = f"https://{host}{path} answered {response.status}"
-        raise RegistryError(message)
-    return body
+def added_dependencies(paths: Iterable[str], base: str) -> list[Dependency]:
+    dependencies: list[Dependency] = []
+    for path in paths:
+        if parser := manifest_parser(path):
+            ecosystem, parse = parser
+            names = sorted(added(path, base, parse))
+            dependencies.extend(Dependency(ecosystem, name) for name in names)
+    return dependencies
 
 
-def fetch_json(host: str, path: str) -> dict[str, Any] | None:
-    body = fetch(host, path)
-    return json.loads(body) if body is not None else None
+def added_versions(paths: Iterable[str], base: str) -> list[LockedVersion]:
+    versions: list[LockedVersion] = []
+    for path in paths:
+        if parser := lockfile_parser(path):
+            ecosystem, parse = parser
+            locked = sorted(added(path, base, parse))
+            versions.extend(LockedVersion(ecosystem, *entry) for entry in locked)
+    return versions
 
 
-def npm_published(name: str) -> datetime | None:
-    package = fetch_json("registry.npmjs.org", f"/{urllib.parse.quote(name, safe='@')}")
-    return datetime.fromisoformat(package["time"]["created"]) if package else None
-
-
-def pypi_published(name: str) -> datetime | None:
-    package = fetch_json("pypi.org", f"/pypi/{urllib.parse.quote(name)}/json")
-    if not package:
-        return None
-    uploads = [
-        datetime.fromisoformat(file["upload_time_iso_8601"])
-        for files in package["releases"].values()
-        for file in files
-    ]
-    return min(uploads, default=None)
-
-
-def go_escaped(module: str) -> str:
-    """A module path as the Go module proxy spells it: capitals as !lowercase."""
-    return re.sub(r"[A-Z]", lambda capital: "!" + capital.group(0).lower(), module)
-
-
-def go_version_key(version: str) -> tuple[int, int, int]:
-    match = GO_VERSION.match(version)
-    if not match:
-        return (sys.maxsize, 0, 0)
-    major, minor, patch = match.groups()
-    return (int(major), int(minor), int(patch))
-
-
-def go_published(module: str) -> datetime | None:
-    escaped = go_escaped(module)
-    listing = fetch("proxy.golang.org", f"/{escaped}/@v/list")
-    if listing is None:
-        return None
-    versions = listing.decode().split()
-    target = f"@v/{min(versions, key=go_version_key)}.info" if versions else "@latest"
-    version_info = fetch_json("proxy.golang.org", f"/{escaped}/{target}")
-    return datetime.fromisoformat(version_info["Time"]) if version_info else None
-
-
-PUBLISHED: dict[str, Callable[[str], datetime | None]] = {
-    "npm": npm_published,
-    "pypi": pypi_published,
-    "go": go_published,
-}
-
-
-def added_dependencies(manifests: Iterable[str], base: str) -> list[Dependency]:
-    added: list[Dependency] = []
-    for path in manifests:
-        parser = parser_for(path)
-        if parser is None:
-            continue
-        ecosystem, parse = parser
-        new = names_at(None, path, parse) - names_at(base, path, parse)
-        added.extend(Dependency(ecosystem, name) for name in sorted(new))
-    return added
-
-
-def problem(dependency: Dependency, now: datetime) -> str | None:
-    published = PUBLISHED[dependency.ecosystem](dependency.name)
-    label = f"{dependency.name} ({dependency.ecosystem})"
+def age_problem(
+    label: str, published: datetime | None, now: datetime, minimum: timedelta
+) -> str | None:
     if published is None:
         return f"{label} is not on its registry. Check the name."
     age = now - published
-    if age < MINIMUM_AGE:
-        return f"{label} has existed for {age.days} days, under {MINIMUM_AGE.days}."
+    if age < minimum:
+        return f"{label} is {age.days} days old, under the {minimum.days}-day minimum."
     return None
 
 
-def main(manifests: list[str]) -> int:
+def package_problem(dependency: Dependency, now: datetime) -> str | None:
+    created = CREATED[dependency.ecosystem](dependency.name)
+    return age_problem(str(dependency), created, now, MINIMUM_PACKAGE_AGE)
+
+
+def version_problem(locked: LockedVersion, now: datetime) -> str | None:
+    released = RELEASED[locked.ecosystem](locked.name, locked.version)
+    return age_problem(str(locked), released, now, MINIMUM_VERSION_AGE)
+
+
+def problems(
+    dependencies: list[Dependency], versions: list[LockedVersion]
+) -> list[str]:
+    now = datetime.now(UTC)
+    with ThreadPoolExecutor(max_workers=LOOKUP_THREADS) as pool:
+        packages = pool.map(partial(package_problem, now=now), dependencies)
+        releases = pool.map(partial(version_problem, now=now), versions)
+        return [found for found in (*packages, *releases) if found]
+
+
+def main() -> int:
     base = base_sha()
     if base is None:
         sys.stdout.write("Not a pull request, so there is no base to compare with.\n")
         return 0
     fetch_commit(base)
-    now = datetime.now(UTC)
-    problems = [
-        found
-        for dependency in added_dependencies(manifests, base)
-        if (found := problem(dependency, now))
-    ]
-    for found in problems:
-        sys.stderr.write(f"{found}\n")
-    return 1 if problems else 0
+    tracked = git("ls-files").stdout.splitlines()
+    found = problems(added_dependencies(tracked, base), added_versions(tracked, base))
+    for problem in found:
+        sys.stderr.write(f"{problem}\n")
+    return 1 if found else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
