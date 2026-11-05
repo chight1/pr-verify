@@ -67,6 +67,9 @@ cp "$here"/../templates/*.yml .github/workflows/
 printf '#!/usr/bin/env bash\necho "ok"\n' > build.sh
 git add -A
 
+# Not a pull request, so no base to compare dependencies with.
+export GITHUB_EVENT_PATH=""
+
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on unformatted files"
 fi
@@ -94,9 +97,15 @@ fi
 mkdir "$scratch/lint" && cd "$scratch/lint"
 git init -q
 loosen
+# The pull request's base, so the dependencies the files below add are new.
+git add -A
+git -c user.name=fixture -c user.email=fixture@example.test commit -qm base
+printf '{"pull_request": {"base": {"sha": "%s"}}}\n' "$(git rev-parse HEAD)" > "$scratch/event.json"
+export GITHUB_EVENT_PATH="$scratch/event.json"
 # Each tool's own suppression comment, which the gate ignores or rejects.
 printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
-printf '{\n  "name": "fixture",\n  "private": true\n}\n' > package.json
+# A dependency no registry has, as a made-up name would be.
+printf '{\n  "name": "fixture",\n  "private": true,\n  "dependencies": { "pr-verify-fixture-made-up-name": "1.0.0" }\n}\n' > package.json
 printf '{ "entry": ["**"], "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
@@ -233,7 +242,7 @@ if online="$(bash "$here/run.sh" online 2>&1)"; then
 fi
 output+="$online"
 for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip whitespace "file size" actionlint zizmor \
-  shellcheck hadolint suppressions "task comments" Semgrep complexipy "file length" jscpd; do
+  shellcheck hadolint suppressions "task comments" Semgrep complexipy "file length" jscpd "new dependencies"; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
@@ -243,5 +252,6 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   vitest/expect-expect forbidigo mnd vague-name-python vague-name-go unconditional-skip-python \
   unconditional-skip-go test-without-assertion-python test-without-assertion-go \
   PLR0913 argument-limit nestif gocognit sonarjs/cognitive-complexity max-depth \
-  max-params max-lines-per-function max-statements "long.sh has 401 lines" "Clone found" second.js
+  max-params max-lines-per-function max-statements "long.sh has 401 lines" "Clone found" second.js \
+  "pr-verify-fixture-made-up-name (npm) is not on its registry"
 echo "checks: ok"
