@@ -5,12 +5,7 @@
  */
 
 export type InfraLabel =
-  | 'network'
-  | 'registry'
-  | 'out-of-memory'
-  | 'disk'
-  | 'cancelled'
-  | 'timeout';
+  "network" | "registry" | "out-of-memory" | "disk" | "cancelled" | "timeout";
 
 interface Rule {
   label: InfraLabel;
@@ -19,18 +14,21 @@ interface Rule {
 
 const RULES: Rule[] = [
   {
-    label: 'cancelled',
-    patterns: [/The operation was canceled/i, /##\[error\]The run was canceled/i],
+    label: "cancelled",
+    patterns: [
+      /The operation was canceled/i,
+      /##\[error\]The run was canceled/i,
+    ],
   },
   {
-    label: 'timeout',
+    label: "timeout",
     patterns: [
       /has exceeded the maximum execution time/i,
       /The job running on runner .* has exceeded the maximum execution time/i,
     ],
   },
   {
-    label: 'out-of-memory',
+    label: "out-of-memory",
     patterns: [
       /JavaScript heap out of memory/i,
       /FATAL ERROR: .*Allocation failed/i,
@@ -42,11 +40,15 @@ const RULES: Rule[] = [
     ],
   },
   {
-    label: 'disk',
-    patterns: [/No space left on device/i, /\bENOSPC\b/, /disk quota exceeded/i],
+    label: "disk",
+    patterns: [
+      /No space left on device/i,
+      /\bENOSPC\b/,
+      /disk quota exceeded/i,
+    ],
   },
   {
-    label: 'registry',
+    label: "registry",
     patterns: [
       /npm (ERR!|error) code E(TIMEDOUT|CONNRESET|AI_AGAIN|SOCKETTIMEOUT|FETCH_ERROR|503|502|429)/,
       /npm (ERR!|error) network/i,
@@ -58,7 +60,7 @@ const RULES: Rule[] = [
     ],
   },
   {
-    label: 'network',
+    label: "network",
     patterns: [
       /\bETIMEDOUT\b/,
       /\bECONNRESET\b/,
@@ -76,9 +78,12 @@ const RULES: Rule[] = [
 
 /** Gate steps the agent never investigates: it cannot run the scanner, so it could not verify a fix. */
 export const SCAN_STEPS: Record<string, string> = {
-  'security scan': 'Trivy found a vulnerability, secret or misconfiguration; the step log lists each one.',
-  'install security scanner': 'The security scanner could not be downloaded or failed its checksum.',
-  'static analysis': 'Semgrep found a security problem in the code; the step log lists each one.',
+  "security scan":
+    "Trivy found a vulnerability, secret or misconfiguration; the step log lists each one.",
+  "install security scanner":
+    "The security scanner could not be downloaded or failed its checksum.",
+  "static analysis":
+    "Semgrep found a security problem in the code; the step log lists each one.",
 };
 
 export function scanFailure(stepName: string): string | null {
@@ -96,7 +101,7 @@ export interface PreclassifyResult {
  * failure looks like it belongs to the code and deserves investigation.
  */
 export function preclassify(log: string): PreclassifyResult | null {
-  const lines = log.split('\n');
+  const lines = log.split("\n");
   for (const rule of RULES) {
     for (const pattern of rule.patterns) {
       const hit = lines.find((line) => pattern.test(line));

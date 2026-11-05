@@ -3,15 +3,15 @@
  * modules that produce and consume it live next door.
  */
 
-export type Mode = 'review' | 'red-gate';
+export type Mode = "review" | "red-gate";
 
-export type GateResult = 'success' | 'failure' | 'cancelled' | 'skipped';
+export type GateResult = "success" | "failure" | "cancelled" | "skipped";
 
-export type FindingCategory = 'bug' | 'security' | 'missing-test';
+export type FindingCategory = "bug" | "security" | "missing-test";
 
-export type Confidence = 'low' | 'medium' | 'high';
+export type Confidence = "low" | "medium" | "high";
 
-export type PatchKind = 'test' | 'fix';
+export type PatchKind = "test" | "fix";
 
 /** A finding as the agent reports it in `finish`, before verification. */
 export interface ProposedFinding {
@@ -34,7 +34,7 @@ export interface Finding extends ProposedFinding {
   testPatchVerified: boolean | null;
   fixPatchVerified: boolean | null;
   /** Where the finding ended up in the posted review. */
-  placement: 'inline' | 'body';
+  placement: "inline" | "body";
 }
 
 /** A finding PR Verify posted on an earlier push of the same PR. */
@@ -51,7 +51,7 @@ export interface PriorFinding {
 /** A prior finding a later push resolved, and how the harness knows. */
 export interface ResolvedFinding extends PriorFinding {
   /** test-passes: the finding's own test passes on the new head. line-changed: the line it pointed at was edited. */
-  evidence: 'test-passes' | 'line-changed';
+  evidence: "test-passes" | "line-changed";
 }
 
 export interface Patch {
@@ -61,7 +61,7 @@ export interface Patch {
   diff: string;
 }
 
-export type RedGateVerdict = 'fix' | 'diagnosis' | 'abstain';
+export type RedGateVerdict = "fix" | "diagnosis" | "abstain";
 
 export interface RedGateResult {
   verdict: RedGateVerdict;
@@ -71,19 +71,19 @@ export interface RedGateResult {
 }
 
 export type Outcome =
-  | 'clean'
-  | 'findings'
-  | 'infra'
-  | 'flaky'
-  | 'fix'
-  | 'diagnosis'
-  | 'abstain'
-  | 'budget'
-  | 'too-large'
-  | 'baseline'
-  | 'refused'
-  | 'scan'
-  | 'error';
+  | "clean"
+  | "findings"
+  | "infra"
+  | "flaky"
+  | "fix"
+  | "diagnosis"
+  | "abstain"
+  | "budget"
+  | "too-large"
+  | "baseline"
+  | "refused"
+  | "scan"
+  | "error";
 
 export interface PullRequestRef {
   owner: string;

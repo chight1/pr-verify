@@ -11,13 +11,13 @@
       "style": {
         // With noUncheckedIndexedAccess on, `!` after a bounds-checked index or
         // a regex group that always captures is how the code says "present".
-        "noNonNullAssertion": "off"
+        "noNonNullAssertion": "off",
       },
       "complexity": {
         // Keys of index-signature types (process.env, tool input) are read with
         // brackets, so a lookup that can miss looks like one.
-        "useLiteralKeys": "off"
-      }
-    }
-  }
+        "useLiteralKeys": "off",
+      },
+    },
+  },
 }

@@ -36,55 +36,55 @@ inputs:
   max-findings:
     description: Findings allowed in one review.
     required: false
-    default: '8'
+    default: "8"
   max-unverified-findings:
     description: Findings without an executed demonstration allowed in one review.
     required: false
-    default: '3'
+    default: "3"
   max-tokens:
     description: Total input plus output tokens per run.
     required: false
-    default: '200000'
+    default: "200000"
   max-minutes:
     description: Wall-clock budget for the agent loop, in minutes.
     required: false
-    default: '8'
+    default: "8"
   max-tool-calls:
     description: Total tool calls per run.
     required: false
-    default: '30'
+    default: "30"
   max-test-runs:
     description: Test runs the agent may request.
     required: false
-    default: '4'
+    default: "4"
   max-patch-attempts:
     description: Patches the agent may propose.
     required: false
-    default: '4'
+    default: "4"
   test-timeout-minutes:
     description: Timeout for a single test run.
     required: false
-    default: '5'
+    default: "5"
   max-patch-lines:
     description: Changed lines allowed in one patch.
     required: false
-    default: '200'
+    default: "200"
   max-patch-files:
     description: Files allowed in one patch.
     required: false
-    default: '6'
+    default: "6"
   comment-on-red-gate:
     description: Post a diagnosis or verified fix when the gate fails.
     required: false
-    default: 'true'
+    default: "true"
   semgrep-image:
     description: The pinned Semgrep image the gate ran. With semgrep-args, a static analysis failure gets a verified fix instead of only a comment.
     required: false
-    default: ''
+    default: ""
   semgrep-args:
     description: The arguments the gate ran Semgrep with.
     required: false
-    default: ''
+    default: ""
 
 outputs:
   verdict:

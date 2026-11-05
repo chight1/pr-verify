@@ -29,7 +29,7 @@ export const DIFF_BUDGET_SHARE = 0.25;
 
 /** A rough count for text before it is sent: about four bytes per token for code and English. */
 export function estimateTokens(text: string): number {
-  return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
+  return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
 }
 
 export function diffTokenLimit(limits: BudgetLimits): number {
@@ -51,7 +51,7 @@ export interface BudgetUsage {
 export class BudgetExceeded extends Error {
   constructor(public readonly budget: BudgetName) {
     super(`budget exceeded: ${budget}`);
-    this.name = 'BudgetExceeded';
+    this.name = "BudgetExceeded";
   }
 }
 
@@ -74,7 +74,7 @@ export class Budget {
   /** Throws when the wall clock has run out. Called before every API turn and tool call. */
   checkClock(): void {
     if (this.elapsedMs() > this.limits.minutes * 60_000) {
-      throw new BudgetExceeded('minutes');
+      throw new BudgetExceeded("minutes");
     }
   }
 
@@ -85,31 +85,44 @@ export class Budget {
    * counting those re-reads in full would make the cap grow with the square
    * of the turn count instead of with the work done.
    */
-  chargeTokens(usage: { input: number; output: number; cacheRead: number; cacheWrite: number }): void {
+  chargeTokens(usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  }): void {
     this.inputTokens += usage.input + usage.cacheWrite;
     this.outputTokens += usage.output;
     this.cachedInputTokens += usage.cacheRead;
-    if (this.chargedTokens() > this.limits.tokens) throw new BudgetExceeded('tokens');
+    if (this.chargedTokens() > this.limits.tokens)
+      throw new BudgetExceeded("tokens");
   }
 
   /** What the token budget measures. */
   chargedTokens(): number {
-    return this.inputTokens + this.outputTokens + Math.ceil(this.cachedInputTokens * CACHE_READ_WEIGHT);
+    return (
+      this.inputTokens +
+      this.outputTokens +
+      Math.ceil(this.cachedInputTokens * CACHE_READ_WEIGHT)
+    );
   }
 
   chargeToolCall(): void {
     this.checkClock();
-    if (this.toolCalls >= this.limits.toolCalls) throw new BudgetExceeded('toolCalls');
+    if (this.toolCalls >= this.limits.toolCalls)
+      throw new BudgetExceeded("toolCalls");
     this.toolCalls += 1;
   }
 
   chargeTestRun(): void {
-    if (this.testRuns >= this.limits.testRuns) throw new BudgetExceeded('testRuns');
+    if (this.testRuns >= this.limits.testRuns)
+      throw new BudgetExceeded("testRuns");
     this.testRuns += 1;
   }
 
   chargePatchAttempt(): void {
-    if (this.patchAttempts >= this.limits.patchAttempts) throw new BudgetExceeded('patchAttempts');
+    if (this.patchAttempts >= this.limits.patchAttempts)
+      throw new BudgetExceeded("patchAttempts");
     this.patchAttempts += 1;
   }
 

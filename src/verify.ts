@@ -4,16 +4,23 @@
  * patches under test, and runs the project's own suite.
  */
 
-import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { parseDiff, totalChangedLines, type DiffFile } from './diff.js';
-import { git } from './context.js';
-import type { Sandbox } from './sandbox.js';
-import type { Patch, PatchKind } from './types.js';
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { parseDiff, totalChangedLines, type DiffFile } from "./diff.js";
+import { git } from "./context.js";
+import type { Sandbox } from "./sandbox.js";
+import type { Patch, PatchKind } from "./types.js";
 
-const TEST_DIR_SEGMENTS = new Set(['test', 'tests', '__tests__', 'spec', 'specs', 'testing']);
+const TEST_DIR_SEGMENTS = new Set([
+  "test",
+  "tests",
+  "__tests__",
+  "spec",
+  "specs",
+  "testing",
+]);
 const TEST_FILE_PATTERNS = [
   /\.(test|spec)\.[cm]?[jt]sx?$/,
   /_test\.go$/,
@@ -27,10 +34,11 @@ const TEST_FILE_PATTERNS = [
 
 /** Conservative notion of "a test location": a test directory anywhere in the path, or a test-named file. */
 export function isTestPath(filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
-  const segments = normalized.split('/');
-  const base = segments[segments.length - 1] ?? '';
-  if (segments.slice(0, -1).some((s) => TEST_DIR_SEGMENTS.has(s.toLowerCase()))) return true;
+  const normalized = filePath.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  const base = segments[segments.length - 1] ?? "";
+  if (segments.slice(0, -1).some((s) => TEST_DIR_SEGMENTS.has(s.toLowerCase())))
+    return true;
   return TEST_FILE_PATTERNS.some((p) => p.test(base));
 }
 
@@ -57,15 +65,21 @@ const DEPENDENCY_FILES = [
 ];
 
 export function isDependencyFile(filePath: string): boolean {
-  const base = path.posix.basename(filePath.replace(/\\/g, '/'));
+  const base = path.posix.basename(filePath.replace(/\\/g, "/"));
   return DEPENDENCY_FILES.some((p) => p.test(base));
 }
 
 /** A patch that silences a scanner instead of fixing what it found is not a fix. */
-const SCANNER_IGNORE_FILES = new Set(['.semgrepignore', '.trivyignore', '.trivyignore.yaml']);
+const SCANNER_IGNORE_FILES = new Set([
+  ".semgrepignore",
+  ".trivyignore",
+  ".trivyignore.yaml",
+]);
 
 export function isScannerIgnoreFile(filePath: string): boolean {
-  return SCANNER_IGNORE_FILES.has(path.posix.basename(filePath.replace(/\\/g, '/')));
+  return SCANNER_IGNORE_FILES.has(
+    path.posix.basename(filePath.replace(/\\/g, "/")),
+  );
 }
 
 export interface PatchLimits {
@@ -80,11 +94,11 @@ export interface PolicyResult {
 }
 
 function isOutsideRepository(filePath: string): boolean {
-  const normalized = filePath.replace(/\\/g, '/');
+  const normalized = filePath.replace(/\\/g, "/");
   return (
-    normalized.startsWith('/') ||
+    normalized.startsWith("/") ||
     /^[A-Za-z]:\//.test(normalized) ||
-    normalized.split('/').includes('..')
+    normalized.split("/").includes("..")
   );
 }
 
@@ -92,44 +106,71 @@ function isOutsideRepository(filePath: string): boolean {
  * Checks a proposed patch against the policy before anything touches disk.
  * Every rule is listed in the README's guardrails section; keep them in step.
  */
-export function checkPatchPolicy(diffText: string, kind: PatchKind, limits: PatchLimits): PolicyResult {
+export function checkPatchPolicy(
+  diffText: string,
+  kind: PatchKind,
+  limits: PatchLimits,
+): PolicyResult {
   const files = parseDiff(diffText);
   const violations: string[] = [];
 
-  if (files.length === 0) violations.push('patch contains no file changes');
+  if (files.length === 0) violations.push("patch contains no file changes");
   if (files.length > limits.maxFiles) {
-    violations.push(`patch touches ${files.length} files; the limit is ${limits.maxFiles}`);
+    violations.push(
+      `patch touches ${files.length} files; the limit is ${limits.maxFiles}`,
+    );
   }
   const changed = totalChangedLines(files);
   if (changed > limits.maxLines) {
-    violations.push(`patch changes ${changed} lines; the limit is ${limits.maxLines}`);
+    violations.push(
+      `patch changes ${changed} lines; the limit is ${limits.maxLines}`,
+    );
   }
 
   for (const file of files) {
-    const paths = [file.path, file.oldPath].filter((p): p is string => p !== null);
+    const paths = [file.path, file.oldPath].filter(
+      (p): p is string => p !== null,
+    );
     for (const p of paths) {
-      if (isOutsideRepository(p)) violations.push(`${p}: path resolves outside the repository`);
-      if (p === '.github' || p.startsWith('.github/')) violations.push(`${p}: workflow files are off limits`);
-      if (isDependencyFile(p)) violations.push(`${p}: dependency manifests and lockfiles are off limits`);
-      if (isScannerIgnoreFile(p)) violations.push(`${p}: scanner ignore files are off limits`);
+      if (isOutsideRepository(p))
+        violations.push(`${p}: path resolves outside the repository`);
+      if (p === ".github" || p.startsWith(".github/"))
+        violations.push(`${p}: workflow files are off limits`);
+      if (isDependencyFile(p))
+        violations.push(
+          `${p}: dependency manifests and lockfiles are off limits`,
+        );
+      if (isScannerIgnoreFile(p))
+        violations.push(`${p}: scanner ignore files are off limits`);
     }
-    if (file.binary) violations.push(`${file.path}: binary files are off limits`);
+    if (file.binary)
+      violations.push(`${file.path}: binary files are off limits`);
     if (file.symlink) violations.push(`${file.path}: symlinks are off limits`);
 
-    if (kind === 'test') {
+    if (kind === "test") {
       if (!isTestPath(file.path)) {
-        violations.push(`${file.path}: a test patch may only touch test locations`);
-      } else if (file.status !== 'added' && file.removed > 0) {
-        violations.push(`${file.path}: a test patch may only add to an existing test file, not remove lines`);
+        violations.push(
+          `${file.path}: a test patch may only touch test locations`,
+        );
+      } else if (file.status !== "added" && file.removed > 0) {
+        violations.push(
+          `${file.path}: a test patch may only add to an existing test file, not remove lines`,
+        );
       }
-      if (file.status === 'deleted' || file.status === 'renamed') {
-        violations.push(`${file.path}: a test patch may not delete or rename files`);
+      if (file.status === "deleted" || file.status === "renamed") {
+        violations.push(
+          `${file.path}: a test patch may not delete or rename files`,
+        );
       }
     }
   }
 
-  if (kind === 'fix' && files.length > 0 && files.every((f) => isTestPath(f.path))) {
-    violations.push('a fix patch that touches only tests is not a fix');
+  if (
+    kind === "fix" &&
+    files.length > 0 &&
+    files.every((f) => isTestPath(f.path))
+  ) {
+    violations.push("a fix patch that touches only tests is not a fix");
   }
 
   return { ok: violations.length === 0, violations, files };
@@ -159,11 +200,25 @@ export function runCommand(
     let kept = 0;
     let timedOut = false;
 
-    const shell = process.platform === 'win32' ? 'powershell' : 'bash';
-    const local = { file: shell, args: process.platform === 'win32' ? ['-NoProfile', '-Command', command] : ['-c', command] };
-    const { file, args } = sandbox ? sandbox.wrap(command, cwd, timeoutMs) : local;
-    const env = sandbox ? { PATH: process.env.PATH } : { ...process.env, CI: 'true' };
-    const child = spawn(file, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const shell = process.platform === "win32" ? "powershell" : "bash";
+    const local = {
+      file: shell,
+      args:
+        process.platform === "win32"
+          ? ["-NoProfile", "-Command", command]
+          : ["-c", command],
+    };
+    const { file, args } = sandbox
+      ? sandbox.wrap(command, cwd, timeoutMs)
+      : local;
+    const env = sandbox
+      ? { PATH: process.env.PATH }
+      : { ...process.env, CI: "true" };
+    const child = spawn(file, args, {
+      cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
     const keep = (chunk: Buffer) => {
       chunks.push(chunk);
@@ -172,26 +227,32 @@ export function runCommand(
         kept -= chunks.shift()!.byteLength;
       }
     };
-    child.stdout.on('data', keep);
-    child.stderr.on('data', keep);
+    child.stdout.on("data", keep);
+    child.stderr.on("data", keep);
 
     // A sandboxed command is killed by the sandbox, since this process cannot signal one started through sudo.
     const timer = sandbox
       ? null
       : setTimeout(() => {
           timedOut = true;
-          child.kill('SIGKILL');
+          child.kill("SIGKILL");
         }, timeoutMs);
 
-    child.on('close', (code) => {
+    child.on("close", (code) => {
       if (timer) clearTimeout(timer);
-      if (sandbox && code !== 0 && Date.now() - startedAt >= timeoutMs) timedOut = true;
+      if (sandbox && code !== 0 && Date.now() - startedAt >= timeoutMs)
+        timedOut = true;
       const combined = Buffer.concat(chunks);
       const output =
         combined.byteLength > tailBytes
-          ? `[... ${combined.byteLength - tailBytes} bytes trimmed]\n${combined.subarray(-tailBytes).toString('utf8')}`
-          : combined.toString('utf8');
-      resolve({ exitCode: timedOut ? null : code, output, durationMs: Date.now() - startedAt, timedOut });
+          ? `[... ${combined.byteLength - tailBytes} bytes trimmed]\n${combined.subarray(-tailBytes).toString("utf8")}`
+          : combined.toString("utf8");
+      resolve({
+        exitCode: timedOut ? null : code,
+        output,
+        durationMs: Date.now() - startedAt,
+        timedOut,
+      });
     });
   });
 }
@@ -223,15 +284,15 @@ export class ScratchTree {
   ) {}
 
   async reset(): Promise<void> {
-    await git(['reset', '-q', '--hard', this.headSha], this.root);
-    await git(['clean', '-qfd'], this.root);
+    await git(["reset", "-q", "--hard", this.headSha], this.root);
+    await git(["clean", "-qfd"], this.root);
   }
 
   async apply(diff: string): Promise<ApplyResult> {
     return this.withPatchFile(diff, async (file) => {
       try {
-        await git(['apply', '--check', '--whitespace=nowarn', file], this.root);
-        await git(['apply', '--whitespace=nowarn', file], this.root);
+        await git(["apply", "--check", "--whitespace=nowarn", file], this.root);
+        await git(["apply", "--whitespace=nowarn", file], this.root);
         return { applied: true };
       } catch (error) {
         return { applied: false, error: (error as Error).message };
@@ -242,18 +303,24 @@ export class ScratchTree {
   /** True when the tree already contains the patch's changes, i.e. it would apply in reverse. */
   async contains(diff: string): Promise<boolean> {
     return this.withPatchFile(diff, (file) =>
-      git(['apply', '--reverse', '--check', '--whitespace=nowarn', file], this.root).then(
+      git(
+        ["apply", "--reverse", "--check", "--whitespace=nowarn", file],
+        this.root,
+      ).then(
         () => true,
         () => false,
       ),
     );
   }
 
-  private async withPatchFile<T>(diff: string, use: (file: string) => Promise<T>): Promise<T> {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'pr-verify-'));
-    const file = path.join(dir, 'patch.diff');
+  private async withPatchFile<T>(
+    diff: string,
+    use: (file: string) => Promise<T>,
+  ): Promise<T> {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "pr-verify-"));
+    const file = path.join(dir, "patch.diff");
     try {
-      await writeFile(file, diff.endsWith('\n') ? diff : `${diff}\n`, 'utf8');
+      await writeFile(file, diff.endsWith("\n") ? diff : `${diff}\n`, "utf8");
       return await use(file);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -262,17 +329,32 @@ export class ScratchTree {
 
   /** Builds, then runs the suite, so a patch to the source is compiled before it is tested. */
   async runTests(): Promise<TestRun> {
-    const run = (command: string) => runCommand(command, this.root, this.testTimeoutMs, this.outputTailBytes, this.sandbox);
+    const run = (command: string) =>
+      runCommand(
+        command,
+        this.root,
+        this.testTimeoutMs,
+        this.outputTailBytes,
+        this.sandbox,
+      );
     let buildMs = 0;
     if (this.commands.build) {
       const build = await run(this.commands.build);
       if (build.exitCode !== 0) {
-        return { ...build, output: `The build failed, so the suite did not run.\n\n${build.output}`, buildFailed: true };
+        return {
+          ...build,
+          output: `The build failed, so the suite did not run.\n\n${build.output}`,
+          buildFailed: true,
+        };
       }
       buildMs = build.durationMs;
     }
     const test = await run(this.commands.test);
-    return { ...test, durationMs: buildMs + test.durationMs, buildFailed: false };
+    return {
+      ...test,
+      durationMs: buildMs + test.durationMs,
+      buildFailed: false,
+    };
   }
 }
 
@@ -316,7 +398,9 @@ export async function verifyDemonstration(
   if (fixPatch && testFails === true && testPatch) {
     await tree.reset();
     const testApplied = await tree.apply(testPatch.diff);
-    const fixApplied = testApplied.applied ? await tree.apply(fixPatch.diff) : testApplied;
+    const fixApplied = testApplied.applied
+      ? await tree.apply(fixPatch.diff)
+      : testApplied;
     if (fixApplied.applied) {
       runs += 1;
       const result = await tree.runTests();
@@ -348,24 +432,39 @@ export interface StaticAnalysisResult {
  * runs outside the sandbox, in its own container with only the tree mounted,
  * since it reads the project's code and never executes it.
  */
-export async function runStaticAnalysis(tree: ScratchTree, analysis: StaticAnalysis, timeoutMs: number): Promise<StaticAnalysisResult> {
+export async function runStaticAnalysis(
+  tree: ScratchTree,
+  analysis: StaticAnalysis,
+  timeoutMs: number,
+): Promise<StaticAnalysisResult> {
   // Semgrep scans only what git tracks, and files a patch added are untracked.
-  await git(['add', '--intent-to-add', '.'], tree.root);
-  const out = await mkdtemp(path.join(os.tmpdir(), 'pr-verify-semgrep-'));
+  await git(["add", "--intent-to-add", "."], tree.root);
+  const out = await mkdtemp(path.join(os.tmpdir(), "pr-verify-semgrep-"));
   try {
     const command = [
-      'docker run --rm',
+      "docker run --rm",
       `--user ${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
       `-e HOME=/tmp -v "${tree.root}:/src" -v "${out}:/out" -w /src`,
       analysis.image,
-      'semgrep scan',
+      "semgrep scan",
       analysis.args,
-      '--metrics off --disable-version-check --json --output /out/results.json',
-    ].join(' ');
+      "--metrics off --disable-version-check --json --output /out/results.json",
+    ].join(" ");
     const result = await runCommand(command, tree.root, timeoutMs, 16 * 1024);
-    if (result.exitCode !== 0) return { findings: null, output: result.output, durationMs: result.durationMs };
-    const report = JSON.parse(await readFile(path.join(out, 'results.json'), 'utf8')) as { results?: unknown[] };
-    return { findings: report.results?.length ?? 0, output: result.output, durationMs: result.durationMs };
+    if (result.exitCode !== 0)
+      return {
+        findings: null,
+        output: result.output,
+        durationMs: result.durationMs,
+      };
+    const report = JSON.parse(
+      await readFile(path.join(out, "results.json"), "utf8"),
+    ) as { results?: unknown[] };
+    return {
+      findings: report.results?.length ?? 0,
+      output: result.output,
+      durationMs: result.durationMs,
+    };
   } finally {
     await rm(out, { recursive: true, force: true });
   }
@@ -394,11 +493,17 @@ export async function verifyStaticAnalysisFix(
     }
   }
   await tree.reset();
-  return { testFails: null, fixPasses, runs, findingsLeft, durationMs: Date.now() - startedAt };
+  return {
+    testFails: null,
+    fixPasses,
+    runs,
+    findingsLeft,
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 /** passes: the bug is gone. fails: still there. unusable: the test does not fit this commit, so it says nothing. */
-export type RecheckResult = 'passes' | 'fails' | 'unusable';
+export type RecheckResult = "passes" | "fails" | "unusable";
 
 /**
  * Runs an earlier finding's test against the current PR commit. The test is
@@ -412,22 +517,30 @@ export async function recheckDemonstration(
   limits: PatchLimits,
 ): Promise<{ result: RecheckResult; runs: number; durationMs: number }> {
   const startedAt = Date.now();
-  if (!checkPatchPolicy(testDiff, 'test', limits).ok) return { result: 'unusable', runs: 0, durationMs: 0 };
+  if (!checkPatchPolicy(testDiff, "test", limits).ok)
+    return { result: "unusable", runs: 0, durationMs: 0 };
 
   await tree.reset();
-  let result: RecheckResult = 'unusable';
+  let result: RecheckResult = "unusable";
   let runs = 0;
   if ((await tree.apply(testDiff)).applied || (await tree.contains(testDiff))) {
     runs = 1;
     const run = await tree.runTests();
-    result = run.buildFailed ? 'unusable' : run.exitCode === 0 ? 'passes' : 'fails';
+    result = run.buildFailed
+      ? "unusable"
+      : run.exitCode === 0
+        ? "passes"
+        : "fails";
   }
   await tree.reset();
   return { result, runs, durationMs: Date.now() - startedAt };
 }
 
 /** Red-gate mode: a fix is verified when the suite that failed now passes with only the fix applied. */
-export async function verifyRedGateFix(tree: ScratchTree, fixPatch: Patch): Promise<Verification> {
+export async function verifyRedGateFix(
+  tree: ScratchTree,
+  fixPatch: Patch,
+): Promise<Verification> {
   const startedAt = Date.now();
   await tree.reset();
   const applied = await tree.apply(fixPatch.diff);
@@ -439,5 +552,10 @@ export async function verifyRedGateFix(tree: ScratchTree, fixPatch: Patch): Prom
     fixPasses = result.exitCode === 0;
   }
   await tree.reset();
-  return { testFails: null, fixPasses, runs, durationMs: Date.now() - startedAt };
+  return {
+    testFails: null,
+    fixPasses,
+    runs,
+    durationMs: Date.now() - startedAt,
+  };
 }

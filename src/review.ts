@@ -4,22 +4,37 @@
  * everything so a later run can find what was already said.
  */
 
-import type { Octokit } from './context.js';
-import { git } from './context.js';
-import { isCommentable, parseDiff, type DiffFile } from './diff.js';
-import type { Finding, Patch, PriorFinding, PullRequestRef, ResolvedFinding } from './types.js';
-import type { RecheckResult } from './verify.js';
+import type { Octokit } from "./context.js";
+import { git } from "./context.js";
+import { isCommentable, parseDiff, type DiffFile } from "./diff.js";
+import type {
+  Finding,
+  Patch,
+  PriorFinding,
+  PullRequestRef,
+  ResolvedFinding,
+} from "./types.js";
+import type { RecheckResult } from "./verify.js";
 
-const MARKER = 'pr-verify';
-const FINDING_MARKER = new RegExp(`<!-- ${MARKER}:finding (\\{.*?\\}) -->`, 'g');
-const RESOLVED_MARKER = new RegExp(`<!-- ${MARKER}:resolved (\\{.*?\\}) -->`, 'g');
+const MARKER = "pr-verify";
+const FINDING_MARKER = new RegExp(
+  `<!-- ${MARKER}:finding (\\{.*?\\}) -->`,
+  "g",
+);
+const RESOLVED_MARKER = new RegExp(
+  `<!-- ${MARKER}:resolved (\\{.*?\\}) -->`,
+  "g",
+);
 const COMMENT_MARKER = (key: string) => `<!-- ${MARKER}:comment ${key} -->`;
-const TEST_SUMMARY = 'Test that fails on this commit';
+const TEST_SUMMARY = "Test that fails on this commit";
 // A diff line starts with a space, +, - or \, so a line opening with ``` can only be the closing fence.
-const TEST_BLOCK = new RegExp(`<summary>${TEST_SUMMARY}</summary>\\s*\`\`\`diff\\n([\\s\\S]*?)\\n\`\`\``, 'g');
+const TEST_BLOCK = new RegExp(
+  `<summary>${TEST_SUMMARY}</summary>\\s*\`\`\`diff\\n([\\s\\S]*?)\\n\`\`\``,
+  "g",
+);
 
 /** The login every comment made with the default GITHUB_TOKEN is posted under. */
-export const DEFAULT_TOKEN_LOGIN = 'github-actions[bot]';
+export const DEFAULT_TOKEN_LOGIN = "github-actions[bot]";
 
 /**
  * The account this action posts as. Markers are trusted only from it: anyone
@@ -49,11 +64,11 @@ function readPrior(json: string): PriorFinding | null {
   try {
     const parsed = JSON.parse(json) as Partial<PriorFinding>;
     if (
-      typeof parsed.file === 'string' &&
-      typeof parsed.line === 'number' &&
-      typeof parsed.title === 'string' &&
-      typeof parsed.category === 'string' &&
-      typeof parsed.headSha === 'string'
+      typeof parsed.file === "string" &&
+      typeof parsed.line === "number" &&
+      typeof parsed.title === "string" &&
+      typeof parsed.category === "string" &&
+      typeof parsed.headSha === "string"
     ) {
       return {
         file: parsed.file,
@@ -109,7 +124,11 @@ function findingKey(finding: PriorFinding): string {
  * resolved, from review bodies and inline comments alike. Only comments by
  * `author` count.
  */
-export async function fetchPriorFindings(octokit: Octokit, pr: PullRequestRef, author: string): Promise<PostedFinding[]> {
+export async function fetchPriorFindings(
+  octokit: Octokit,
+  pr: PullRequestRef,
+  author: string,
+): Promise<PostedFinding[]> {
   const [reviews, comments] = await Promise.all([
     octokit.paginate(octokit.rest.pulls.listReviews, {
       owner: pr.owner,
@@ -124,7 +143,9 @@ export async function fetchPriorFindings(octokit: Octokit, pr: PullRequestRef, a
       per_page: 100,
     }),
   ]);
-  const texts = [...reviews, ...comments].filter((c) => c.user?.login === author).map((c) => c.body ?? '');
+  const texts = [...reviews, ...comments]
+    .filter((c) => c.user?.login === author)
+    .map((c) => c.body ?? "");
 
   const resolved = new Set<string>();
   for (const text of texts) {
@@ -139,7 +160,8 @@ export async function fetchPriorFindings(octokit: Octokit, pr: PullRequestRef, a
   for (const text of texts) {
     for (const posted of parsePostedFindings(text)) {
       const key = findingKey(posted.finding);
-      if (resolved.has(`${key}:${posted.finding.headSha}`) || seen.has(key)) continue;
+      if (resolved.has(`${key}:${posted.finding.headSha}`) || seen.has(key))
+        continue;
       seen.add(key);
       findings.push(posted);
     }
@@ -158,13 +180,20 @@ export interface Resolution {
 
 /** Runs a prior finding's test against the current head. */
 export type Recheck = (testPatch: string) => Promise<RecheckResult>;
-export type DiffBetween = (from: string, to: string, file: string) => Promise<string | null>;
+export type DiffBetween = (
+  from: string,
+  to: string,
+  file: string,
+) => Promise<string | null>;
 
 /** Each re-check is a full suite run before the review starts, so only the first few prior findings get one. */
 export const MAX_RECHECKS = 3;
 
 export function gitDiffBetween(cwd: string): DiffBetween {
-  return (from, to, file) => git(['diff', '--no-color', '--unified=0', from, to, '--', file], cwd).catch(() => null);
+  return (from, to, file) =>
+    git(["diff", "--no-color", "--unified=0", from, to, "--", file], cwd).catch(
+      () => null,
+    );
 }
 
 /**
@@ -194,11 +223,11 @@ export async function resolvePriorFindings(
     if (testPatch !== null && rechecks < MAX_RECHECKS) {
       rechecks += 1;
       const result = await recheck(testPatch);
-      if (result === 'passes') {
-        resolved.push({ ...finding, evidence: 'test-passes' });
+      if (result === "passes") {
+        resolved.push({ ...finding, evidence: "test-passes" });
         continue;
       }
-      if (result === 'fails') {
+      if (result === "fails") {
         open.push(finding);
         continue;
       }
@@ -210,16 +239,21 @@ export async function resolvePriorFindings(
       open.push(finding);
       continue;
     }
-    if (lineChanged(parseDiff(diff), finding.file, finding.line)) resolved.push({ ...finding, evidence: 'line-changed' });
+    if (lineChanged(parseDiff(diff), finding.file, finding.line))
+      resolved.push({ ...finding, evidence: "line-changed" });
     else open.push(finding);
   }
   return { resolved, open, rechecks };
 }
 
-export function lineChanged(files: DiffFile[], file: string, line: number): boolean {
+export function lineChanged(
+  files: DiffFile[],
+  file: string,
+  line: number,
+): boolean {
   const entry = files.find((f) => f.oldPath === file || f.path === file);
   if (!entry) return false;
-  if (entry.status === 'deleted') return true;
+  if (entry.status === "deleted") return true;
   return entry.hunks.some((h) => {
     // A pure insertion has oldLines 0 and does not touch the line itself.
     if (h.oldLines === 0) return false;
@@ -234,7 +268,8 @@ export function isDuplicate(finding: Finding, open: PriorFinding[]): boolean {
     (p) =>
       p.file === finding.file &&
       p.category === finding.category &&
-      (p.title.trim().toLowerCase() === title || Math.abs(p.line - finding.line) <= 2),
+      (p.title.trim().toLowerCase() === title ||
+        Math.abs(p.line - finding.line) <= 2),
   );
 }
 
@@ -253,16 +288,21 @@ export interface ReviewDraft {
   comments: Array<{ path: string; line: number; body: string }>;
 }
 
-const RESOLVED_BY: Record<ResolvedFinding['evidence'], string> = {
-  'test-passes': 'its test passes now',
-  'line-changed': 'the line it pointed at changed',
+const RESOLVED_BY: Record<ResolvedFinding["evidence"], string> = {
+  "test-passes": "its test passes now",
+  "line-changed": "the line it pointed at changed",
 };
 
 function fenceDiff(diff: string): string {
   return `\`\`\`diff\n${diff.trimEnd()}\n\`\`\``;
 }
 
-function renderFinding(finding: Finding, patches: Patch[], headSha: string, withLocation: boolean): string {
+function renderFinding(
+  finding: Finding,
+  patches: Patch[],
+  headSha: string,
+  withLocation: boolean,
+): string {
   const prior: PriorFinding = {
     category: finding.category,
     file: finding.file,
@@ -271,21 +311,41 @@ function renderFinding(finding: Finding, patches: Patch[], headSha: string, with
     verified: finding.verified,
     headSha,
   };
-  const badge = finding.verified ? 'Verified' : `Unverified, ${finding.confidence} confidence`;
+  const badge = finding.verified
+    ? "Verified"
+    : `Unverified, ${finding.confidence} confidence`;
   const lines = [`**${finding.title}** · ${finding.category} · ${badge}`];
   if (withLocation) lines.push(`\`${finding.file}:${finding.line}\``);
-  lines.push('', finding.explanation);
+  lines.push("", finding.explanation);
 
-  const test = finding.testPatch !== undefined ? patches.find((p) => p.id === finding.testPatch) : undefined;
-  const fix = finding.fixPatch !== undefined ? patches.find((p) => p.id === finding.fixPatch) : undefined;
+  const test =
+    finding.testPatch !== undefined
+      ? patches.find((p) => p.id === finding.testPatch)
+      : undefined;
+  const fix =
+    finding.fixPatch !== undefined
+      ? patches.find((p) => p.id === finding.fixPatch)
+      : undefined;
   if (test && finding.testPatchVerified) {
-    lines.push('', `<details><summary>${TEST_SUMMARY}</summary>`, '', fenceDiff(test.diff), '</details>');
+    lines.push(
+      "",
+      `<details><summary>${TEST_SUMMARY}</summary>`,
+      "",
+      fenceDiff(test.diff),
+      "</details>",
+    );
   }
   if (fix && finding.fixPatchVerified) {
-    lines.push('', '<details><summary>Fix that makes it pass</summary>', '', fenceDiff(fix.diff), '</details>');
+    lines.push(
+      "",
+      "<details><summary>Fix that makes it pass</summary>",
+      "",
+      fenceDiff(fix.diff),
+      "</details>",
+    );
   }
-  lines.push('', findingMarker(prior));
-  return lines.join('\n');
+  lines.push("", findingMarker(prior));
+  return lines.join("\n");
 }
 
 /**
@@ -300,14 +360,18 @@ export function buildReview(
   headSha: string,
   trail: ReviewTrail,
 ): ReviewDraft {
-  const comments: ReviewDraft['comments'] = [];
+  const comments: ReviewDraft["comments"] = [];
   const bodyFindings: Finding[] = [];
   for (const finding of findings) {
     if (isCommentable(diffFiles, finding.file, finding.line)) {
-      finding.placement = 'inline';
-      comments.push({ path: finding.file, line: finding.line, body: renderFinding(finding, patches, headSha, false) });
+      finding.placement = "inline";
+      comments.push({
+        path: finding.file,
+        line: finding.line,
+        body: renderFinding(finding, patches, headSha, false),
+      });
     } else {
-      finding.placement = 'body';
+      finding.placement = "body";
       bodyFindings.push(finding);
     }
   }
@@ -321,59 +385,85 @@ export function buildReview(
     `${findings.filter((f) => f.verified).length} verified`,
     `${findings.filter((f) => !f.verified).length} unverified`,
     `${resolved.length} resolved since the last review`,
-  ].join(', ');
-  sections.push(`### PR Verify review\n\n${summary}.${inlineCount > 0 ? ` ${inlineCount} inline.` : ''}`);
+  ].join(", ");
+  sections.push(
+    `### PR Verify review\n\n${summary}.${inlineCount > 0 ? ` ${inlineCount} inline.` : ""}`,
+  );
 
   if (verified.length > 0) {
-    sections.push(`### Verified\n\n${verified.map((f) => renderFinding(f, patches, headSha, true)).join('\n\n---\n\n')}`);
+    sections.push(
+      `### Verified\n\n${verified.map((f) => renderFinding(f, patches, headSha, true)).join("\n\n---\n\n")}`,
+    );
   }
   if (unverified.length > 0) {
-    sections.push(`### Unverified\n\n${unverified.map((f) => renderFinding(f, patches, headSha, true)).join('\n\n---\n\n')}`);
+    sections.push(
+      `### Unverified\n\n${unverified.map((f) => renderFinding(f, patches, headSha, true)).join("\n\n---\n\n")}`,
+    );
   }
   if (resolved.length > 0) {
-    const entries = resolved.map((r) => `- \`${r.file}:${r.line}\` ${r.title} (${RESOLVED_BY[r.evidence]}) ${resolvedMarker(r)}`);
-    sections.push(`### Resolved by this push\n\n${entries.join('\n')}`);
+    const entries = resolved.map(
+      (r) =>
+        `- \`${r.file}:${r.line}\` ${r.title} (${RESOLVED_BY[r.evidence]}) ${resolvedMarker(r)}`,
+    );
+    sections.push(`### Resolved by this push\n\n${entries.join("\n")}`);
   }
 
   const trailLines = [
-    `Files read: ${trail.filesRead.length > 0 ? trail.filesRead.map((f) => `\`${f}\``).join(', ') : 'none'}`,
+    `Files read: ${trail.filesRead.length > 0 ? trail.filesRead.map((f) => `\`${f}\``).join(", ") : "none"}`,
     `Tests run by the agent: ${
       trail.tests.length > 0
-        ? trail.tests.map((t) => `${t.description} (exit ${t.exitCode ?? 'timeout'})`).join('; ')
-        : 'none'
+        ? trail.tests
+            .map((t) => `${t.description} (exit ${t.exitCode ?? "timeout"})`)
+            .join("; ")
+        : "none"
     }`,
     `Tokens: ${trail.inputTokens} in, ${trail.cachedInputTokens} cached, ${trail.outputTokens} out`,
     `Wall time: ${Math.round(trail.wallMs / 1000)}s`,
     `[Run record](${trail.runUrl})`,
   ];
-  sections.push(`<details><summary>Trail</summary>\n\n${trailLines.map((l) => `- ${l}`).join('\n')}\n\n</details>`);
+  sections.push(
+    `<details><summary>Trail</summary>\n\n${trailLines.map((l) => `- ${l}`).join("\n")}\n\n</details>`,
+  );
   sections.push(`<!-- ${MARKER}:review ${headSha} -->`);
 
-  return { body: sections.join('\n\n'), comments };
+  return { body: sections.join("\n\n"), comments };
 }
 
 /** Posts the review with the comment event. Never approve, never request changes. */
-export async function postReview(octokit: Octokit, pr: PullRequestRef, draft: ReviewDraft): Promise<number> {
+export async function postReview(
+  octokit: Octokit,
+  pr: PullRequestRef,
+  draft: ReviewDraft,
+): Promise<number> {
   const response = await octokit.rest.pulls.createReview({
     owner: pr.owner,
     repo: pr.repo,
     pull_number: pr.number,
     commit_id: pr.headSha,
-    event: 'COMMENT',
+    event: "COMMENT",
     body: draft.body,
-    comments: draft.comments.map((c) => ({ path: c.path, line: c.line, side: 'RIGHT' as const, body: c.body })),
+    comments: draft.comments.map((c) => ({
+      path: c.path,
+      line: c.line,
+      side: "RIGHT" as const,
+      body: c.body,
+    })),
   });
   return response.data.id;
 }
 
-async function findComment(octokit: Octokit, pr: PullRequestRef, marker: string) {
+async function findComment(
+  octokit: Octokit,
+  pr: PullRequestRef,
+  marker: string,
+) {
   const existing = await octokit.paginate(octokit.rest.issues.listComments, {
     owner: pr.owner,
     repo: pr.repo,
     issue_number: pr.number,
     per_page: 100,
   });
-  return existing.find((c) => (c.body ?? '').includes(marker));
+  return existing.find((c) => (c.body ?? "").includes(marker));
 }
 
 /** Creates or updates the single PR comment identified by `key`. Used for red-gate verdicts and the too-large note. */
@@ -387,7 +477,12 @@ export async function upsertComment(
   const full = `${body}\n\n${marker}`;
   const mine = await findComment(octokit, pr, marker);
   if (mine) {
-    await octokit.rest.issues.updateComment({ owner: pr.owner, repo: pr.repo, comment_id: mine.id, body: full });
+    await octokit.rest.issues.updateComment({
+      owner: pr.owner,
+      repo: pr.repo,
+      comment_id: mine.id,
+      body: full,
+    });
     return mine.id;
   }
   const created = await octokit.rest.issues.createComment({
@@ -400,16 +495,35 @@ export async function upsertComment(
 }
 
 /** Updates the PR comment identified by `key`, if there is one, and never creates it. */
-export async function updateComment(octokit: Octokit, pr: PullRequestRef, key: string, body: string): Promise<void> {
+export async function updateComment(
+  octokit: Octokit,
+  pr: PullRequestRef,
+  key: string,
+  body: string,
+): Promise<void> {
   const marker = COMMENT_MARKER(key);
   const mine = await findComment(octokit, pr, marker);
   if (mine) {
-    await octokit.rest.issues.updateComment({ owner: pr.owner, repo: pr.repo, comment_id: mine.id, body: `${body}\n\n${marker}` });
+    await octokit.rest.issues.updateComment({
+      owner: pr.owner,
+      repo: pr.repo,
+      comment_id: mine.id,
+      body: `${body}\n\n${marker}`,
+    });
   }
 }
 
 /** Deletes the PR comment identified by `key`, if there is one. */
-export async function deleteComment(octokit: Octokit, pr: PullRequestRef, key: string): Promise<void> {
+export async function deleteComment(
+  octokit: Octokit,
+  pr: PullRequestRef,
+  key: string,
+): Promise<void> {
   const mine = await findComment(octokit, pr, COMMENT_MARKER(key));
-  if (mine) await octokit.rest.issues.deleteComment({ owner: pr.owner, repo: pr.repo, comment_id: mine.id });
+  if (mine)
+    await octokit.rest.issues.deleteComment({
+      owner: pr.owner,
+      repo: pr.repo,
+      comment_id: mine.id,
+    });
 }

@@ -39,7 +39,7 @@ on:
           and for node the project's own lint script or else Biome.
         required: false
         type: string
-        default: ''
+        default: ""
       security-scan:
         description: >-
           strict fails on anything Trivy or Semgrep finds; loose fails only on
@@ -51,7 +51,7 @@ on:
         description: Dependency vulnerability scan. Leave empty to skip the audit step.
         required: false
         type: string
-        default: ''
+        default: ""
       review:
         description: Run the Claude review after the gate
         required: false
@@ -210,7 +210,7 @@ jobs:
   # Not a required check, and nothing needs it: a red canary never blocks a
   # merge or starts an investigation. It says the pin is not safe to move yet.
   canary:
-    name: 'canary: ubuntu-latest (non-blocking)'
+    name: "canary: ubuntu-latest (non-blocking)"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

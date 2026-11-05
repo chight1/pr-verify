@@ -44,18 +44,18 @@ The same action runs with a different brief. A rules-only pre-classifier labels 
 
 Every one is an action input with a default.
 
-| Budget | Default |
-| --- | --- |
-| Tokens per run (input plus output; cache reads count at a tenth, the rate they are billed at) | 200,000 |
-| Diff size | a quarter of the token budget |
-| Agent wall clock | 8 minutes |
-| Tool calls | 30 |
-| Test runs by the agent | 4 |
-| Patch proposals | 4 |
-| Per test run | 5 minutes, 64 KB of output |
-| Per file read | 400 lines or 32 KB |
-| Patch size | 200 lines, 6 files |
-| Findings per review | 8, of which at most 3 unverified |
+| Budget                                                                                        | Default                          |
+| --------------------------------------------------------------------------------------------- | -------------------------------- |
+| Tokens per run (input plus output; cache reads count at a tenth, the rate they are billed at) | 200,000                          |
+| Diff size                                                                                     | a quarter of the token budget    |
+| Agent wall clock                                                                              | 8 minutes                        |
+| Tool calls                                                                                    | 30                               |
+| Test runs by the agent                                                                        | 4                                |
+| Patch proposals                                                                               | 4                                |
+| Per test run                                                                                  | 5 minutes, 64 KB of output       |
+| Per file read                                                                                 | 400 lines or 32 KB               |
+| Patch size                                                                                    | 200 lines, 6 files               |
+| Findings per review                                                                           | 8, of which at most 3 unverified |
 
 When a budget trips, the run ends and names the budget in the record. Nothing unverified is posted.
 
@@ -97,22 +97,22 @@ Nothing here runs on a push to the default branch, only on pull requests.
 
 ## Repository layout
 
-| File | Concern |
-| --- | --- |
-| `src/main.ts` | Reads inputs, picks the mode from the gate result, runs the stages, always writes the record. |
-| `src/context.ts` | Diff, repository map, guidance file, job-log fetch, secret scrubbing. |
-| `src/diff.ts` | Unified-diff parser shared by context, review and verify. |
-| `src/preclassify.ts` | Infrastructure patterns for red-gate mode. |
-| `src/agent.ts` | The Messages API loop, both briefs, prompt caching. |
-| `src/tools.ts` | The four tools and their limits. |
-| `src/verify.ts` | Scratch-tree reset, patch policy, apply, harness test runs. |
-| `src/sandbox.ts` | The namespaces every test run executes in. |
-| `src/review.ts` | Posting policy, line-to-diff mapping, markers, prior-finding resolution. |
-| `src/record.ts` | The run record. |
-| `src/budget.ts` | Token, time, call and finding counters. |
-| `src/precision.ts` | Thumbs-down counts per category, run locally with `npm run precision`. |
-| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review. |
-| `templates/` | The one-file workflow a project copies, per runtime. |
+| File                              | Concern                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/main.ts`                     | Reads inputs, picks the mode from the gate result, runs the stages, always writes the record. |
+| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                         |
+| `src/diff.ts`                     | Unified-diff parser shared by context, review and verify.                                     |
+| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                    |
+| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                           |
+| `src/tools.ts`                    | The four tools and their limits.                                                              |
+| `src/verify.ts`                   | Scratch-tree reset, patch policy, apply, harness test runs.                                   |
+| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                    |
+| `src/review.ts`                   | Posting policy, line-to-diff mapping, markers, prior-finding resolution.                      |
+| `src/record.ts`                   | The run record.                                                                               |
+| `src/budget.ts`                   | Token, time, call and finding counters.                                                       |
+| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                        |
+| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                  |
+| `templates/`                      | The one-file workflow a project copies, per runtime.                                          |
 
 `dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
 

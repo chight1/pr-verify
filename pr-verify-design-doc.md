@@ -126,26 +126,26 @@ Source files in the action, one concern each:
 
 The action declares the node24 runtime (node20 also works on an older runner). Dependencies are the Actions toolkit packages for inputs, GitHub API access, process execution and artifact upload, plus the Anthropic TypeScript SDK. Its inputs:
 
-| Input | Default | Meaning |
-| --- | --- | --- |
-| gate-result | required | Result of the gate job: success, failure, cancelled or skipped. Picks the mode. |
-| build-command | required | The project's build command. |
-| test-command | required | The project's test command, run from the repository root. |
-| anthropic-api-key | required | The Anthropic key, from the repository secret. |
-| github-token | the job token | Token for the GitHub API. |
-| model | the current Sonnet model | Claude model id. |
-| guidance-file | REVIEW.md | Repository guidance file read into the brief. |
-| max-findings | 8 | Findings allowed in one review. |
-| max-unverified-findings | 3 | Findings without an executed demonstration allowed in one review. |
-| max-tokens | 200000 | Total input plus output tokens per run. |
-| max-minutes | 8 | Wall-clock budget for the agent loop. |
-| max-tool-calls | 30 | Total tool calls per run. |
-| max-test-runs | 4 | Test runs the agent may request. |
-| max-patch-attempts | 4 | Patches the agent may propose. |
-| test-timeout-minutes | 5 | Timeout for a single test run. |
-| max-patch-lines | 200 | Changed lines allowed in one patch. |
-| max-patch-files | 6 | Files allowed in one patch. |
-| comment-on-red-gate | true | Post a diagnosis or verified fix when the gate fails. |
+| Input                   | Default                  | Meaning                                                                         |
+| ----------------------- | ------------------------ | ------------------------------------------------------------------------------- |
+| gate-result             | required                 | Result of the gate job: success, failure, cancelled or skipped. Picks the mode. |
+| build-command           | required                 | The project's build command.                                                    |
+| test-command            | required                 | The project's test command, run from the repository root.                       |
+| anthropic-api-key       | required                 | The Anthropic key, from the repository secret.                                  |
+| github-token            | the job token            | Token for the GitHub API.                                                       |
+| model                   | the current Sonnet model | Claude model id.                                                                |
+| guidance-file           | REVIEW.md                | Repository guidance file read into the brief.                                   |
+| max-findings            | 8                        | Findings allowed in one review.                                                 |
+| max-unverified-findings | 3                        | Findings without an executed demonstration allowed in one review.               |
+| max-tokens              | 200000                   | Total input plus output tokens per run.                                         |
+| max-minutes             | 8                        | Wall-clock budget for the agent loop.                                           |
+| max-tool-calls          | 30                       | Total tool calls per run.                                                       |
+| max-test-runs           | 4                        | Test runs the agent may request.                                                |
+| max-patch-attempts      | 4                        | Patches the agent may propose.                                                  |
+| test-timeout-minutes    | 5                        | Timeout for a single test run.                                                  |
+| max-patch-lines         | 200                      | Changed lines allowed in one patch.                                             |
+| max-patch-files         | 6                        | Files allowed in one patch.                                                     |
+| comment-on-red-gate     | true                     | Post a diagnosis or verified fix when the gate fails.                           |
 
 It has one output, verdict, with the same values as the record's outcome, so a later step can branch on it.
 

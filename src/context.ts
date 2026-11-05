@@ -4,12 +4,12 @@
  * failing step's log. Also the scrubber that keeps secrets out of all of it.
  */
 
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { getExecOutput } from '@actions/exec';
-import type { getOctokit } from '@actions/github';
-import { parseDiff } from './diff.js';
-import type { PullRequestRef } from './types.js';
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { getExecOutput } from "@actions/exec";
+import type { getOctokit } from "@actions/github";
+import { parseDiff } from "./diff.js";
+import type { PullRequestRef } from "./types.js";
 
 export type Octokit = ReturnType<typeof getOctokit>;
 
@@ -17,15 +17,21 @@ export const GUIDANCE_CAP_BYTES = 8 * 1024;
 export const MAP_CAP_BYTES = 48 * 1024;
 export const LOG_TAIL_BYTES = 64 * 1024;
 
-export async function git(args: string[], cwd: string, input?: string): Promise<string> {
-  const result = await getExecOutput('git', args, {
+export async function git(
+  args: string[],
+  cwd: string,
+  input?: string,
+): Promise<string> {
+  const result = await getExecOutput("git", args, {
     cwd,
     silent: true,
     ignoreReturnCode: true,
-    ...(input === undefined ? {} : { input: Buffer.from(input, 'utf8') }),
+    ...(input === undefined ? {} : { input: Buffer.from(input, "utf8") }),
   });
   if (result.exitCode !== 0) {
-    throw new Error(`git ${args.join(' ')} failed (${result.exitCode}): ${result.stderr.trim()}`);
+    throw new Error(
+      `git ${args.join(" ")} failed (${result.exitCode}): ${result.stderr.trim()}`,
+    );
   }
   return result.stdout;
 }
@@ -50,7 +56,7 @@ const NOISE_FILES = [
 
 /** Machine-written files: lockfiles, minified bundles, source maps. A reviewer skips them, and patches may not touch them. */
 export function isNoise(filePath: string): boolean {
-  const base = path.posix.basename(filePath.replace(/\\/g, '/'));
+  const base = path.posix.basename(filePath.replace(/\\/g, "/"));
   return NOISE_FILES.some((p) => p.test(base));
 }
 
@@ -62,46 +68,75 @@ export interface PullRequestDiff {
 }
 
 /** Drops whole file sections whose path is noise, or that `generated` marks as generated. */
-export function dropNoise(diffText: string, generated: (path: string) => boolean = () => false): PullRequestDiff {
+export function dropNoise(
+  diffText: string,
+  generated: (path: string) => boolean = () => false,
+): PullRequestDiff {
   const sections: string[][] = [];
-  for (const line of diffText.split('\n')) {
-    if (line.startsWith('diff --git ') || sections.length === 0) sections.push([]);
+  for (const line of diffText.split("\n")) {
+    if (line.startsWith("diff --git ") || sections.length === 0)
+      sections.push([]);
     sections[sections.length - 1]!.push(line);
   }
   const kept: string[] = [];
   const omitted: string[] = [];
   for (const section of sections) {
-    const text = section.join('\n');
+    const text = section.join("\n");
     const file = parseDiff(text)[0];
-    if (file && (isNoise(file.path) || generated(file.path))) omitted.push(file.path);
+    if (file && (isNoise(file.path) || generated(file.path)))
+      omitted.push(file.path);
     else kept.push(text);
   }
-  return { text: kept.join('\n'), omitted };
+  return { text: kept.join("\n"), omitted };
 }
 
 /** Paths among `paths` that .gitattributes marks `linguist-generated`, the marker GitHub collapses diffs by. */
-async function generatedPaths(paths: string[], cwd: string): Promise<Set<string>> {
+async function generatedPaths(
+  paths: string[],
+  cwd: string,
+): Promise<Set<string>> {
   if (paths.length === 0) return new Set();
   // With -z, each answer is three NUL-terminated fields: path, attribute, value.
-  const out = await git(['check-attr', '-z', '--stdin', 'linguist-generated'], cwd, `${paths.join('\0')}\0`);
-  const fields = out.split('\0');
+  const out = await git(
+    ["check-attr", "-z", "--stdin", "linguist-generated"],
+    cwd,
+    `${paths.join("\0")}\0`,
+  );
+  const fields = out.split("\0");
   const generated = new Set<string>();
   for (let i = 0; i + 2 < fields.length; i += 3) {
-    if (fields[i + 2] === 'true' || fields[i + 2] === 'set') generated.add(fields[i]!);
+    if (fields[i + 2] === "true" || fields[i + 2] === "set")
+      generated.add(fields[i]!);
   }
   return generated;
 }
 
 /** The PR diff from the merge base, which is what GitHub shows on the Files tab, without machine-written files. */
-export async function collectDiff(pr: PullRequestRef, cwd: string): Promise<PullRequestDiff> {
-  const text = await git(['diff', '--no-color', '--unified=3', '--merge-base', pr.baseSha, pr.headSha], cwd);
-  const generated = await generatedPaths(parseDiff(text).map((f) => f.path), cwd);
+export async function collectDiff(
+  pr: PullRequestRef,
+  cwd: string,
+): Promise<PullRequestDiff> {
+  const text = await git(
+    [
+      "diff",
+      "--no-color",
+      "--unified=3",
+      "--merge-base",
+      pr.baseSha,
+      pr.headSha,
+    ],
+    cwd,
+  );
+  const generated = await generatedPaths(
+    parseDiff(text).map((f) => f.path),
+    cwd,
+  );
   return dropNoise(text, (p) => generated.has(p));
 }
 
 export async function trackedFiles(cwd: string): Promise<string[]> {
-  const out = await git(['ls-files', '-z'], cwd);
-  return out.split('\0').filter((p) => p.length > 0);
+  const out = await git(["ls-files", "-z"], cwd);
+  return out.split("\0").filter((p) => p.length > 0);
 }
 
 export interface RepositoryMap {
@@ -111,20 +146,27 @@ export interface RepositoryMap {
 }
 
 /** One path per line, sorted, capped so a huge monorepo can't eat the prompt budget. */
-export function buildRepositoryMap(files: string[], capBytes = MAP_CAP_BYTES): RepositoryMap {
+export function buildRepositoryMap(
+  files: string[],
+  capBytes = MAP_CAP_BYTES,
+): RepositoryMap {
   const sorted = [...files].sort();
   const lines: string[] = [];
   let bytes = 0;
   for (const file of sorted) {
-    const cost = Buffer.byteLength(file, 'utf8') + 1;
+    const cost = Buffer.byteLength(file, "utf8") + 1;
     if (bytes + cost > capBytes) {
       lines.push(`... ${sorted.length - lines.length} more files omitted`);
-      return { text: lines.join('\n'), fileCount: sorted.length, truncated: true };
+      return {
+        text: lines.join("\n"),
+        fileCount: sorted.length,
+        truncated: true,
+      };
     }
     lines.push(file);
     bytes += cost;
   }
-  return { text: lines.join('\n'), fileCount: sorted.length, truncated: false };
+  return { text: lines.join("\n"), fileCount: sorted.length, truncated: false };
 }
 
 export interface Guidance {
@@ -143,7 +185,7 @@ export async function readGuidance(
   try {
     raw = await readFile(path.join(repoRoot, relativePath));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   }
   return capUtf8(raw, capBytes);
@@ -151,12 +193,20 @@ export async function readGuidance(
 
 export function capUtf8(raw: Buffer, capBytes: number): Guidance {
   if (raw.byteLength <= capBytes) {
-    return { text: raw.toString('utf8'), bytes: raw.byteLength, truncated: false };
+    return {
+      text: raw.toString("utf8"),
+      bytes: raw.byteLength,
+      truncated: false,
+    };
   }
   // Cut on a UTF-8 boundary so we never emit a half character.
   let end = capBytes;
   while (end > 0 && (raw[end]! & 0xc0) === 0x80) end -= 1;
-  return { text: raw.subarray(0, end).toString('utf8'), bytes: end, truncated: true };
+  return {
+    text: raw.subarray(0, end).toString("utf8"),
+    bytes: end,
+    truncated: true,
+  };
 }
 
 /**
@@ -176,14 +226,16 @@ export class Scrubber {
 
   constructor(secrets: Array<string | undefined>) {
     this.secrets = secrets
-      .filter((s): s is string => typeof s === 'string' && s.length >= 8)
+      .filter((s): s is string => typeof s === "string" && s.length >= 8)
       .sort((a, b) => b.length - a.length);
   }
 
   scrub(text: string): string {
     let out = text;
-    for (const secret of this.secrets) out = out.split(secret).join('[redacted]');
-    for (const pattern of Scrubber.PATTERNS) out = out.replace(pattern, '[redacted]');
+    for (const secret of this.secrets)
+      out = out.split(secret).join("[redacted]");
+    for (const pattern of Scrubber.PATTERNS)
+      out = out.replace(pattern, "[redacted]");
     return out;
   }
 }
@@ -204,15 +256,20 @@ export async function fetchFailingStepLog(
   runId: number,
   gateJobName: string,
 ): Promise<FailingStep | null> {
-  const jobs = await octokit.paginate(octokit.rest.actions.listJobsForWorkflowRun, {
-    owner,
-    repo,
-    run_id: runId,
-    per_page: 100,
-  });
-  const gate = jobs.find((job) => job.name === gateJobName || job.name.endsWith(`/ ${gateJobName}`));
+  const jobs = await octokit.paginate(
+    octokit.rest.actions.listJobsForWorkflowRun,
+    {
+      owner,
+      repo,
+      run_id: runId,
+      per_page: 100,
+    },
+  );
+  const gate = jobs.find(
+    (job) => job.name === gateJobName || job.name.endsWith(`/ ${gateJobName}`),
+  );
   if (!gate) return null;
-  const failing = gate.steps?.find((step) => step.conclusion === 'failure');
+  const failing = gate.steps?.find((step) => step.conclusion === "failure");
   if (!failing) return null;
 
   const response = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
@@ -220,7 +277,8 @@ export async function fetchFailingStepLog(
     repo,
     job_id: gate.id,
   });
-  const log = typeof response.data === 'string' ? response.data : String(response.data);
+  const log =
+    typeof response.data === "string" ? response.data : String(response.data);
   return { stepName: failing.name, log: extractStepLog(log, failing.name) };
 }
 
@@ -229,46 +287,52 @@ export async function fetchFailingStepLog(
  * `##[group]` line that names the step; the failing step's section carries
  * the `##[error]` marker. Falls back to the tail of the whole log.
  */
-export function extractStepLog(log: string, stepName: string, tailBytes = LOG_TAIL_BYTES): string {
-  const lines = log.split('\n');
-  const stripped = lines.map((l) => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/, ''));
+export function extractStepLog(
+  log: string,
+  stepName: string,
+  tailBytes = LOG_TAIL_BYTES,
+): string {
+  const lines = log.split("\n");
+  const stripped = lines.map((l) =>
+    l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/, ""),
+  );
 
   let start = -1;
   for (let i = 0; i < stripped.length; i += 1) {
     const line = stripped[i]!;
-    if (line.startsWith('##[group]')) {
-      const header = line.slice('##[group]'.length).trim();
+    if (line.startsWith("##[group]")) {
+      const header = line.slice("##[group]".length).trim();
       if (header === stepName || header === `Run ${stepName}`) start = i;
     }
   }
   if (start === -1) {
     // The group header names the command, not the step. Use the section containing the first error.
-    const errorAt = stripped.findIndex((l) => l.startsWith('##[error]'));
+    const errorAt = stripped.findIndex((l) => l.startsWith("##[error]"));
     if (errorAt !== -1) {
       for (let i = errorAt; i >= 0; i -= 1) {
-        if (stripped[i]!.startsWith('##[group]')) {
+        if (stripped[i]!.startsWith("##[group]")) {
           start = i;
           break;
         }
       }
     }
   }
-  if (start === -1) return tail(stripped.join('\n'), tailBytes);
+  if (start === -1) return tail(stripped.join("\n"), tailBytes);
 
   let end = stripped.length;
   for (let i = start + 1; i < stripped.length; i += 1) {
-    if (stripped[i]!.startsWith('##[group]')) {
+    if (stripped[i]!.startsWith("##[group]")) {
       end = i;
       break;
     }
   }
-  return tail(stripped.slice(start, end).join('\n'), tailBytes);
+  return tail(stripped.slice(start, end).join("\n"), tailBytes);
 }
 
 export function tail(text: string, bytes: number): string {
-  const buffer = Buffer.from(text, 'utf8');
+  const buffer = Buffer.from(text, "utf8");
   if (buffer.byteLength <= bytes) return text;
   const slice = buffer.subarray(buffer.byteLength - bytes);
   const firstNewline = slice.indexOf(0x0a);
-  return `[... ${buffer.byteLength - bytes} bytes trimmed]\n${slice.subarray(firstNewline + 1).toString('utf8')}`;
+  return `[... ${buffer.byteLength - bytes} bytes trimmed]\n${slice.subarray(firstNewline + 1).toString("utf8")}`;
 }
