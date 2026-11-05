@@ -52,3 +52,19 @@ jobs:
             git diff dist | head -80 >&2
             exit 1
           fi
+
+  # The code-quality checks from this commit, on this commit and on a scratch
+  # project built to fail them.
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./checks
+      - name: checks test
+        if: ${{ !cancelled() }}
+        run: bash checks/test.sh

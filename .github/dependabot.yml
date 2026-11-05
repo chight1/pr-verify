@@ -20,3 +20,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+
+  # The tools the gate's code-quality checks run.
+  - package-ecosystem: npm
+    directory: /checks
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
