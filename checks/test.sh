@@ -39,6 +39,10 @@ mkdir "$scratch/format" && cd "$scratch/format"
 git init -q
 loosen
 printf 'x=1\n' > app.py
+# A package that imports itself by absolute path, which pyright must resolve from the project root.
+mkdir pkg && : > pkg/__init__.py
+printf 'X = 1\n' > pkg/models.py
+printf 'from pkg.models import X\n\nY = X\n' > pkg/views.py
 printf '// Package main is a fixture.\npackage main\nfunc main(){}\n' > main.go
 printf 'export const a = {b:1}\n' > app.ts
 printf '*  item\n' > notes.md

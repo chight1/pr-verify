@@ -7,6 +7,10 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 failed=()
+# Configs written at the project root, since pyright and TypeScript resolve the
+# project's imports from the config's own directory. Untracked, and removed on exit.
+written=()
+trap 'rm -f "${written[@]}"' EXIT
 
 # Tracked files a person writes: not lockfiles, minified bundles, source maps,
 # or files .gitattributes marks linguist-generated. The same files the review reads.
@@ -94,17 +98,18 @@ if [ ${#python[@]} -gt 0 ]; then
   run "ruff check" pipx run ruff==0.17.2 check --config "$here/ruff.toml" --ignore-noqa --no-cache \
     -- "${python[@]}"
   # Checks against the Python on PATH, where the install step put the project's dependencies.
-  run "pyright" "$here/node_modules/.bin/pyright" --project "$here/pyrightconfig.json" "${python[@]}"
+  pyright_config="$PWD/pyrightconfig.pr-verify.json"
+  written+=("$pyright_config")
+  cp "$here/pyrightconfig.json" "$pyright_config"
+  run "pyright" "$here/node_modules/.bin/pyright" --project "$pyright_config" "${python[@]}"
 fi
 
 mapfile -t typescript < <(printf '%s\n' "${files[@]}" | grep -E '\.(ts|tsx|mts|cts)$')
 mapfile -t javascript < <(printf '%s\n' "${files[@]}" | grep -E '\.(js|jsx|mjs|cjs)$')
 tsconfig=""
 if [ ${#typescript[@]} -gt 0 ]; then
-  # At the project root, since TypeScript resolves rootDir and type packages from
-  # the config's own directory. It is untracked and removed when the script exits.
   tsconfig="$PWD/tsconfig.pr-verify.json"
-  trap 'rm -f "$tsconfig"' EXIT
+  written+=("$tsconfig")
   node "$here/tsconfig.mjs" "$tsconfig" "${typescript[@]}"
   run "tsc" "$here/node_modules/.bin/tsc" --project "$tsconfig"
 fi
