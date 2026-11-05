@@ -29,7 +29,7 @@ loosen() {
   printf 'root = true\n[*]\nmax_line_length = 500\n' > .editorconfig
   printf '[tool.ruff]\nexclude = ["*"]\n[tool.ruff.lint]\nselect = []\n' > pyproject.toml
   printf '[tool.pyright]\ntypeCheckingMode = "off"\n[tool.djlint]\nignore = "H006,T001,H025"\n' >> pyproject.toml
-  printf '{"compilerOptions": {"strict": false, "noImplicitAny": false}}\n' > tsconfig.json
+  printf '{"compilerOptions": {"strict": false, "noImplicitAny": false, "noCheck": true}}\n' > tsconfig.json
   printf 'export default [];\n' > eslint.config.js
   printf 'version: "2"\nlinters:\n  default: none\n' > .golangci.yml
   printf 'module example.com/fixture\n\ngo 1.22\n' > go.mod

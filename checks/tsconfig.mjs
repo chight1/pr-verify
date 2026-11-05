@@ -24,6 +24,8 @@ const config = {
     noImplicitOverride: true,
     noImplicitReturns: true,
     noFallthroughCasesInSwitch: true,
+    // A project's noCheck skips type checking altogether.
+    noCheck: false,
     noEmit: true,
   },
   files: files.map((file) => path.resolve(file)),
