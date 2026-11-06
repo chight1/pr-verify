@@ -18,18 +18,23 @@ export interface BudgetLimits {
 export type BudgetName = keyof BudgetLimits;
 
 /** Cache reads are billed at a tenth of the input rate. */
-export const CACHE_READ_WEIGHT = 0.1;
+const CACHE_READ_WEIGHT = 0.1;
 
 /**
  * The most of the token budget a diff may take on its own. The rest is for
  * reading files and running tests. Above it the run is skipped before any
  * API call, because the budget is only charged after a call returns.
  */
-export const DIFF_BUDGET_SHARE = 0.25;
+const DIFF_BUDGET_SHARE = 0.25;
+
+const BYTES_PER_TOKEN = 4;
+
+export const MS_PER_SECOND = 1000;
+export const MS_PER_MINUTE = 60 * MS_PER_SECOND;
 
 /** A rough count for text before it is sent: about four bytes per token for code and English. */
 export function estimateTokens(text: string): number {
-  return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
+  return Math.ceil(Buffer.byteLength(text, "utf8") / BYTES_PER_TOKEN);
 }
 
 export function diffTokenLimit(limits: BudgetLimits): number {
@@ -73,7 +78,7 @@ export class Budget {
 
   /** Throws when the wall clock has run out. Called before every API turn and tool call. */
   checkClock(): void {
-    if (this.elapsedMs() > this.limits.minutes * 60_000) {
+    if (this.elapsedMs() > this.limits.minutes * MS_PER_MINUTE) {
       throw new BudgetExceeded("minutes");
     }
   }
@@ -132,7 +137,7 @@ export class Budget {
 
   /** Milliseconds left on the agent clock, never negative. */
   remainingMs(): number {
-    return Math.max(0, this.limits.minutes * 60_000 - this.elapsedMs());
+    return Math.max(0, this.limits.minutes * MS_PER_MINUTE - this.elapsedMs());
   }
 
   usage(): BudgetUsage {

@@ -7,7 +7,7 @@ import {
   stoppedOutcome,
 } from "../src/agent.js";
 import { Budget } from "../src/budget.js";
-import type { ToolExecutor } from "../src/tools.js";
+import type { ToolExecutor } from "../src/tool-executor.js";
 
 type Response = Pick<Anthropic.Message, "content" | "stop_reason"> & {
   usage?: Partial<Anthropic.Usage>;
@@ -89,6 +89,18 @@ const budget = () =>
     patchAttempts: 4,
     findings: 8,
     unverifiedFindings: 3,
+  });
+
+/** A review run with no repository map, for tests that look only at how the loop ends. */
+const runReview = (client: Anthropic, executor: ToolExecutor) =>
+  runAgent({
+    client,
+    model: "m",
+    mode: "review",
+    repositoryMap: "",
+    brief: "b",
+    executor,
+    budget: budget(),
   });
 
 describe("runAgent", () => {
@@ -213,15 +225,7 @@ describe("runAgent", () => {
       response("end_turn", [text("Done.")]),
     ]);
     const { executor } = fakeExecutor("finish");
-    const outcome = await runAgent({
-      client,
-      model: "m",
-      mode: "review",
-      repositoryMap: "",
-      brief: "b",
-      executor,
-      budget: budget(),
-    });
+    const outcome = await runReview(client, executor);
     expect(outcome).toMatchObject({
       finished: null,
       stopReason: "no_finish",
@@ -246,15 +250,7 @@ describe("runAgent", () => {
       response("refusal", [toolUse("z", "run_tests", {})]),
     ]);
     const { executor, execute } = fakeExecutor("finish");
-    const outcome = await runAgent({
-      client,
-      model: "m",
-      mode: "review",
-      repositoryMap: "",
-      brief: "b",
-      executor,
-      budget: budget(),
-    });
+    const outcome = await runReview(client, executor);
     expect(outcome.stopReason).toBe("refusal");
     expect(execute).not.toHaveBeenCalled();
   });
@@ -266,15 +262,7 @@ describe("runAgent", () => {
       }),
     ]);
     const { executor } = fakeExecutor("finish");
-    const outcome = await runAgent({
-      client,
-      model: "m",
-      mode: "review",
-      repositoryMap: "",
-      brief: "b",
-      executor,
-      budget: budget(),
-    });
+    const outcome = await runReview(client, executor);
     expect(outcome).toMatchObject({ finished: null, budgetTripped: "tokens" });
   });
 
@@ -285,17 +273,7 @@ describe("runAgent", () => {
       },
     } as unknown as Anthropic;
     const { executor } = fakeExecutor("finish");
-    await expect(
-      runAgent({
-        client,
-        model: "m",
-        mode: "review",
-        repositoryMap: "",
-        brief: "b",
-        executor,
-        budget: budget(),
-      }),
-    ).rejects.toThrow("401");
+    await expect(runReview(client, executor)).rejects.toThrow("401");
   });
 });
 

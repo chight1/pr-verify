@@ -92,15 +92,19 @@ mapfile -t workflows < <(printf '%s\n' "${files[@]}" | grep -E '^\.github/workfl
 mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml$')
 
 # With "online", only the checks that look things up on GitHub with the
-# workflow's token. The gate runs them in a step of their own before its install
-# step, the first to run the project's code, so no process the project starts is
-# alive to read the token.
+# workflow's token, and on package registries. The gate runs them in a step of
+# their own before its install step, the first to run the project's code, so no
+# process the project starts is alive to read the token.
 if [ "${1:-}" = online ]; then
   # zizmor's online audits look up the actions a workflow uses.
   if [ $((${#workflows[@]} + ${#actions[@]})) -gt 0 ]; then
     run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
       "${workflows[@]}" "${actions[@]}"
   fi
+  # A dependency the pull request adds that its registry has had for under 30
+  # days, or does not have: a name a model made up, or one registered to catch
+  # it. The token fetches the pull request's base commit to compare with.
+  run "new dependencies" python3 "$here/new_dependencies.py" "${files[@]}"
   summarize "Online checks"
   exit
 fi
@@ -189,6 +193,100 @@ fi
 
 if [ ${#go[@]} -gt 0 ]; then
   run "golangci-lint" "$(golangci_lint)" run --config "$here/golangci.yml" ./...
+  # No Go linter allows a task comment that names its issue, as ruff and ESLint do here.
+  untracked_tasks() {
+    local found
+    found="$(git grep -nE '//.*\b(TODO|FIXME|XXX|HACK)\b' -- "$@" | grep -vE '#[0-9]+|https?://')"
+    [ -z "$found" ] && return 0
+    echo "$found"
+    echo "Name the issue that tracks each of these, as TODO(#123)." >&2
+    return 1
+  }
+  run "task comments" untracked_tasks "${go[@]}"
+fi
+
+# Patterns agents leave behind in Python and Go that no linter here checks:
+# vague names, tests that are always skipped, and tests that assert nothing.
+# Semgrep runs from the image the static analysis step uses.
+if [ $((${#python[@]} + ${#go[@]})) -gt 0 ]; then
+  semgrep_image="${SEMGREP_IMAGE:-$(sed -n 's/^  SEMGREP_IMAGE: //p' "$here/../.github/workflows/pr-verify.yml")}"
+  run "agent patterns" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
+    -v "$here/agent-patterns.yml:/rules.yml:ro" -w /src "$semgrep_image" \
+    semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem \
+    -- "${python[@]}" "${go[@]}"
+fi
+
+# Size and complexity. ESLint, ruff and golangci-lint hold each function to the
+# limits in their configs; these cover the rest, with the same numbers.
+
+mapfile -t source_code < <(
+  printf '%s\n' "${files[@]}" | grep -E '\.(pyi?|go|js|jsx|mjs|cjs|ts|tsx|mts|cts|sh|bash)$'
+)
+
+if [ ${#python[@]} -gt 0 ]; then
+  # Cognitive complexity, which ruff does not measure.
+  run "complexipy" pipx run complexipy==8.3.0 --isolated --no-ignore --snapshot-ignore     --max-complexity-allowed 15 --plain "${python[@]}"
+fi
+
+long_files() {
+  local status=0 file lines
+  for file in "$@"; do
+    lines="$(wc -l < "$file")"
+    if [ "$lines" -gt 400 ]; then
+      echo "$file has $lines lines, over 400. Split it by what each part does." >&2
+      status=1
+    fi
+  done
+  return "$status"
+}
+run "file length" long_files "${source_code[@]}"
+
+if [ ${#source_code[@]} -gt 0 ]; then
+  run "jscpd" "$here/node_modules/.bin/jscpd" --config "$here/jscpd.json" --min-tokens 50     --threshold 0 --exit-code 1 --reporters console --no-colors "${source_code[@]}"
+fi
+
+# Dead code and dependencies.
+
+# Only where deptry can read the dependencies: a pyproject.toml that declares
+# them, or a requirements.txt.
+if [ ${#python[@]} -gt 0 ] && { grep -qsE '^\[(project|tool\.poetry|tool\.pdm)\]' pyproject.toml \
+  || [ -f requirements.txt ]; }; then
+  # Imports that no dependency provides, dependencies nothing imports, and imports
+  # of packages that only arrive through another dependency. deptry maps packages
+  # to modules from installed metadata, so it reads the project's environment.
+  # Flags override every setting that would hide a finding.
+  site_packages="$(python -c 'import site; print(":".join(site.getsitepackages()))')"
+  run "deptry" env PYTHONPATH="$site_packages" pipx run deptry==0.25.1 . \
+    --ignore DEP000 --per-rule-ignores DEP000=none --extend-exclude '^$' \
+    --exclude 'venv|\.venv|\.direnv|tests|\.git|setup\.py'
+fi
+
+if [ -f go.mod ]; then
+  run "go mod tidy" go mod tidy -diff
+  # Functions nothing reaches, from main packages and tests. deadcode reports
+  # without failing, so anything it prints fails. Go's own notices, such as a
+  # toolchain switch, go to stderr and do not count.
+  deadcode_check() {
+    local out
+    out="$(go run golang.org/x/tools/cmd/deadcode@v0.52.0 -test ./...)" || return 1
+    echo "$out"
+    [ -z "$out" ]
+  }
+  run "deadcode" deadcode_check
+fi
+
+if [ -f package.json ] && [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; then
+  # Unused files, exports and types, imports of packages the manifest does not
+  # list, duplicate exports and import cycles.
+  knip_check() {
+    local config="$PWD/knip.pr-verify.json" generated
+    written+=("$config")
+    mapfile -t generated < <(comm -23 <(git ls-files | sort) <(printf '%s\n' "${files[@]}" | sort))
+    node "$here/knip-config.mjs" "$config" "${generated[@]}"
+    "$here/node_modules/.bin/knip" --config "$config" --no-progress --no-config-hints \
+      --include files,unlisted,unresolved,exports,types,nsExports,nsTypes,enumMembers,duplicates,cycles
+  }
+  run "knip" knip_check
 fi
 
 # Every project, whatever its runtime.
@@ -282,6 +380,7 @@ suppressions() {
   grep_files '#[ ]*prettier[-]ignore' "${yaml[@]}" && found=0
   grep_files '(\{#|<!--)[ ]*djlint[:]off' "${templates[@]}" && found=0
   grep_files '//[ ]*(nolint|lint[:]ignore)' "${go[@]}" && found=0
+  grep_files 'jscpd[:]ignore' "${source_code[@]}" && found=0
   grep_files '#[ ]*shellcheck[ ]+disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
   if [ "$found" -eq 0 ]; then
     echo "These comments switch a check off. Fix what the check found instead." >&2

@@ -6,12 +6,9 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { Budget } from "../src/budget.js";
 import { Scrubber } from "../src/context.js";
 import { recountHunks } from "../src/diff.js";
-import {
-  READ_FILE_MAX_LINES,
-  ToolExecutor,
-  toolDefinitions,
-} from "../src/tools.js";
-import type { ApplyResult, ScratchTree, TestRun } from "../src/verify.js";
+import type { ApplyResult, ScratchTree, TestRun } from "../src/scratch-tree.js";
+import { READ_FILE_MAX_LINES } from "../src/tool-definitions.js";
+import { ToolExecutor } from "../src/tool-executor.js";
 
 /** A ScratchTree stand-in that records what was asked of it. */
 class FakeTree {
@@ -93,31 +90,6 @@ function executor(
   });
   return { exec, budget, tree };
 }
-
-describe("toolDefinitions", () => {
-  it("exposes exactly four tools in both modes, with finish shaped per mode", () => {
-    const review = toolDefinitions("review");
-    const red = toolDefinitions("red-gate");
-    expect(review.map((t) => t.name)).toEqual([
-      "read_file",
-      "run_tests",
-      "propose_patch",
-      "finish",
-    ]);
-    expect(red.map((t) => t.name)).toEqual([
-      "read_file",
-      "run_tests",
-      "propose_patch",
-      "finish",
-    ]);
-    expect(review[3]?.input_schema.required).toEqual(["findings"]);
-    expect(red[3]?.input_schema.required).toEqual([
-      "verdict",
-      "summary",
-      "citations",
-    ]);
-  });
-});
 
 describe("read_file", () => {
   it("returns numbered lines within the range and caps at the line limit", async () => {
