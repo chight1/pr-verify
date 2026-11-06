@@ -38,17 +38,18 @@ run() {
   fi
 }
 
-# Lists the failed checks under a heading in the job summary and ends the
-# script, failing it if any check failed.
-finish() {
+# Lists the failed checks under a heading in the job summary, and fails if any
+# did. It returns rather than exits, since shellcheck judges the checks run()
+# calls by what the script has defined when it reaches its end.
+summarize() {
   local heading="$1"
-  [ ${#failed[@]} -eq 0 ] && exit 0
+  [ ${#failed[@]} -eq 0 ] && return 0
   {
     echo "### $heading"
     echo
     printf -- '- %s failed\n' "${failed[@]}"
   } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-  exit 1
+  return 1
 }
 
 # Downloads a pinned release and checks it against its SHA-256, then prints the
@@ -100,7 +101,8 @@ if [ "${1:-}" = online ]; then
     run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
       "${workflows[@]}" "${actions[@]}"
   fi
-  finish "Online checks"
+  summarize "Online checks"
+  exit
 fi
 
 # Files are kept apart by type, not by the project's runtime, so a Python
@@ -288,4 +290,4 @@ suppressions() {
 }
 run "suppressions" suppressions
 
-finish "Code quality"
+summarize "Code quality"
