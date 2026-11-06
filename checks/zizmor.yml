@@ -5,4 +5,4 @@ rules:
   unpinned-uses:
     config:
       policies:
-        chight1/pr-verify: ref-pin
+        chight1/pr-verify/*: ref-pin

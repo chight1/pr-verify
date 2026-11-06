@@ -52,10 +52,12 @@ printf '<div>\n{%% if x %%}\n<p>{{ x }}</p>\n{%% endif %%}\n</div>\n' > template
 printf '{"lockfileVersion":3}\n' > package-lock.json
 printf 'const   gen=1\n' > generated.js
 printf 'generated.js linguist-generated=true\n' > .gitattributes
-# A clean workflow and shell script, which every-project checks must pass.
+# A clean workflow, the templates a project copies, and a clean shell script,
+# which the every-project checks must pass.
 mkdir -p .github/workflows
 printf 'name: ci\non: push\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n' \
   > .github/workflows/ci.yml
+cp "$here"/../templates/*.yml .github/workflows/
 printf '#!/usr/bin/env bash\necho "ok"\n' > build.sh
 git add -A
 
@@ -80,7 +82,7 @@ if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on formatted files"
 fi
 if ! output="$(bash "$here/run.sh" online 2>&1)"; then
-  fail "run.sh online failed on a clean workflow"
+  fail "run.sh online failed on a clean workflow or a template"
 fi
 
 mkdir "$scratch/lint" && cd "$scratch/lint"
