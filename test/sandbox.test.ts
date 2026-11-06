@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Sandbox, testEnvironment } from "../src/sandbox.js";
-import { runCommand } from "../src/verify.js";
+import { runCommand } from "../src/scratch-tree.js";
 
 describe("testEnvironment", () => {
   it("passes toolchain variables through and drops everything else, credentials included", () => {

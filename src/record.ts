@@ -6,7 +6,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BudgetName } from "./budget.js";
-import type { ToolCallRecord } from "./tools.js";
+import type { ToolCallRecord } from "./tool-executor.js";
 import type {
   FindingCategory,
   GateResult,

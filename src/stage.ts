@@ -10,9 +10,9 @@ import { Scrubber, type Octokit } from "./context.js";
 import type { Inputs } from "./inputs.js";
 import { emptyRecord, type RunRecord } from "./record.js";
 import { Sandbox } from "./sandbox.js";
-import type { ToolExecutor } from "./tools.js";
+import { ScratchTree } from "./scratch-tree.js";
+import type { ToolExecutor } from "./tool-executor.js";
 import type { Mode, PullRequestRef } from "./types.js";
-import { ScratchTree } from "./verify.js";
 
 export interface Stage {
   inputs: Inputs;

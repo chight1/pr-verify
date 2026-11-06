@@ -7,8 +7,9 @@ import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { DEFAULT_MODEL } from "./agent.js";
 import { MS_PER_MINUTE, type BudgetLimits } from "./budget.js";
+import type { PatchLimits } from "./patch-policy.js";
+import type { StaticAnalysis } from "./proof.js";
 import type { GateResult, PullRequestRef } from "./types.js";
-import type { PatchLimits, StaticAnalysis } from "./verify.js";
 
 export interface Inputs {
   gateResult: GateResult;

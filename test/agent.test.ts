@@ -7,7 +7,7 @@ import {
   stoppedOutcome,
 } from "../src/agent.js";
 import { Budget } from "../src/budget.js";
-import type { ToolExecutor } from "../src/tools.js";
+import type { ToolExecutor } from "../src/tool-executor.js";
 
 type Response = Pick<Anthropic.Message, "content" | "stop_reason"> & {
   usage?: Partial<Anthropic.Usage>;
