@@ -23,17 +23,25 @@ function readProjectConfig() {
   return {};
 }
 
+// knip takes one entry point as a string, or several as an array.
+function entriesOf(workspace) {
+  if (workspace.entry === undefined) return [];
+  if (typeof workspace.entry === "string") return [workspace.entry];
+  return workspace.entry;
+}
+
 // The entry points of one workspace, or of the root, that name a file.
 function namedEntryPoints(workspace, workspaceName = ".") {
   const named = [];
-  for (const entry of [workspace.entry ?? []].flat()) {
+  for (const entry of entriesOf(workspace)) {
     if (patternCharacters.test(entry)) {
       patterns.push(`"${entry}" in workspace "${workspaceName}"`);
     } else {
       named.push(entry);
     }
   }
-  return named.length > 0 ? { entry: named } : {};
+  if (named.length === 0) return {};
+  return { entry: named };
 }
 
 const projectConfig = readProjectConfig();
