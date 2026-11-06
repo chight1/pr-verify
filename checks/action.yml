@@ -11,7 +11,4 @@ runs:
       run: npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund
     - name: code quality
       shell: bash
-      env:
-        # zizmor's online audits look up the actions a workflow uses.
-        GH_TOKEN: ${{ github.token }}
       run: bash "$GITHUB_ACTION_PATH/run.sh"

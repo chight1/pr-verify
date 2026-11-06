@@ -117,12 +117,19 @@ jobs:
         with:
           go-version: ${{ inputs.runtime-version }}
 
+      # The checks that hold the workflow's token, which run first: no process
+      # the project starts is alive yet to read it. From this workflow's own
+      # commit, like the code-quality checks below.
+      - name: online checks
+        uses: $/checks/online
+
       # Each check below runs even when an earlier one failed, so one run shows
       # every failure. A step is skipped only when a step it needs failed. The
       # project's commands reach a step as environment variables rather than
       # template text, so no value can be read as part of the script around it.
       - name: install
         id: install
+        if: ${{ !cancelled() }}
         env:
           COMMAND: ${{ inputs.install-command }}
         run: eval "$COMMAND"

@@ -6,36 +6,12 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-failed=()
+# shellcheck source=SCRIPTDIR/common.sh
+source "$here/common.sh"
 # Configs written at the project root, since pyright and TypeScript resolve the
 # project's imports from the config's own directory. Untracked, and removed on exit.
 written=()
 trap 'rm -f "${written[@]}"' EXIT
-
-# Tracked files a person writes: not lockfiles, minified bundles, source maps,
-# or files .gitattributes marks linguist-generated. The same files the review reads.
-written_files() {
-  git ls-files -z \
-    | git check-attr -z --stdin linguist-generated \
-    | while IFS= read -r -d '' path && IFS= read -r -d '' _ && IFS= read -r -d '' value; do
-      [ "$value" = set ] || [ "$value" = true ] || printf '%s\n' "$path"
-    done \
-    | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|uv\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|packages\.lock\.json|composer\.lock)$|\.min\.(js|css)$|\.map$'
-}
-
-# Runs one tool in a collapsible log group and records it if it fails.
-run() {
-  local name="$1"
-  shift
-  echo "::group::$name"
-  "$@"
-  local status=$?
-  echo "::endgroup::"
-  if [ "$status" -ne 0 ]; then
-    failed+=("$name")
-    echo "::error title=$name::$name failed. The log group above shows what to fix."
-  fi
-}
 
 # Downloads a pinned release and checks it against its SHA-256, then prints the
 # path of the binary: the download itself, or the named member of its archive.
@@ -221,10 +197,6 @@ if [ ${#workflows[@]} -gt 0 ]; then
     -ignore 'action "\$/[^"]*" in invalid format because ref is missing' \
     -- "${workflows[@]}"
 fi
-if [ $((${#workflows[@]} + ${#actions[@]})) -gt 0 ]; then
-  run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
-    "${workflows[@]}" "${actions[@]}"
-fi
 if [ ${#shell[@]} -gt 0 ]; then
   run "shellcheck" "$shellcheck_bin" --norc --severity=style -- "${shell[@]}"
 fi
@@ -264,11 +236,4 @@ suppressions() {
 }
 run "suppressions" suppressions
 
-if [ ${#failed[@]} -gt 0 ]; then
-  {
-    echo "### Code quality"
-    echo
-    printf -- '- %s failed\n' "${failed[@]}"
-  } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
-  exit 1
-fi
+finish "Code quality"
