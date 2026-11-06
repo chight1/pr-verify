@@ -6,14 +6,20 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { type Budget, BudgetExceeded, type BudgetName } from "./budget.js";
-import type { FinishPayload, ToolExecutor } from "./tools.js";
-import { toolDefinitions } from "./tools.js";
+import { toolDefinitions } from "./tool-definitions.js";
+import type { ToolExecutor } from "./tool-executor.js";
+import type { FinishPayload } from "./tool-input.js";
 import type { Mode, Outcome, PriorFinding } from "./types.js";
 
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
 const MAX_OUTPUT_TOKENS = 16_000;
 /** How many times the model may end a turn without calling finish before we stop asking. */
 const MAX_NUDGES = 2;
+/** The floor on one API request's timeout, so a nearly spent clock still gets a real attempt. */
+const MIN_REQUEST_TIMEOUT_MS = 10_000;
+const API_MAX_RETRIES = 2;
+/** How many omitted file names the brief lists before summarizing the rest as a count. */
+const OMITTED_SHOWN = 20;
 
 const SHARED_RULES = `You are PR Verify, an automated reviewer running inside a CI job. You are advisory: a person decides what to do with what you say. You never approve, request changes, merge or push.
 
@@ -23,7 +29,7 @@ Prefer silence to a weak claim. A reader who gets nothing from you learns that t
 
 End every run by calling finish. Do not write a prose summary instead of calling it.`;
 
-export const REVIEW_SYSTEM_PROMPT = `${SHARED_RULES}
+const REVIEW_SYSTEM_PROMPT = `${SHARED_RULES}
 
 Your job in this run is to review a pull request whose build, tests and dependency audit already passed.
 
@@ -42,7 +48,7 @@ Report a finding on a line outside the diff only when the PR's change is what ex
 
 Do not repeat a finding listed under "Already reported"; those are still open on the PR and the reader has seen them.`;
 
-export const RED_GATE_SYSTEM_PROMPT = `${SHARED_RULES}
+const RED_GATE_SYSTEM_PROMPT = `${SHARED_RULES}
 
 Your job in this run is to investigate why the gate failed on this pull request. The failing step's log is in the brief. Infrastructure failures and flaky tests have already been ruled out by the harness.
 
@@ -57,9 +63,11 @@ End with finish: "fix" with the patch id, "diagnosis" with a three-line summary 
 /** Names the machine-written files left out of the diff, so the agent knows they changed. */
 function omittedSection(omitted: string[]): string[] {
   if (omitted.length === 0) return [];
-  const shown = omitted.slice(0, 20).join(", ");
+  const shown = omitted.slice(0, OMITTED_SHOWN).join(", ");
   const more =
-    omitted.length > 20 ? `, and ${String(omitted.length - 20)} more` : "";
+    omitted.length > OMITTED_SHOWN
+      ? `, and ${String(omitted.length - OMITTED_SHOWN)} more`
+      : "";
   return [
     `## Left out of the diff\n\nThese changed files are machine-written (lockfiles, minified or generated) and are not shown: ${shown}${more}.`,
   ];
@@ -153,6 +161,13 @@ export interface AgentRunInput {
   budget: Budget;
 }
 
+function clearCacheBreakpoints(message: Anthropic.MessageParam): void {
+  if (message.role !== "user" || typeof message.content === "string") return;
+  for (const block of message.content) {
+    if ("cache_control" in block) delete block.cache_control;
+  }
+}
+
 /**
  * Puts the conversation's cache breakpoint on the newest user message and
  * takes it off the older ones. Each request then reads everything up to the
@@ -160,14 +175,8 @@ export interface AgentRunInput {
  * result again. With the two system breakpoints this uses three of the four
  * the API allows.
  */
-export function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
-  for (const message of messages) {
-    if (message.role !== "user" || typeof message.content === "string")
-      continue;
-    for (const block of message.content) {
-      if ("cache_control" in block) delete block.cache_control;
-    }
-  }
+function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
+  for (const message of messages) clearCacheBreakpoints(message);
   const last = messages[messages.length - 1];
   if (last?.role !== "user") return;
   if (typeof last.content === "string")
@@ -177,9 +186,12 @@ export function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
     block.cache_control = { type: "ephemeral" };
 }
 
-export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
-  const { client, model, mode, executor, budget } = input;
-  const system: Anthropic.TextBlockParam[] = [
+/** The system prompt as two cached blocks: the mode's rules, then the repository map. */
+function systemBlocks(
+  mode: Mode,
+  repositoryMap: string,
+): Anthropic.TextBlockParam[] {
+  return [
     {
       type: "text",
       text: mode === "review" ? REVIEW_SYSTEM_PROMPT : RED_GATE_SYSTEM_PROMPT,
@@ -187,25 +199,120 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
     },
     {
       type: "text",
-      text: `## Repository map\n\n${input.repositoryMap}`,
+      text: `## Repository map\n\n${repositoryMap}`,
       cache_control: { type: "ephemeral" },
     },
   ];
+}
+
+/** What the loop carries from one turn to the next. */
+interface LoopState {
+  messages: Anthropic.MessageParam[];
+  turns: number;
+  nudges: number;
+}
+
+/** The outcome of a run that ended without finish and without a budget. */
+function stopped(
+  stopReason: NonNullable<AgentOutcome["stopReason"]>,
+  turns: number,
+): AgentOutcome {
+  return { finished: null, budgetTripped: null, stopReason, turns };
+}
+
+/** Runs a response's tool calls in order, and returns their results and the first finish among them. */
+async function runToolCalls(
+  content: Anthropic.ContentBlock[],
+  executor: ToolExecutor,
+): Promise<{
+  results: Anthropic.ToolResultBlockParam[];
+  finished: FinishPayload | null;
+}> {
+  const results: Anthropic.ToolResultBlockParam[] = [];
+  let finished: FinishPayload | null = null;
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    // Tools run one at a time: propose_patch and run_tests share the working tree.
+    const result = await executor.execute(block);
+    results.push(result.block);
+    if (result.finished && !finished) finished = result.finished;
+  }
+  return { results, finished };
+}
+
+/** Asks a model that ended its turn without finish to call it, until it has been asked MAX_NUDGES times. */
+function nudge(state: LoopState): AgentOutcome | null {
+  if (state.nudges >= MAX_NUDGES) return stopped("no_finish", state.turns);
+  state.nudges += 1;
+  state.messages.push({
+    role: "user",
+    content:
+      "Call finish to end the run. Report an empty list if there is nothing to report.",
+  });
+  return null;
+}
+
+/**
+ * Acts on a response by its stop reason. Returns the run's outcome when the
+ * run is over, or null when the conversation goes back to the model.
+ */
+async function afterResponse(
+  response: Anthropic.Message,
+  executor: ToolExecutor,
+  state: LoopState,
+): Promise<AgentOutcome | null> {
+  switch (response.stop_reason) {
+    case "tool_use": {
+      const { results, finished } = await runToolCalls(
+        response.content,
+        executor,
+      );
+      if (finished) {
+        return {
+          finished,
+          budgetTripped: null,
+          stopReason: null,
+          turns: state.turns,
+        };
+      }
+      state.messages.push({ role: "user", content: results });
+      return null;
+    }
+    case "pause_turn":
+      return null;
+    case "end_turn":
+    case "stop_sequence":
+      return nudge(state);
+    case "max_tokens":
+      return stopped("max_tokens", state.turns);
+    case "refusal":
+      return stopped("refusal", state.turns);
+    case "model_context_window_exceeded":
+      return stopped("context_window", state.turns);
+    default:
+      return stopped("no_finish", state.turns);
+  }
+}
+
+export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
+  const { client, model, mode, executor, budget } = input;
+  const system = systemBlocks(mode, input.repositoryMap);
   const tools = toolDefinitions(mode);
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: input.brief },
-  ];
-  let turns = 0;
-  let nudges = 0;
+  const state: LoopState = {
+    messages: [{ role: "user", content: input.brief }],
+    turns: 0,
+    nudges: 0,
+  };
+  const { messages } = state;
 
   try {
     for (;;) {
       budget.checkClock();
-      turns += 1;
+      state.turns += 1;
       moveCacheBreakpoint(messages);
       const response = await client.messages.create(
         { model, max_tokens: MAX_OUTPUT_TOKENS, system, tools, messages },
-        { timeout: Math.max(10_000, budget.remainingMs()) },
+        { timeout: Math.max(MIN_REQUEST_TIMEOUT_MS, budget.remainingMs()) },
       );
       budget.chargeTokens({
         input: response.usage.input_tokens,
@@ -214,71 +321,8 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
         cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
       });
       messages.push({ role: "assistant", content: response.content });
-
-      switch (response.stop_reason) {
-        case "tool_use": {
-          const results: Anthropic.ToolResultBlockParam[] = [];
-          let finished: FinishPayload | null = null;
-          for (const block of response.content) {
-            if (block.type !== "tool_use") continue;
-            // Tools run one at a time: propose_patch and run_tests share the working tree.
-            const result = await executor.execute(block);
-            results.push(result.block);
-            if (result.finished && !finished) finished = result.finished;
-          }
-          if (finished)
-            return { finished, budgetTripped: null, stopReason: null, turns };
-          messages.push({ role: "user", content: results });
-          continue;
-        }
-        case "pause_turn":
-          continue;
-        case "end_turn":
-        case "stop_sequence": {
-          if (nudges >= MAX_NUDGES)
-            return {
-              finished: null,
-              budgetTripped: null,
-              stopReason: "no_finish",
-              turns,
-            };
-          nudges += 1;
-          messages.push({
-            role: "user",
-            content:
-              "Call finish to end the run. Report an empty list if there is nothing to report.",
-          });
-          continue;
-        }
-        case "max_tokens":
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "max_tokens",
-            turns,
-          };
-        case "refusal":
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "refusal",
-            turns,
-          };
-        case "model_context_window_exceeded":
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "context_window",
-            turns,
-          };
-        default:
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "no_finish",
-            turns,
-          };
-      }
+      const outcome = await afterResponse(response, executor, state);
+      if (outcome) return outcome;
     }
   } catch (error) {
     if (error instanceof BudgetExceeded) {
@@ -286,7 +330,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
         finished: null,
         budgetTripped: error.budget,
         stopReason: null,
-        turns,
+        turns: state.turns,
       };
     }
     throw error;
@@ -294,5 +338,5 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
 }
 
 export function createClient(apiKey: string): Anthropic {
-  return new Anthropic({ apiKey, maxRetries: 2 });
+  return new Anthropic({ apiKey, maxRetries: API_MAX_RETRIES });
 }

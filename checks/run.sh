@@ -189,6 +189,71 @@ fi
 
 if [ ${#go[@]} -gt 0 ]; then
   run "golangci-lint" "$(golangci_lint)" run --config "$here/golangci.yml" ./...
+  # No Go linter allows a task comment that names its issue, as ruff and ESLint do here.
+  untracked_tasks() {
+    local found
+    found="$(git grep -nE '//.*\b(TODO|FIXME|XXX|HACK)\b' -- "$@" | grep -vE '#[0-9]+|https?://')"
+    [ -z "$found" ] && return 0
+    echo "$found"
+    echo "Name the issue that tracks each of these, as TODO(#123)." >&2
+    return 1
+  }
+  run "task comments" untracked_tasks "${go[@]}"
+fi
+
+# Patterns agents leave behind in Python and Go that no linter here checks:
+# vague names, tests that are always skipped, and tests that assert nothing.
+# Semgrep runs from the image the static analysis step uses.
+if [ $((${#python[@]} + ${#go[@]})) -gt 0 ]; then
+  semgrep_image="${SEMGREP_IMAGE:-$(sed -n 's/^  SEMGREP_IMAGE: //p' "$here/../.github/workflows/pr-verify.yml")}"
+  run "agent patterns" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
+    -v "$here/agent-patterns.yml:/rules.yml:ro" -w /src "$semgrep_image" \
+    semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem \
+    -- "${python[@]}" "${go[@]}"
+fi
+
+# Dead code and dependencies.
+
+# Only where deptry can read the dependencies: a pyproject.toml that declares
+# them, or a requirements.txt.
+if [ ${#python[@]} -gt 0 ] && { grep -qsE '^\[(project|tool\.poetry|tool\.pdm)\]' pyproject.toml \
+  || [ -f requirements.txt ]; }; then
+  # Imports that no dependency provides, dependencies nothing imports, and imports
+  # of packages that only arrive through another dependency. deptry maps packages
+  # to modules from installed metadata, so it reads the project's environment.
+  # Flags override every setting that would hide a finding.
+  site_packages="$(python -c 'import site; print(":".join(site.getsitepackages()))')"
+  run "deptry" env PYTHONPATH="$site_packages" pipx run deptry==0.25.1 . \
+    --ignore DEP000 --per-rule-ignores DEP000=none --extend-exclude '^$' \
+    --exclude 'venv|\.venv|\.direnv|tests|\.git|setup\.py'
+fi
+
+if [ -f go.mod ]; then
+  run "go mod tidy" go mod tidy -diff
+  # Functions nothing reaches, from main packages and tests. deadcode reports
+  # without failing, so anything it prints fails. Go's own notices, such as a
+  # toolchain switch, go to stderr and do not count.
+  deadcode_check() {
+    local out
+    out="$(go run golang.org/x/tools/cmd/deadcode@v0.52.0 -test ./...)" || return 1
+    echo "$out"
+    [ -z "$out" ]
+  }
+  run "deadcode" deadcode_check
+fi
+
+if [ -f package.json ] && [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; then
+  # Unused files, exports and types, imports of packages the manifest does not
+  # list, duplicate exports and import cycles.
+  knip_check() {
+    local config="$PWD/knip.pr-verify.json" generated
+    written+=("$config")
+    mapfile -t generated < <(comm -23 <(git ls-files | sort) <(printf '%s\n' "${files[@]}" | sort))
+    node "$here/knip-config.mjs" "$config" "${generated[@]}"
+    "$here/node_modules/.bin/knip" --config "$config" --no-progress --no-config-hints \
+      --include files,unlisted,unresolved,exports,types,nsExports,nsTypes,enumMembers,duplicates,cycles
+  }
+  run "knip" knip_check
 fi
 
 # Every project, whatever its runtime.

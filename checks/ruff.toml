@@ -9,6 +9,10 @@ ignore = [
   # A TODO that names an issue is allowed; TD003 fails the ones that don't.
   "FIX002",
   "TD002",
+  # Every subprocess call, and every command found on PATH. Semgrep follows
+  # untrusted input to a command where it matters.
+  "S603",
+  "S607",
   "W191",
   "E111",
   "E114",

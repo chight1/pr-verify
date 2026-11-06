@@ -1,11 +1,12 @@
 /**
- * A small unified-diff parser. Three modules depend on it: context (what
- * changed), review (is this line commentable), verify (the patch policy).
+ * A small unified-diff parser for context (what changed), review (is this
+ * line commentable), prior findings (did its line change) and the patch
+ * policy (what a patch touches).
  * It reads `git diff` output and the diffs the agent proposes, which may be
  * plain unified diffs without git's headers.
  */
 
-export interface Hunk {
+interface Hunk {
   oldStart: number;
   oldLines: number;
   newStart: number;
@@ -30,6 +31,9 @@ export interface DiffFile {
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 const DEV_NULL = "/dev/null";
+const PLAIN_FILE_HEADER_LINES = 3;
+/** A context line counts toward both the old and the new side of a hunk. */
+const SIDES_PER_CONTEXT_LINE = 2;
 
 function stripPrefix(path: string): string {
   return path.replace(/^[ab]\//, "");
@@ -37,7 +41,7 @@ function stripPrefix(path: string): string {
 
 /** The path in a `--- ` or `+++ ` line, without a/b prefix or a traditional diff's tab-separated timestamp. */
 function headerPath(line: string): string {
-  const raw = line.slice(4).split("\t")[0] ?? "";
+  const raw = line.slice("--- ".length).split("\t")[0] ?? "";
   return raw === DEV_NULL
     ? DEV_NULL
     : stripPrefix(raw.replace(/^"(.*)"$/, "$1"));
@@ -58,6 +62,158 @@ function emptyFile(path: string, oldPath: string | null): DiffFile {
   };
 }
 
+/** Applies a git header line about the file's mode to it. False for any other line. */
+function readModeHeader(file: DiffFile, line: string): boolean {
+  if (line.startsWith("new file mode")) {
+    file.status = "added";
+    file.oldPath = null;
+    if (line.endsWith("120000")) file.symlink = true;
+    return true;
+  }
+  if (line.startsWith("deleted file mode")) {
+    file.status = "deleted";
+    file.path = file.oldPath ?? file.path;
+    return true;
+  }
+  if (!line.startsWith("old mode") && !line.startsWith("new mode"))
+    return false;
+  if (line.endsWith("120000")) file.symlink = true;
+  return true;
+}
+
+/** Applies a git header line about a rename or binary content to the file. False for any other line. */
+function readRenameOrBinaryHeader(file: DiffFile, line: string): boolean {
+  if (line.startsWith("rename from ")) {
+    file.status = "renamed";
+    file.oldPath = line.slice("rename from ".length);
+    return true;
+  }
+  if (line.startsWith("rename to ")) {
+    file.path = line.slice("rename to ".length);
+    return true;
+  }
+  if (!line.startsWith("Binary files") && !line.startsWith("GIT binary patch"))
+    return false;
+  file.binary = true;
+  return true;
+}
+
+/** Reads a diff line by line: the files so far, and how much of the open hunk's body is left. */
+class DiffParser {
+  readonly files: DiffFile[] = [];
+  private current: DiffFile | null = null;
+  /** True between a `diff --git` line and that file's first hunk, while its `---`/`+++` lines belong to it. */
+  private gitHeaderOpen = false;
+  private oldLine = 0;
+  private newLine = 0;
+  private oldRemaining = 0;
+  private newRemaining = 0;
+
+  read(line: string): void {
+    if (this.readHunkBody(line) || line.startsWith("\\")) return;
+    if (line.startsWith("diff --git ")) this.startGitFile(line);
+    else if (line.startsWith("--- ")) this.readOldHeader(line);
+    else if (line.startsWith("+++ ")) this.readNewHeader(line);
+    else if (this.current) this.readFileLine(this.current, line);
+  }
+
+  /** A line of a file's header after its paths, or a hunk header. */
+  private readFileLine(file: DiffFile, line: string): void {
+    if (readModeHeader(file, line) || readRenameOrBinaryHeader(file, line))
+      return;
+    this.readHunkHeader(file, line);
+  }
+
+  /** Takes the line into the open hunk's body. False when no hunk is open or the line ends it. */
+  private readHunkBody(line: string): boolean {
+    if (this.current && (this.oldRemaining > 0 || this.newRemaining > 0)) {
+      if (this.readBodyLine(this.current, line)) return true;
+      // Not a line this hunk can hold: the header overstated its counts. End it here.
+      this.oldRemaining = 0;
+      this.newRemaining = 0;
+    }
+    return false;
+  }
+
+  private readBodyLine(file: DiffFile, line: string): boolean {
+    const marker = line[0];
+    if (marker === "+" && this.newRemaining > 0) {
+      file.added += 1;
+      file.rightLines.add(this.newLine);
+      this.newLine += 1;
+      this.newRemaining -= 1;
+      return true;
+    }
+    if (marker === "-" && this.oldRemaining > 0) {
+      file.removed += 1;
+      file.leftLines.add(this.oldLine);
+      this.oldLine += 1;
+      this.oldRemaining -= 1;
+      return true;
+    }
+    if (
+      (marker === " " || line === "") &&
+      this.oldRemaining > 0 &&
+      this.newRemaining > 0
+    ) {
+      // A blank line inside a hunk is a context line whose trailing space was stripped.
+      file.rightLines.add(this.newLine);
+      file.leftLines.add(this.oldLine);
+      this.newLine += 1;
+      this.oldLine += 1;
+      this.oldRemaining -= 1;
+      this.newRemaining -= 1;
+      return true;
+    }
+    return marker === "\\"; // "\ No newline at end of file"
+  }
+
+  private startGitFile(line: string): void {
+    const match = /^diff --git "?(.[^ \n\r\u2028\u2029]*?)"? "?(.+?)"?$/.exec(
+      line,
+    );
+    this.current = emptyFile(
+      match ? stripPrefix(match[2] ?? "") : "",
+      match ? stripPrefix(match[1] ?? "") : "",
+    );
+    this.files.push(this.current);
+    this.gitHeaderOpen = true;
+  }
+
+  /** Outside git's header, a `--- ` line starts a file of a plain unified diff. */
+  private readOldHeader(line: string): void {
+    if (this.gitHeaderOpen) return; // git's own header lines repeat what `diff --git` and the mode lines said
+    const oldPath = headerPath(line);
+    this.current = emptyFile(oldPath, oldPath === DEV_NULL ? null : oldPath);
+    if (oldPath === DEV_NULL) this.current.status = "added";
+    this.files.push(this.current);
+  }
+
+  private readNewHeader(line: string): void {
+    if (this.gitHeaderOpen || !this.current) return;
+    const newPath = headerPath(line);
+    if (newPath === DEV_NULL) this.current.status = "deleted";
+    else this.current.path = newPath;
+  }
+
+  private readHunkHeader(file: DiffFile, line: string): void {
+    const hunk = HUNK_HEADER.exec(line);
+    if (!hunk) return;
+    const h: Hunk = {
+      oldStart: Number(hunk[1]),
+      oldLines: hunk[2] === undefined ? 1 : Number(hunk[2]),
+      newStart: Number(hunk[3]),
+      newLines: hunk[4] === undefined ? 1 : Number(hunk[4]),
+    };
+    file.hunks.push(h);
+    this.gitHeaderOpen = false;
+    this.oldLine = h.oldStart;
+    this.newLine = h.newStart;
+    this.oldRemaining = h.oldLines;
+    this.newRemaining = h.newLines;
+  }
+}
+
 /**
  * Parses `git diff` output and plain unified diffs (files introduced by
  * `--- `/`+++ ` with no `diff --git` line), since `git apply` accepts both and
@@ -70,147 +226,63 @@ function emptyFile(path: string, oldPath: string | null): DiffFile {
  * the next file and hide it from the patch policy.
  */
 export function parseDiff(text: string): DiffFile[] {
-  const files: DiffFile[] = [];
-  let current: DiffFile | null = null;
-  /** True between a `diff --git` line and that file's first hunk, while its `---`/`+++` lines belong to it. */
-  let gitHeaderOpen = false;
-  let oldLine = 0;
-  let newLine = 0;
-  let oldRemaining = 0;
-  let newRemaining = 0;
-
+  const parser = new DiffParser();
   for (const rawLine of text.split("\n")) {
-    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-
-    if (current && (oldRemaining > 0 || newRemaining > 0)) {
-      const marker = line[0];
-      if (marker === "+" && newRemaining > 0) {
-        current.added += 1;
-        current.rightLines.add(newLine);
-        newLine += 1;
-        newRemaining -= 1;
-        continue;
-      }
-      if (marker === "-" && oldRemaining > 0) {
-        current.removed += 1;
-        current.leftLines.add(oldLine);
-        oldLine += 1;
-        oldRemaining -= 1;
-        continue;
-      }
-      if (
-        (marker === " " || line === "") &&
-        oldRemaining > 0 &&
-        newRemaining > 0
-      ) {
-        // A blank line inside a hunk is a context line whose trailing space was stripped.
-        current.rightLines.add(newLine);
-        current.leftLines.add(oldLine);
-        newLine += 1;
-        oldLine += 1;
-        oldRemaining -= 1;
-        newRemaining -= 1;
-        continue;
-      }
-      if (marker === "\\") continue; // "\ No newline at end of file"
-      // Not a line this hunk can hold: the header overstated its counts. End it here.
-      oldRemaining = 0;
-      newRemaining = 0;
-    }
-    if (line.startsWith("\\")) continue;
-
-    if (line.startsWith("diff --git ")) {
-      const match = /^diff --git (?:"?)(.+?)(?:"?) (?:"?)(.+?)(?:"?)$/.exec(
-        line,
-      );
-      current = emptyFile(
-        match ? stripPrefix(match[2] ?? "") : "",
-        match ? stripPrefix(match[1] ?? "") : "",
-      );
-      files.push(current);
-      gitHeaderOpen = true;
-      continue;
-    }
-
-    if (line.startsWith("--- ")) {
-      if (gitHeaderOpen) continue; // git's own header lines repeat what `diff --git` and the mode lines said
-      const oldPath = headerPath(line);
-      current = emptyFile(oldPath, oldPath === DEV_NULL ? null : oldPath);
-      if (oldPath === DEV_NULL) current.status = "added";
-      files.push(current);
-      continue;
-    }
-    if (line.startsWith("+++ ")) {
-      if (gitHeaderOpen || !current) continue;
-      const newPath = headerPath(line);
-      if (newPath === DEV_NULL) {
-        current.status = "deleted";
-      } else {
-        current.path = newPath;
-      }
-      continue;
-    }
-    if (!current) continue;
-
-    if (line.startsWith("new file mode")) {
-      current.status = "added";
-      current.oldPath = null;
-      if (line.endsWith("120000")) current.symlink = true;
-      continue;
-    }
-    if (line.startsWith("deleted file mode")) {
-      current.status = "deleted";
-      current.path = current.oldPath ?? current.path;
-      continue;
-    }
-    if (line.startsWith("old mode") || line.startsWith("new mode")) {
-      if (line.endsWith("120000")) current.symlink = true;
-      continue;
-    }
-    if (line.startsWith("rename from ")) {
-      current.status = "renamed";
-      current.oldPath = line.slice("rename from ".length);
-      continue;
-    }
-    if (line.startsWith("rename to ")) {
-      current.path = line.slice("rename to ".length);
-      continue;
-    }
-    if (
-      line.startsWith("Binary files") ||
-      line.startsWith("GIT binary patch")
-    ) {
-      current.binary = true;
-      continue;
-    }
-
-    const hunk = HUNK_HEADER.exec(line);
-    if (hunk) {
-      const h: Hunk = {
-        oldStart: Number(hunk[1]),
-        oldLines: hunk[2] === undefined ? 1 : Number(hunk[2]),
-        newStart: Number(hunk[3]),
-        newLines: hunk[4] === undefined ? 1 : Number(hunk[4]),
-      };
-      current.hunks.push(h);
-      gitHeaderOpen = false;
-      oldLine = h.oldStart;
-      newLine = h.newStart;
-      oldRemaining = h.oldLines;
-      newRemaining = h.newLines;
-    }
+    parser.read(rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine);
   }
-
-  return files;
+  return parser.files;
 }
 
 /** True when the line at `i` starts the next file of a plain unified diff: `--- `, then `+++ `, then a hunk header. */
 function startsPlainFile(lines: string[], i: number): boolean {
-  return (
-    (lines[i] ?? "").startsWith("--- ") &&
-    (lines[i + 1] ?? "").startsWith("+++ ") &&
-    HUNK_HEADER.test(lines[i + 2] ?? "")
+  const [oldHeader = "", newHeader = "", hunkHeader = ""] = lines.slice(
+    i,
+    i + PLAIN_FILE_HEADER_LINES,
   );
+  return (
+    oldHeader.startsWith("--- ") &&
+    newHeader.startsWith("+++ ") &&
+    HUNK_HEADER.test(hunkHeader)
+  );
+}
+
+/** How a hunk body line can start: context, added, removed, or a `\` note. */
+const BODY_MARKERS = new Set([" ", "+", "-", "\\"]);
+
+/** True when the line at `j` cannot belong to the body of the hunk above it. */
+function endsHunkBody(
+  lines: string[],
+  j: number,
+  line: string,
+  plain: boolean,
+): boolean {
+  if (HUNK_HEADER.test(line) || line.startsWith("diff --git ")) return true;
+  if (plain && startsPlainFile(lines, j)) return true;
+  return line !== "" && !BODY_MARKERS.has(line.charAt(0));
+}
+
+/** The lines from `start` on that belong to the body of the hunk whose header is just above, trailing blanks included. */
+function hunkBody(lines: string[], start: number, plain: boolean): string[] {
+  const end = lines.findIndex(
+    (line, j) => j >= start && endsHunkBody(lines, j, line, plain),
+  );
+  return lines.slice(start, end === -1 ? lines.length : end);
+}
+
+/** A hunk body's line count on one side: every line but the other side's changes and `\` notes. */
+function sideCount(body: string[], other: "+" | "-"): number {
+  return body.filter((l) => !l.startsWith(other) && !l.startsWith("\\")).length;
+}
+
+/** The matched hunk header, with the counts of `body`. */
+function recountedHeader(header: RegExpExecArray, body: string[]): string {
+  const [, oldStart, , newStart] = header;
+  if (oldStart === undefined || newStart === undefined)
+    throw new Error(
+      `hunk header matched without its start lines: ${header.input}`,
+    );
+  const rest = header.input.slice(header[0].length);
+  return `@@ -${oldStart},${String(sideCount(body, "+"))} +${newStart},${String(sideCount(body, "-"))} @@${rest}`;
 }
 
 /**
@@ -243,53 +315,40 @@ export function recountHunks(text: string): string {
       out.push(current);
       continue;
     }
-
-    const body: string[] = [];
-    let j = i + 1;
-    for (const line of lines.slice(j)) {
-      if (HUNK_HEADER.test(line) || line.startsWith("diff --git ")) break;
-      if (plain && startsPlainFile(lines, j)) break;
-      const marker = line[0];
-      if (
-        line !== "" &&
-        marker !== " " &&
-        marker !== "+" &&
-        marker !== "-" &&
-        marker !== "\\"
-      )
-        break;
-      body.push(line);
-      j += 1;
-    }
+    const body = hunkBody(lines, i + 1, plain);
+    resume = i + 1 + body.length;
     while (body.length > 0 && body[body.length - 1] === "") body.pop();
-
-    let oldCount = 0;
-    let newCount = 0;
-    for (const line of body) {
-      if (line.startsWith("+")) newCount += 1;
-      else if (line.startsWith("-")) oldCount += 1;
-      else if (line.startsWith("\\")) continue;
-      else {
-        oldCount += 1;
-        newCount += 1;
-      }
-    }
-
-    const [, oldStart, , newStart] = header;
-    if (oldStart === undefined || newStart === undefined)
-      throw new Error(
-        `hunk header matched without its start lines: ${current}`,
-      );
-    const rest = current.slice(header[0].length);
-    out.push(
-      `@@ -${oldStart},${String(oldCount)} +${newStart},${String(newCount)} @@${rest}`,
-      ...body,
-    );
-    resume = j;
+    out.push(recountedHeader(header, body), ...body);
   }
 
   while (out.length > 0 && out[out.length - 1] === "") out.pop();
   return `${out.join("\n")}\n`;
+}
+
+/**
+ * How many context lines come before a hunk's change when none come after it,
+ * reading the lines after its header until they cover `sides`, its old and new
+ * counts together. Zero for any other hunk.
+ */
+function contextOnlyBefore(lines: string[], sides: number): number {
+  let remaining = sides;
+  let leading = 0;
+  let trailing = 0;
+  let changed = false;
+  for (const body of lines) {
+    if (remaining <= 0) break;
+    if (body.startsWith("\\")) continue;
+    if (body.startsWith("+") || body.startsWith("-")) {
+      changed = true;
+      trailing = 0;
+      remaining -= 1;
+    } else {
+      if (changed) trailing += 1;
+      else leading += 1;
+      remaining -= SIDES_PER_CONTEXT_LINE;
+    }
+  }
+  return changed && trailing === 0 ? leading : 0;
 }
 
 /**
@@ -313,24 +372,9 @@ export function applyHints(recounted: string): string[] {
     if (!header) continue;
 
     const oldStart = Number(header[1]);
-    let remaining = Number(header[2] ?? 1) + Number(header[4] ?? 1);
-    let leading = 0;
-    let trailing = 0;
-    let changed = false;
-    for (const body of lines.slice(i + 1)) {
-      if (remaining <= 0) break;
-      if (body.startsWith("\\")) continue;
-      if (body.startsWith("+") || body.startsWith("-")) {
-        changed = true;
-        trailing = 0;
-        remaining -= 1;
-      } else {
-        if (changed) trailing += 1;
-        else leading += 1;
-        remaining -= 2;
-      }
-    }
-    if (changed && leading > 0 && trailing === 0) {
+    const sides = Number(header[2] ?? 1) + Number(header[4] ?? 1);
+    const leading = contextOnlyBefore(lines.slice(i + 1), sides);
+    if (leading > 0) {
       hints.push(
         `${path}: the hunk at old line ${String(oldStart)} has ${String(leading)} context line(s) before its change and none after. ` +
           "git applies a hunk like that only at the end of a file. Add the lines that follow the change as context.",

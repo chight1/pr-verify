@@ -27,8 +27,12 @@ loosen() {
   printf '{"printWidth": 500, "semi": false}\n' > .prettierrc
   printf '*\n' > .prettierignore
   printf 'root = true\n[*]\nmax_line_length = 500\n' > .editorconfig
-  printf '[tool.ruff]\nexclude = ["*"]\n[tool.ruff.lint]\nselect = []\n' > pyproject.toml
-  printf '[tool.pyright]\ntypeCheckingMode = "off"\n[tool.djlint]\nignore = "H006,T001,H025"\n' >> pyproject.toml
+  {
+    printf '[project]\nname = "fixture"\nversion = "0"\ndependencies = []\n'
+    printf '[tool.ruff]\nexclude = ["*"]\n[tool.ruff.lint]\nselect = []\n'
+    printf '[tool.deptry]\nignore = ["DEP001"]\n'
+    printf '[tool.pyright]\ntypeCheckingMode = "off"\n[tool.djlint]\nignore = "H006,T001,H025"\n'
+  } > pyproject.toml
   printf '{"compilerOptions": {"strict": false, "noImplicitAny": false, "noCheck": true}}\n' > tsconfig.json
   printf 'export default [];\n' > eslint.config.js
   printf 'version: "2"\nlinters:\n  default: none\n' > .golangci.yml
@@ -45,6 +49,8 @@ printf 'X = 1\n' > pkg/models.py
 printf 'from pkg.models import X\n\nY = X\n' > pkg/views.py
 printf '// Package main is a fixture.\npackage main\nfunc main(){}\n' > main.go
 printf 'export const a = {b:1}\n' > app.ts
+printf '{\n  "name": "fixture",\n  "private": true\n}\n' > package.json
+printf '{ "entry": ["app.ts", "eslint.config.js"] }\n' > knip.json
 printf '*  item\n' > notes.md
 printf '<ul><li>one</li><li>two</li></ul>\n' > page.html
 printf '<div>\n{%% if x %%}\n<p>{{ x }}</p>\n{%% endif %%}\n</div>\n' > template.html
@@ -89,11 +95,21 @@ mkdir "$scratch/lint" && cd "$scratch/lint"
 git init -q
 loosen
 # Each tool's own suppression comment, which the gate ignores or rejects.
-printf 'def double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
-printf '/* eslint-disable */\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
+printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
+printf '{\n  "name": "fixture",\n  "private": true\n}\n' > package.json
+printf '{ "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
+printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
 printf 'var count = 1;\nexport { count };\n' > lint.js
-printf '// Package main is a fixture.\npackage main\n\nimport "os"\n\nfunc main() {\n\tos.Remove("x")\n}\n' > main.go
+# The patterns agents leave behind: debug output, a magic number, a vague name,
+# a task comment with no issue, and tests that are skipped or check nothing.
+printf 'console.log(count);\nexport const later = setTimeout(() => count, 5000);\n' >> lint.js
+printf '// %s: make this faster\nexport const data = 1;\n' TODO >> lint.ts
+printf 'it.skip("waits", () => {});\nit("runs", () => {});\n' > lint.test.ts
+printf 'data = 1\n' >> lint.py
+printf 'import pytest\n\n\n@pytest.mark.skip(reason="later")\ndef test_skipped():\n    assert True\n\n\ndef test_nothing():\n    print(1)\n' > test_lint.py
+printf 'package main\n\nimport "testing"\n\nfunc TestSkipped(t *testing.T) {\n\tt.Skip("later")\n}\n' > main_test.go
+printf '// Package main is a fixture.\npackage main\n\nimport (\n\t"fmt"\n\t"os"\n)\n\nfunc main() {\n\tos.Remove("x")\n\t// %s: make this faster\n\tdata := len(os.Args) * 42\n\tfmt.Println(data)\n}\n\nfunc unused() {}\n' TODO > main.go
 # The comments the gate rejects outright, written so this file has none of them.
 printf 'x = 1  # pyright%s basic\n' ':' > suppressed.py
 printf '// prettier%signore\nexport const y = 1;\n' '-' > suppressed.ts
@@ -116,11 +132,14 @@ if online="$(bash "$here/run.sh" online 2>&1)"; then
   fail "run.sh online passed on an unpinned action and a script injection"
 fi
 output+="$online"
-for tool in "ruff check" pyright tsc ESLint golangci-lint whitespace "file size" actionlint zizmor \
-  shellcheck hadolint suppressions; do
+for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip whitespace "file size" actionlint zizmor \
+  shellcheck hadolint suppressions "task comments" "agent patterns"; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
-  errcheck suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
-  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008
+  errcheck DEP001 "unreachable func: unused" left-pad "Unused files" suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
+  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008 \
+  no-console pr-verify/no-magic-numbers id-match sonarjs/comment-regex vitest/no-disabled-tests \
+  vitest/expect-expect forbidigo mnd vague-name-python vague-name-go unconditional-skip-python \
+  unconditional-skip-go test-without-assertion-python test-without-assertion-go
 echo "checks: ok"

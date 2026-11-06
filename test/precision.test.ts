@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderPrecision, tallyPrecision } from "../src/precision.js";
-import { findingMarker } from "../src/review.js";
+import { findingMarker } from "../src/markers.js";
 import type { PriorFinding } from "../src/types.js";
 
 const finding = (
