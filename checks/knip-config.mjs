@@ -1,10 +1,16 @@
 // Writes the knip config the gate runs with. From the project's own config it
-// keeps only what knip cannot find for itself: each workspace's entry points
-// and project files. Its ignores and rules are dropped, and the generated
-// files given as arguments are ignored, as in every other check.
+// keeps only what knip cannot find for itself: each workspace's entry points.
+// Its ignores, rules and project files are dropped, and the generated files
+// given as arguments are ignored, as in every other check.
+//
+// An entry point must name a file. A pattern such as "**" could make every file
+// an entry point, so that nothing is ever unused, so patterns are dropped and
+// fail the check.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const [outputPath, ...generatedFiles] = process.argv.slice(2);
+const patternCharacters = /[*?[\]{}()!]/;
+const patterns = [];
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -17,22 +23,40 @@ function readProjectConfig() {
   return {};
 }
 
-// The entry points and project files of one workspace, or of the root.
-function filesToAnalyze(workspace) {
-  const kept = {};
-  if (workspace.entry) kept.entry = workspace.entry;
-  if (workspace.project) kept.project = workspace.project;
-  return kept;
+// The entry points of one workspace, or of the root, that name a file.
+function namedEntryPoints(workspace, workspaceName = ".") {
+  const named = [];
+  for (const entry of [workspace.entry ?? []].flat()) {
+    if (patternCharacters.test(entry)) {
+      patterns.push(`"${entry}" in workspace "${workspaceName}"`);
+    } else {
+      named.push(entry);
+    }
+  }
+  return named.length > 0 ? { entry: named } : {};
 }
 
 const projectConfig = readProjectConfig();
-const gateConfig = { ...filesToAnalyze(projectConfig), ignore: generatedFiles };
+const gateConfig = {
+  ...namedEntryPoints(projectConfig),
+  ignore: generatedFiles,
+};
 
 if (projectConfig.workspaces) {
   gateConfig.workspaces = {};
   for (const [name, workspace] of Object.entries(projectConfig.workspaces)) {
-    gateConfig.workspaces[name] = filesToAnalyze(workspace);
+    gateConfig.workspaces[name] = namedEntryPoints(workspace, name);
   }
 }
 
 writeFileSync(outputPath, `${JSON.stringify(gateConfig, null, 2)}\n`);
+
+if (patterns.length > 0) {
+  console.error(
+    "These knip entry points are patterns. List each entry file by name:",
+  );
+  for (const pattern of patterns) {
+    console.error(`  ${pattern}`);
+  }
+  process.exitCode = 1;
+}

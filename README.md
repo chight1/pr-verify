@@ -83,7 +83,7 @@ Dead code and dependencies are checked too:
 
 - **Python:** deptry fails an import no dependency provides, a dependency nothing imports, and an import of a package that only arrives through another dependency.
 - **Go:** `go mod tidy -diff` must show no changes, and `deadcode` fails a function that nothing reaches from a main package or a test.
-- **JavaScript and TypeScript:** knip fails unused files, exports and types, imports of packages `package.json` does not list, duplicate exports and import cycles. knip cannot find every entry point on its own, so from a project's knip config the gate keeps only `entry`, `project` and `workspaces`, and none of its ignores or rules.
+- **JavaScript and TypeScript:** knip fails unused files, exports and types, imports of packages `package.json` does not list, duplicate exports and import cycles. knip cannot find every entry point on its own, so from a project's knip config the gate keeps only each workspace's `entry`, and none of its ignores, rules or `project` files. Each entry point must name a file: a pattern such as `**` could make every file an entry point, so that nothing is ever unused, and fails the check.
 
 Every project also gets, whatever its runtime:
 

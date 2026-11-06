@@ -298,14 +298,17 @@ left_out_files() {
 
 if [ -f package.json ] && any "${typescript[@]}" "${javascript[@]}"; then
   # Unused files, exports and types, imports of packages the manifest does not
-  # list, duplicate exports and import cycles.
+  # list, duplicate exports and import cycles. An entry point written as a
+  # pattern fails the check, and knip still runs without it.
   knip_check() {
-    local config="$PWD/knip.pr-verify.json" ignored
+    local config="$PWD/knip.pr-verify.json" ignored status=0
     written+=("$config")
     mapfile -t ignored < <(left_out_files)
-    node "$here/knip-config.mjs" "$config" "${ignored[@]}"
+    node "$here/knip-config.mjs" "$config" "${ignored[@]}" || status=1
     "$here/node_modules/.bin/knip" --config "$config" --no-progress --no-config-hints \
-      --include files,unlisted,unresolved,exports,types,nsExports,nsTypes,enumMembers,duplicates,cycles
+      --include files,unlisted,unresolved,exports,types,nsExports,nsTypes,enumMembers,duplicates,cycles \
+      || status=1
+    return "$status"
   }
   run "knip" knip_check
 fi

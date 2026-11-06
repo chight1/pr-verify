@@ -97,7 +97,7 @@ loosen
 # Each tool's own suppression comment, which the gate ignores or rejects.
 printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
 printf '{\n  "name": "fixture",\n  "private": true\n}\n' > package.json
-printf '{ "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
+printf '{ "entry": ["**"], "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
 printf 'var count = 1;\nexport { count };\n' > lint.js
@@ -130,5 +130,5 @@ for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip w
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
   errcheck DEP001 "unreachable func: unused" left-pad "Unused files" suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
-  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008
+  "notes.txt: no newline" big.bin "knip entry points are patterns" SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008
 echo "checks: ok"
