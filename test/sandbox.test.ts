@@ -1,5 +1,11 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -24,7 +30,7 @@ describe("testEnvironment", () => {
       HOME: "/home/runner",
       CI: "true",
       GOPROXY: "off",
-      GOCACHE: "/tmp/go-build",
+      GOCACHE: "/home/runner/.go-build",
     });
   });
 });
@@ -40,6 +46,8 @@ describe.runIf(canSandbox)("Sandbox", () => {
   const last = (output: string) => output.trim().split("\n").at(-1);
 
   beforeAll(async () => {
+    // As on most runners, so the sandbox mounts it read-only.
+    mkdirSync(path.join(os.homedir(), ".cache"), { recursive: true });
     sandbox = await Sandbox.forRunner();
     dir = mkdtempSync(path.join(os.tmpdir(), "pr-verify-sandbox-"));
     execFileSync("git", ["init", "-q"], { cwd: dir });
@@ -88,6 +96,13 @@ describe.runIf(canSandbox)("Sandbox", () => {
       "touch .git/hooks/post-checkout 2>/dev/null && echo wrote || echo read-only",
     );
     expect(last(result.output)).toBe("read-only");
+  });
+
+  it("lets Go write its build cache", async () => {
+    const result = await run(
+      'mkdir -p "$GOCACHE" && touch "$GOCACHE/probe" && echo wrote || echo read-only',
+    );
+    expect(last(result.output)).toBe("wrote");
   });
 
   it("hides the runner's home directory", async () => {

@@ -79,6 +79,20 @@ The gate's `code quality` step checks formatting, lint and types. Tools are pick
 
 Every tool runs with PR Verify's settings, and a project's own config and ignore files have no effect, so a pull request cannot loosen a check. The one exception is the project's `tsconfig.json`, which the type check extends for module settings and paths, with the strict flags forced on top. Suppression comments do nothing: `# noqa`, `# type: ignore`, ESLint directives, zizmor's ignore comments and hadolint's are ignored, and an `@ts-` comment is a lint error. Comments that a tool cannot be told to ignore, such as `# pyright:`, `# fmt: off`, `prettier-ignore`, `djlint:off`, `//nolint` and `# shellcheck disable`, fail the step. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out.
 
+Common mistakes are checked in every language:
+
+| Pattern                                                         | Python                         | Go                                    | JavaScript and TypeScript                                                  |
+| --------------------------------------------------------------- | ------------------------------ | ------------------------------------- | -------------------------------------------------------------------------- |
+| Debug output                                                    | ruff `T20`                     | forbidigo on `fmt.Print*` and `print` | `no-console`                                                               |
+| Magic numbers, other than 0, 1 and -1, outside a named constant | ruff `PLR2004`, in comparisons | mnd                                   | the gate's own rule, which allows arithmetic like `8 * 1024` in a constant |
+| Commented-out code                                              | ruff `ERA001`                  | gocritic `commentedOutCode`           | SonarJS `no-commented-code`                                                |
+| A `TODO` or `FIXME` that names no issue                         | ruff `TD003`                   | the gate's own check                  | SonarJS `comment-regex`                                                    |
+| Swallowed errors                                                | ruff `BLE`, `S110`, `S112`     | errcheck, nilerr                      | `no-empty`, typescript-eslint's promise rules                              |
+| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-match`                                                                 |
+| A test that is always skipped, or asserts nothing               | Semgrep rules                  | Semgrep rules                         | the Vitest plugin's rules, which also fit Jest                             |
+
+JavaScript and TypeScript also get SonarJS's recommended rules. The Semgrep rules ship in `checks/semgrep.yml` and run from the image the static analysis step uses.
+
 Dead code and dependencies are checked too:
 
 - **Python:** deptry fails an import no dependency provides, a dependency nothing imports, and an import of a package that only arrives through another dependency.

@@ -1,0 +1,109 @@
+# Common mistakes that no linter the gate runs checks, in Python
+# and Go. JavaScript and TypeScript get the same checks from ESLint.
+rules:
+  - id: vague-name-python
+    message: "'$NAME' says nothing about what it holds. Name it for what it is."
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern-either:
+          - pattern: $NAME = ...
+          - pattern: "$NAME: $TYPE = ..."
+          - pattern: |
+              def $FUNC(..., $NAME, ...):
+                ...
+          - pattern: |
+              def $FUNC(..., $NAME: $TYPE, ...):
+                ...
+          - pattern: |
+              for $NAME in $ITEMS:
+                ...
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: ^(pos|idx|cnt|tmp|val|obj|res|ret|lib|mgr|data|info)$
+
+  - id: vague-name-go
+    message: "'$NAME' says nothing about what it holds. Name it for what it is."
+    severity: ERROR
+    languages: [go]
+    patterns:
+      - pattern-either:
+          - pattern: $NAME := $VALUE
+          - pattern: var $NAME $TYPE
+          - pattern: var $NAME = $VALUE
+          - pattern: |
+              func $FUNC(..., $NAME $TYPE, ...) { ... }
+          - pattern: |
+              func $FUNC(..., $NAME $TYPE, ...) $RESULT { ... }
+      - metavariable-regex:
+          metavariable: $NAME
+          regex: ^(pos|idx|cnt|tmp|val|obj|res|ret|lib|mgr|data|info)$
+
+  - id: unconditional-skip-python
+    message: A test that is always skipped never runs. Fix it or delete it.
+    severity: ERROR
+    languages: [python]
+    pattern-either:
+      - pattern: |
+          @pytest.mark.skip
+          def $TEST(...):
+            ...
+      - pattern: |
+          @pytest.mark.skip(...)
+          def $TEST(...):
+            ...
+      - pattern: |
+          @unittest.skip(...)
+          def $TEST(...):
+            ...
+      - patterns:
+          - pattern: pytest.skip(...)
+          - pattern-not-inside: |
+              if $CONDITION:
+                ...
+          - pattern-not-inside: |
+              if $CONDITION:
+                ...
+              else:
+                ...
+
+  - id: unconditional-skip-go
+    message: A test that is always skipped never runs. Fix it or delete it.
+    severity: ERROR
+    languages: [go]
+    patterns:
+      - pattern-either:
+          - pattern: $T.Skip(...)
+          - pattern: $T.SkipNow()
+          - pattern: $T.Skipf(...)
+      - pattern-not-inside: |
+          if $CONDITION { ... }
+      - pattern-not-inside: |
+          if $CONDITION { ... } else { ... }
+
+  # A test counts as checking something when it asserts, expects an error, or
+  # calls a helper named assert* or expect*, as ESLint's expect-expect allows.
+  - id: test-without-assertion-python
+    message: This test checks nothing, so it cannot fail.
+    severity: ERROR
+    languages: [python]
+    patterns:
+      - pattern: |
+          def $TEST(...):
+            ...
+      - metavariable-regex:
+          metavariable: $TEST
+          regex: ^test
+      - pattern-not-regex: (?m)^\s*assert\b|\b(assert|expect)\w*\(|\bpytest\.(raises|fail|warns)\(
+
+  - id: test-without-assertion-go
+    message: This test checks nothing, so it cannot fail.
+    severity: ERROR
+    languages: [go]
+    patterns:
+      - pattern: |
+          func $TEST($T *testing.T) { ... }
+      - metavariable-regex:
+          metavariable: $TEST
+          regex: ^Test
+      - pattern-not-regex: \.(Error|Errorf|Fatal|Fatalf|Fail|FailNow|Run)\(|\b(assert|require)\.\w+\(

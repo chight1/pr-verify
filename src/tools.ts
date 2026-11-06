@@ -24,7 +24,10 @@ import {
 } from "./verify.js";
 
 export const READ_FILE_MAX_LINES = 400;
-const READ_FILE_MAX_BYTES = 32 * 1024;
+const READ_FILE_MAX_KB = 32;
+const READ_FILE_MAX_BYTES = READ_FILE_MAX_KB * 1024;
+const SUMMARY_MAX_LINES = 3;
+const EXPLANATION_MAX_LINES = 4;
 
 const CATEGORIES = new Set(["bug", "security", "missing-test"]);
 const CONFIDENCES = new Set(["low", "medium", "high"]);
@@ -198,7 +201,7 @@ export function toolDefinitions(mode: Mode): Anthropic.Tool[] {
   return [
     {
       name: "read_file",
-      description: `Read a tracked file from the repository at the PR commit. Returns at most ${String(READ_FILE_MAX_LINES)} lines or ${String(READ_FILE_MAX_BYTES / 1024)} KB per call; use start_line and end_line to read further.`,
+      description: `Read a tracked file from the repository at the PR commit. Returns at most ${String(READ_FILE_MAX_LINES)} lines or ${String(READ_FILE_MAX_KB)} KB per call; use start_line and end_line to read further.`,
       input_schema: {
         type: "object",
         properties: {
@@ -543,7 +546,7 @@ export class ToolExecutor {
       mode: "red-gate",
       result: {
         verdict: verdict as RedGateResult["verdict"],
-        summary: clipLines(summary, 3),
+        summary: clipLines(summary, SUMMARY_MAX_LINES),
         citations,
         ...(fixPatch !== undefined ? { fixPatch } : {}),
       },
@@ -585,7 +588,10 @@ export class ToolExecutor {
       file,
       line,
       title: clipLines(expectString(f, "title"), 1),
-      explanation: clipLines(expectString(f, "explanation"), 4),
+      explanation: clipLines(
+        expectString(f, "explanation"),
+        EXPLANATION_MAX_LINES,
+      ),
       ...(testPatch !== undefined ? { testPatch } : {}),
       ...(fixPatch !== undefined ? { fixPatch } : {}),
     };

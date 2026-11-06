@@ -248,6 +248,27 @@ fi
 
 if any "${go[@]}"; then
   run "golangci-lint" "$(golangci_lint)" run --config "$here/golangci.yml" ./...
+  # No Go linter allows a task comment that names its issue, as ruff and ESLint do here.
+  untracked_tasks() {
+    local found
+    found="$(git grep -nE '//.*\b(TODO|FIXME|XXX|HACK)\b' -- "$@" | grep -vE '#[0-9]+|https?://')"
+    [ -z "$found" ] && return 0
+    echo "$found"
+    echo "Name the issue that tracks each of these, as TODO(#123)." >&2
+    return 1
+  }
+  run "task comments" untracked_tasks "${go[@]}"
+fi
+
+# Common mistakes in Python and Go that no linter here checks:
+# vague names, tests that are always skipped, and tests that assert nothing.
+# Semgrep runs from the image the static analysis step uses.
+if any "${python[@]}" "${go[@]}"; then
+  semgrep_image="${SEMGREP_IMAGE:-$(sed -n 's/^  SEMGREP_IMAGE: //p' "$here/../.github/workflows/pr-verify.yml")}"
+  run "Semgrep" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
+    -v "$here/semgrep.yml:/rules.yml:ro" -w /src "$semgrep_image" \
+    semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem \
+    -- "${python[@]}" "${go[@]}"
 fi
 
 # Dead code and dependencies.
