@@ -92,15 +92,19 @@ mapfile -t workflows < <(printf '%s\n' "${files[@]}" | grep -E '^\.github/workfl
 mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml$')
 
 # With "online", only the checks that look things up on GitHub with the
-# workflow's token. The gate runs them in a step of their own before its install
-# step, the first to run the project's code, so no process the project starts is
-# alive to read the token.
+# workflow's token, and on package registries. The gate runs them in a step of
+# their own before its install step, the first to run the project's code, so no
+# process the project starts is alive to read the token.
 if [ "${1:-}" = online ]; then
   # zizmor's online audits look up the actions a workflow uses.
   if [ $((${#workflows[@]} + ${#actions[@]})) -gt 0 ]; then
     run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
       "${workflows[@]}" "${actions[@]}"
   fi
+  # A dependency the pull request adds that its registry has had for under 30
+  # days, or does not have: a name a model made up, or one registered to catch
+  # it. The token fetches the pull request's base commit to compare with.
+  run "new dependencies" python3 "$here/new_dependencies.py" "${files[@]}"
   summarize "Online checks"
   exit
 fi
@@ -284,10 +288,6 @@ if [ -f package.json ] && [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; 
   }
   run "knip" knip_check
 fi
-
-# A dependency the pull request adds that its registry has had for under 30
-# days, or does not have: a name a model made up, or one registered to catch it.
-run "new dependencies" python3 "$here/new_dependencies.py" "${files[@]}"
 
 # Every project, whatever its runtime.
 
