@@ -1,4 +1,4 @@
-# Patterns agents leave behind that no linter the gate runs checks, in Python
+# Common mistakes that no linter the gate runs checks, in Python
 # and Go. JavaScript and TypeScript get the same checks from ESLint.
 rules:
   - id: vague-name-python

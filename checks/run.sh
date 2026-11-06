@@ -260,13 +260,13 @@ if any "${go[@]}"; then
   run "task comments" untracked_tasks "${go[@]}"
 fi
 
-# Patterns agents leave behind in Python and Go that no linter here checks:
+# Common mistakes in Python and Go that no linter here checks:
 # vague names, tests that are always skipped, and tests that assert nothing.
 # Semgrep runs from the image the static analysis step uses.
-if [ $((${#python[@]} + ${#go[@]})) -gt 0 ]; then
+if any "${python[@]}" "${go[@]}"; then
   semgrep_image="${SEMGREP_IMAGE:-$(sed -n 's/^  SEMGREP_IMAGE: //p' "$here/../.github/workflows/pr-verify.yml")}"
-  run "agent patterns" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
-    -v "$here/agent-patterns.yml:/rules.yml:ro" -w /src "$semgrep_image" \
+  run "Semgrep" docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
+    -v "$here/semgrep.yml:/rules.yml:ro" -w /src "$semgrep_image" \
     semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem \
     -- "${python[@]}" "${go[@]}"
 fi

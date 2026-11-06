@@ -101,7 +101,7 @@ printf '{ "entry": ["**"], "ignore": ["**"], "ignoreDependencies": ["left-pad"] 
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
 printf 'var count = 1;\nexport { count };\n' > lint.js
-# The patterns agents leave behind: debug output, a magic number, a vague name,
+# Common mistakes: debug output, a magic number, a vague name,
 # a task comment with no issue, and tests that are skipped or check nothing.
 printf 'console.log(count);\nexport const later = setTimeout(() => count, 5000);\n' >> lint.js
 printf '// %s: make this faster\nexport const data = 1;\n' TODO >> lint.ts
@@ -133,7 +133,7 @@ if online="$(bash "$here/run.sh" online 2>&1)"; then
 fi
 output+="$online"
 for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip whitespace "file size" actionlint zizmor \
-  shellcheck hadolint suppressions "task comments" "agent patterns"; do
+  shellcheck hadolint suppressions "task comments" Semgrep; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \

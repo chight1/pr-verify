@@ -1,7 +1,7 @@
 // The gate's lint rules for JavaScript and TypeScript, in any project.
 // TypeScript gets typescript-eslint's strictest type-checked sets, using the
 // tsconfig run.sh writes; JavaScript gets the rules that need no type information.
-// Both get SonarJS's recommended rules and the patterns agents leave behind.
+// Both get SonarJS's recommended rules and its checks for common mistakes.
 import js from "@eslint/js";
 import vitest from "@vitest/eslint-plugin";
 import { defineConfig } from "eslint/config";

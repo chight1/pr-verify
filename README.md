@@ -79,7 +79,7 @@ The gate's `code quality` step checks formatting, lint and types. Tools are pick
 
 Every tool runs with PR Verify's settings, and a project's own config and ignore files have no effect, so a pull request cannot loosen a check. The one exception is the project's `tsconfig.json`, which the type check extends for module settings and paths, with the strict flags forced on top. Suppression comments do nothing: `# noqa`, `# type: ignore`, ESLint directives, zizmor's ignore comments and hadolint's are ignored, and an `@ts-` comment is a lint error. Comments that a tool cannot be told to ignore, such as `# pyright:`, `# fmt: off`, `prettier-ignore`, `djlint:off`, `//nolint` and `# shellcheck disable`, fail the step. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out.
 
-Patterns agents leave behind are checked in every language:
+Common mistakes are checked in every language:
 
 | Pattern                                                         | Python                         | Go                                    | JavaScript and TypeScript                                                  |
 | --------------------------------------------------------------- | ------------------------------ | ------------------------------------- | -------------------------------------------------------------------------- |
@@ -88,10 +88,10 @@ Patterns agents leave behind are checked in every language:
 | Commented-out code                                              | ruff `ERA001`                  | gocritic `commentedOutCode`           | SonarJS `no-commented-code`                                                |
 | A `TODO` or `FIXME` that names no issue                         | ruff `TD003`                   | the gate's own check                  | SonarJS `comment-regex`                                                    |
 | Swallowed errors                                                | ruff `BLE`, `S110`, `S112`     | errcheck, nilerr                      | `no-empty`, typescript-eslint's promise rules                              |
-| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-denylist`                                                              |
+| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-match`                                                                 |
 | A test that is always skipped, or asserts nothing               | Semgrep rules                  | Semgrep rules                         | the Vitest plugin's rules, which also fit Jest                             |
 
-JavaScript and TypeScript also get SonarJS's recommended rules. The Semgrep rules ship in `checks/agent-patterns.yml` and run from the image the static analysis step uses.
+JavaScript and TypeScript also get SonarJS's recommended rules. The Semgrep rules ship in `checks/semgrep.yml` and run from the image the static analysis step uses.
 
 Dead code and dependencies are checked too:
 
