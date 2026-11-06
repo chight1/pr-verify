@@ -66,7 +66,7 @@ export function findingMarker(finding: PriorFinding): string {
 }
 
 /** Tags an entry under "Resolved by this push" so later runs stop re-checking and re-announcing it. */
-export function resolvedMarker(finding: PriorFinding): string {
+function resolvedMarker(finding: PriorFinding): string {
   const { category, file, line, title, verified, headSha } = finding;
   return `<!-- ${MARKER}:resolved ${JSON.stringify({ category, file, line, title, verified, headSha })} -->`;
 }

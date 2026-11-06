@@ -4,7 +4,7 @@
  * network or a full disk.
  */
 
-export type InfraLabel =
+type InfraLabel =
   "network" | "registry" | "out-of-memory" | "disk" | "cancelled" | "timeout";
 
 interface Rule {
@@ -77,7 +77,7 @@ const RULES: Rule[] = [
 ];
 
 /** Gate steps the agent never investigates: it cannot run the scanner, so it could not verify a fix. */
-export const SCAN_STEPS: Record<string, string> = {
+const SCAN_STEPS: Record<string, string> = {
   "security scan":
     "Trivy found a vulnerability, secret or misconfiguration; the step log lists each one.",
   "install security scanner":

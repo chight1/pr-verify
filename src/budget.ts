@@ -18,14 +18,14 @@ export interface BudgetLimits {
 export type BudgetName = keyof BudgetLimits;
 
 /** Cache reads are billed at a tenth of the input rate. */
-export const CACHE_READ_WEIGHT = 0.1;
+const CACHE_READ_WEIGHT = 0.1;
 
 /**
  * The most of the token budget a diff may take on its own. The rest is for
  * reading files and running tests. Above it the run is skipped before any
  * API call, because the budget is only charged after a call returns.
  */
-export const DIFF_BUDGET_SHARE = 0.25;
+const DIFF_BUDGET_SHARE = 0.25;
 
 /** A rough count for text before it is sent: about four bytes per token for code and English. */
 export function estimateTokens(text: string): number {

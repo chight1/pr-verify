@@ -13,15 +13,57 @@ failed=()
 written=()
 trap 'rm -f "${written[@]}"' EXIT
 
-# Tracked files a person writes: not lockfiles, minified bundles, source maps,
-# or files .gitattributes marks linguist-generated. The same files the review reads.
+# Files a package manager writes rather than a person.
+lockfiles=(
+  package-lock.json npm-shrinkwrap.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb
+  poetry.lock Pipfile.lock uv.lock
+  go.sum Cargo.lock Gemfile.lock packages.lock.json composer.lock
+)
+
+is_lockfile() {
+  local name="${1##*/}" lockfile
+  for lockfile in "${lockfiles[@]}"; do
+    [ "$name" = "$lockfile" ] && return 0
+  done
+  return 1
+}
+
+# Lockfiles, minified bundles and source maps.
+is_machine_written() {
+  local path="$1"
+  is_lockfile "$path" || [[ "$path" == *.min.js || "$path" == *.min.css || "$path" == *.map ]]
+}
+
+# Tracked files a person writes: not machine-written ones, or files
+# .gitattributes marks linguist-generated. The same files the review reads.
 written_files() {
-  git ls-files -z \
-    | git check-attr -z --stdin linguist-generated \
+  local path value
+  # check-attr prints three fields for each path, each ending in a NUL: the
+  # path, the attribute's name and its value.
+  git ls-files -z | git check-attr -z --stdin linguist-generated \
     | while IFS= read -r -d '' path && IFS= read -r -d '' _ && IFS= read -r -d '' value; do
-      [ "$value" = set ] || [ "$value" = true ] || printf '%s\n' "$path"
-    done \
-    | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|uv\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|packages\.lock\.json|composer\.lock)$|\.min\.(js|css)$|\.map$'
+      if [ "$value" = set ] || [ "$value" = true ] || is_machine_written "$path"; then
+        continue
+      fi
+      printf '%s\n' "$path"
+    done
+}
+
+# The given paths that match the extended regular expression.
+matching() {
+  local regex="$1"
+  shift
+  printf '%s\n' "$@" | grep -E "$regex"
+}
+
+# The project's files that match the extended regular expression.
+files_matching() {
+  matching "$1" "${files[@]}"
+}
+
+# Succeeds when given any paths, for checks that run only when there are files to check.
+any() {
+  [ $# -gt 0 ]
 }
 
 # Runs one tool in a collapsible log group and records it if it fails.
@@ -88,8 +130,8 @@ hadolint() {
 }
 
 mapfile -t files < <(written_files)
-mapfile -t workflows < <(printf '%s\n' "${files[@]}" | grep -E '^\.github/workflows/[^/]+\.ya?ml$')
-mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml$')
+mapfile -t workflows < <(files_matching '^\.github/workflows/[^/]+\.ya?ml$')
+mapfile -t actions < <(files_matching '(^|/)action\.ya?ml$')
 
 # With "online", only the checks that look things up on GitHub with the
 # workflow's token. The gate runs them in a step of their own before its install
@@ -97,7 +139,7 @@ mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml
 # alive to read the token.
 if [ "${1:-}" = online ]; then
   # zizmor's online audits look up the actions a workflow uses.
-  if [ $((${#workflows[@]} + ${#actions[@]})) -gt 0 ]; then
+  if any "${workflows[@]}" "${actions[@]}"; then
     run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
       "${workflows[@]}" "${actions[@]}"
   fi
@@ -107,27 +149,46 @@ fi
 
 # Files are kept apart by type, not by the project's runtime, so a Python
 # project's HTML and JavaScript are checked too.
-mapfile -t python < <(printf '%s\n' "${files[@]}" | grep -E '\.pyi?$')
-mapfile -t go < <(printf '%s\n' "${files[@]}" | grep -E '\.go$')
+mapfile -t python < <(files_matching '\.pyi?$')
+mapfile -t go < <(files_matching '\.go$')
+mapfile -t typescript < <(files_matching '\.(ts|tsx|mts|cts)$')
+mapfile -t javascript < <(files_matching '\.(js|jsx|mjs|cjs)$')
+mapfile -t dockerfiles < <(files_matching '(^|/)(Dockerfile|Containerfile)([.-][^/]*)?$|\.dockerfile$')
+
 # Jinja and Django templates go to djLint, since Prettier breaks their tags.
-mapfile -t html < <(printf '%s\n' "${files[@]}" | grep -E '\.(html?|jinja2?|j2)$')
+mapfile -t html < <(files_matching '\.(html?|jinja2?|j2)$')
 templates=()
+plain_html=()
 for file in "${html[@]}"; do
   if [[ "$file" =~ \.(jinja2?|j2)$ ]] || grep -qE '\{%|\{\{' "$file"; then
     templates+=("$file")
+  else
+    plain_html+=("$file")
   fi
 done
 mapfile -t prettier < <(
-  printf '%s\n' "${files[@]}" \
-    | grep -E '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|json5|css|scss|less|html?|vue|md|ya?ml|graphql)$' \
-    | grep -vxF -f <(printf '%s\n' "${templates[@]}" | grep .)
+  files_matching '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|json5|css|scss|less|vue|md|ya?ml|graphql)$'
 )
+prettier+=("${plain_html[@]}")
 
-if [ ${#python[@]} -gt 0 ]; then
+# Scripts named for a shell, or that start with a shebang naming one.
+is_shell_script() {
+  [[ "$1" == *.sh || "$1" == *.bash ]] || head -n1 "$1" | grep -qE '^#!.*[/ ](ba|da|k)?sh$'
+}
+shell=()
+for file in "${files[@]}"; do
+  if is_shell_script "$file"; then
+    shell+=("$file")
+  fi
+done
+
+# Formatting.
+
+if any "${python[@]}"; then
   run "ruff format" pipx run ruff==0.17.2 format --isolated --diff -- "${python[@]}"
 fi
 
-if [ ${#go[@]} -gt 0 ]; then
+if any "${go[@]}"; then
   # Older gofmt exits 0 even when a file needs formatting, so any diff fails too.
   gofmt_check() {
     local out status
@@ -139,7 +200,7 @@ if [ ${#go[@]} -gt 0 ]; then
   run "gofmt" gofmt_check "${go[@]}"
 fi
 
-if [ ${#templates[@]} -gt 0 ]; then
+if any "${templates[@]}"; then
   # djLint reads the project's pyproject.toml even when given a config file, so it
   # checks copies in a directory with no config above them.
   djlint_check() {
@@ -154,7 +215,7 @@ if [ ${#templates[@]} -gt 0 ]; then
   run "djLint" djlint_check "${templates[@]}"
 fi
 
-if [ ${#prettier[@]} -gt 0 ]; then
+if any "${prettier[@]}"; then
   # No config, no .editorconfig and no ignore file: Prettier's defaults, on every file given.
   run "Prettier" "$here/node_modules/.bin/prettier" --check --no-config --no-editorconfig \
     --ignore-path /dev/null -- "${prettier[@]}"
@@ -162,7 +223,7 @@ fi
 
 # Lint and types, each with the gate's config and none of the project's.
 
-if [ ${#python[@]} -gt 0 ]; then
+if any "${python[@]}"; then
   run "ruff check" pipx run ruff==0.17.2 check --config "$here/ruff.toml" --ignore-noqa --no-cache \
     -- "${python[@]}"
   # Checks against the Python on PATH, where the install step put the project's dependencies.
@@ -172,23 +233,84 @@ if [ ${#python[@]} -gt 0 ]; then
   run "pyright" "$here/node_modules/.bin/pyright" --project "$pyright_config" "${python[@]}"
 fi
 
-mapfile -t typescript < <(printf '%s\n' "${files[@]}" | grep -E '\.(ts|tsx|mts|cts)$')
-mapfile -t javascript < <(printf '%s\n' "${files[@]}" | grep -E '\.(js|jsx|mjs|cjs)$')
 tsconfig=""
-if [ ${#typescript[@]} -gt 0 ]; then
+if any "${typescript[@]}"; then
   tsconfig="$PWD/tsconfig.pr-verify.json"
   written+=("$tsconfig")
   node "$here/tsconfig.mjs" "$tsconfig" "${typescript[@]}"
   run "tsc" "$here/node_modules/.bin/tsc" --project "$tsconfig"
 fi
-if [ $((${#typescript[@]} + ${#javascript[@]})) -gt 0 ]; then
+if any "${typescript[@]}" "${javascript[@]}"; then
   run "ESLint" env PR_VERIFY_TSCONFIG="$tsconfig" "$here/node_modules/.bin/eslint" \
     --config "$here/eslint.config.mjs" --no-inline-config --max-warnings 0 \
     -- "${typescript[@]}" "${javascript[@]}"
 fi
 
-if [ ${#go[@]} -gt 0 ]; then
+if any "${go[@]}"; then
   run "golangci-lint" "$(golangci_lint)" run --config "$here/golangci.yml" ./...
+fi
+
+# Dead code and dependencies.
+
+# Where deptry can read the dependencies: a pyproject.toml that declares them,
+# or a requirements.txt.
+declares_python_dependencies() {
+  grep -qsE '^\[(project|tool\.poetry|tool\.pdm)\]' pyproject.toml || [ -f requirements.txt ]
+}
+if any "${python[@]}" && declares_python_dependencies; then
+  # Imports that no dependency provides, dependencies nothing imports, and imports
+  # of packages that only arrive through another dependency. deptry maps packages
+  # to modules from installed metadata, so it reads the project's environment.
+  site_packages="$(python -c 'import site; print(":".join(site.getsitepackages()))')"
+  # Each flag replaces a project setting that could hide a finding.
+  deptry_overrides=(
+    # Ignored rules: only DEP000, which does not exist.
+    --ignore DEP000
+    # Packages ignored for each rule: none.
+    --per-rule-ignores DEP000=none
+    # Paths excluded on top of the defaults: a pattern no path matches.
+    --extend-exclude '^$'
+    # Paths excluded: deptry's defaults.
+    --exclude 'venv|\.venv|\.direnv|tests|\.git|setup\.py'
+  )
+  run "deptry" env PYTHONPATH="$site_packages" pipx run deptry==0.25.1 . "${deptry_overrides[@]}"
+fi
+
+if [ -f go.mod ]; then
+  run "go mod tidy" go mod tidy -diff
+  # Functions nothing reaches, from main packages and tests. deadcode reports
+  # without failing, so anything it prints fails. Go's own notices, such as a
+  # toolchain switch, go to stderr and do not count.
+  deadcode_check() {
+    local out
+    out="$(go run golang.org/x/tools/cmd/deadcode@v0.52.0 -test ./...)" || return 1
+    echo "$out"
+    [ -z "$out" ]
+  }
+  run "deadcode" deadcode_check
+fi
+
+# Tracked files that every check leaves out. comm -23 prints the lines only the
+# first list has.
+left_out_files() {
+  comm -23 <(git ls-files | sort) <(printf '%s\n' "${files[@]}" | sort)
+}
+
+if [ -f package.json ] && any "${typescript[@]}" "${javascript[@]}"; then
+  # Unused files, exports and types, imports of packages the manifest does not
+  # list, duplicate exports and import cycles. An entry point written as a
+  # pattern fails the check, and knip still runs without it.
+  knip_check() {
+    local config="$PWD/knip.pr-verify.json" ignored status=0
+    written+=("$config")
+    mapfile -t ignored < <(left_out_files)
+    node "$here/knip-config.mjs" "$config" "${ignored[@]}" || status=1
+    "$here/node_modules/.bin/knip" --config "$config" --no-progress --no-config-hints \
+      --include files,unlisted,unresolved,exports,types,nsExports,nsTypes,enumMembers,duplicates,cycles \
+      || status=1
+    return "$status"
+  }
+  run "knip" knip_check
 fi
 
 # Every project, whatever its runtime.
@@ -204,7 +326,7 @@ whitespace() {
     echo "Use LF line endings." >&2
     status=1
   fi
-  if [ ${#prose[@]} -gt 0 ] && git grep -nIE '[[:blank:]]+$' -- "${prose[@]}"; then
+  if any "${prose[@]}" && git grep -nIE '[[:blank:]]+$' -- "${prose[@]}"; then
     echo "Remove trailing whitespace." >&2
     status=1
   fi
@@ -231,18 +353,11 @@ large_files() {
 }
 run "file size" large_files
 
-mapfile -t shell < <(
-  for file in "${files[@]}"; do
-    if [[ "$file" =~ \.(sh|bash)$ ]] || head -n1 "$file" | grep -qE '^#!.*[/ ](ba|da|k)?sh$'; then
-      echo "$file"
-    fi
-  done
-)
 shellcheck_bin=""
-if [ $((${#workflows[@]} + ${#shell[@]})) -gt 0 ]; then
+if any "${workflows[@]}" "${shell[@]}"; then
   shellcheck_bin="$(shellcheck)"
 fi
-if [ ${#workflows[@]} -gt 0 ]; then
+if any "${workflows[@]}"; then
   # actionlint runs shellcheck on every run: block, with the same pinned copy.
   # 1.7.12 predates GitHub's $/ syntax for same-repository references and
   # rejects it, so those two messages, and only for $/ references, are ignored.
@@ -251,38 +366,37 @@ if [ ${#workflows[@]} -gt 0 ]; then
     -ignore 'action "\$/[^"]*" in invalid format because ref is missing' \
     -- "${workflows[@]}"
 fi
-if [ ${#shell[@]} -gt 0 ]; then
+if any "${shell[@]}"; then
   run "shellcheck" "$shellcheck_bin" --norc --severity=style -- "${shell[@]}"
 fi
 
-mapfile -t dockerfiles < <(
-  printf '%s\n' "${files[@]}" | grep -E '(^|/)(Dockerfile|Containerfile)([.-][^/]*)?$|\.dockerfile$'
-)
-if [ ${#dockerfiles[@]} -gt 0 ]; then
+if any "${dockerfiles[@]}"; then
   run "hadolint" "$(hadolint)" --config "$here/hadolint.yml" --disable-ignore-pragma \
     -- "${dockerfiles[@]}"
 fi
 
 # Comments that switch a check off, for tools with no flag to ignore them, in
 # each tool's own comment syntax and only in the files it reads, so prose that
-# names a directive does not match. The brackets keep this file from matching.
+# names a directive does not match.
 grep_files() {
   local pattern="$1"
   shift
-  [ $# -gt 0 ] && git grep -nE "$pattern" -- "$@"
+  any "$@" && git grep -nE "$pattern" -- "$@"
 }
 suppressions() {
-  local markup yaml code found=1
-  mapfile -t markup < <(printf '%s\n' "${prettier[@]}" | grep -E '\.(html?|vue|md)$')
-  mapfile -t yaml < <(printf '%s\n' "${prettier[@]}" | grep -E '\.ya?ml$')
-  mapfile -t code < <(printf '%s\n' "${prettier[@]}" | grep -vE '\.(html?|vue|md|ya?ml)$')
-  grep_files '#[ ]*(pyright[:]|fmt[:][ ]*(off|skip)|isort[:][ ]*(off|skip))' "${python[@]}" && found=0
-  grep_files '(//|/[*])[ ]*prettier[-]ignore' "${code[@]}" && found=0
-  grep_files '<!--[ ]*prettier[-]ignore' "${markup[@]}" && found=0
-  grep_files '#[ ]*prettier[-]ignore' "${yaml[@]}" && found=0
-  grep_files '(\{#|<!--)[ ]*djlint[:]off' "${templates[@]}" && found=0
-  grep_files '//[ ]*(nolint|lint[:]ignore)' "${go[@]}" && found=0
-  grep_files '#[ ]*shellcheck[ ]+disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
+  local code markup yaml found=1
+  mapfile -t code < <(
+    matching '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|json5|css|scss|less|graphql)$' "${prettier[@]}"
+  )
+  mapfile -t markup < <(matching '\.(html?|vue|md)$' "${prettier[@]}")
+  mapfile -t yaml < <(matching '\.ya?ml$' "${prettier[@]}")
+  grep_files '# *(pyright:|fmt: *(off|skip)|isort: *(off|skip))' "${python[@]}" && found=0
+  grep_files '(//|/\*) *prettier-ignore' "${code[@]}" && found=0
+  grep_files '<!-- *prettier-ignore' "${markup[@]}" && found=0
+  grep_files '# *prettier-ignore' "${yaml[@]}" && found=0
+  grep_files '(\{#|<!--) *djlint:off' "${templates[@]}" && found=0
+  grep_files '// *(nolint|lint:ignore)' "${go[@]}" && found=0
+  grep_files '# *shellcheck +disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
   if [ "$found" -eq 0 ]; then
     echo "These comments switch a check off. Fix what the check found instead." >&2
     return 1

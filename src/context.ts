@@ -13,9 +13,9 @@ import type { PullRequestRef } from "./types.js";
 
 export type Octokit = ReturnType<typeof getOctokit>;
 
-export const GUIDANCE_CAP_BYTES = 8 * 1024;
-export const MAP_CAP_BYTES = 48 * 1024;
-export const LOG_TAIL_BYTES = 64 * 1024;
+const GUIDANCE_CAP_BYTES = 8 * 1024;
+const MAP_CAP_BYTES = 48 * 1024;
+const LOG_TAIL_BYTES = 64 * 1024;
 
 export async function git(
   args: string[],

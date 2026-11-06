@@ -1,0 +1,8 @@
+{
+  "workspaces": {
+    ".": { "entry": ["src/main.ts", "src/precision-cli.ts"] },
+    "checks": {
+      "entry": ["eslint.config.mjs", "knip-config.mjs", "tsconfig.mjs"]
+    }
+  }
+}

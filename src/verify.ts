@@ -76,7 +76,7 @@ const SCANNER_IGNORE_FILES = new Set([
   ".trivyignore.yaml",
 ]);
 
-export function isScannerIgnoreFile(filePath: string): boolean {
+function isScannerIgnoreFile(filePath: string): boolean {
   return SCANNER_IGNORE_FILES.has(
     path.posix.basename(filePath.replace(/\\/g, "/")),
   );
