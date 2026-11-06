@@ -6,12 +6,21 @@
  * reactions through the API.
  */
 
-import type { Octokit } from "./context.js";
+import { PAGE_SIZE, type Octokit } from "./context.js";
 import {
   DEFAULT_TOKEN_LOGIN,
   parseFindingMarkers,
   postedBy,
-} from "./review.js";
+} from "./markers.js";
+
+const PERCENT = 100;
+const COLUMN_WIDTHS = {
+  category: 14,
+  kind: 11,
+  posted: 6,
+  wrong: 6,
+  precision: 9,
+} as const;
 
 export interface RatedComment {
   body: string;
@@ -57,7 +66,7 @@ export async function fetchRatedComments(
 ): Promise<RatedComment[]> {
   const comments = await octokit.paginate(
     octokit.rest.pulls.listReviewCommentsForRepo,
-    { owner, repo, per_page: 100 },
+    { owner, repo, per_page: PAGE_SIZE },
   );
   return comments
     .filter((c) => postedBy(c, author))
@@ -67,11 +76,14 @@ export async function fetchRatedComments(
 export function renderPrecision(rows: PrecisionRow[]): string {
   if (rows.length === 0) return "No inline findings posted yet.";
   const lines = rows.map((r) => {
-    const precision = Math.round((100 * (r.posted - r.markedWrong)) / r.posted);
-    return `${r.category.padEnd(14)} ${(r.verified ? "verified" : "unverified").padEnd(11)} ${String(r.posted).padStart(6)} ${String(r.markedWrong).padStart(6)} ${`${String(precision)}%`.padStart(9)}`;
+    const precision = Math.round(
+      (PERCENT * (r.posted - r.markedWrong)) / r.posted,
+    );
+    const percent = `${String(precision)}%`;
+    return `${r.category.padEnd(COLUMN_WIDTHS.category)} ${(r.verified ? "verified" : "unverified").padEnd(COLUMN_WIDTHS.kind)} ${String(r.posted).padStart(COLUMN_WIDTHS.posted)} ${String(r.markedWrong).padStart(COLUMN_WIDTHS.wrong)} ${percent.padStart(COLUMN_WIDTHS.precision)}`;
   });
   return [
-    `${"category".padEnd(14)} ${"kind".padEnd(11)} ${"posted".padStart(6)} ${"wrong".padStart(6)} ${"precision".padStart(9)}`,
+    `${"category".padEnd(COLUMN_WIDTHS.category)} ${"kind".padEnd(COLUMN_WIDTHS.kind)} ${"posted".padStart(COLUMN_WIDTHS.posted)} ${"wrong".padStart(COLUMN_WIDTHS.wrong)} ${"precision".padStart(COLUMN_WIDTHS.precision)}`,
     ...lines,
   ].join("\n");
 }

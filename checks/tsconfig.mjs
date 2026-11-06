@@ -3,7 +3,8 @@
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
-const [out, ...files] = process.argv.slice(2);
+const JSON_INDENT = 2;
+const [, , out, ...files] = process.argv;
 const project = path.resolve("tsconfig.json");
 
 const config = {
@@ -32,4 +33,4 @@ const config = {
   include: [],
 };
 
-writeFileSync(out, `${JSON.stringify(config, null, 2)}\n`);
+writeFileSync(out, `${JSON.stringify(config, null, JSON_INDENT)}\n`);

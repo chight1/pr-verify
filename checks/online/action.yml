@@ -1,7 +1,7 @@
 name: PR Verify online checks
 description: >-
-  The gate's checks that look things up on GitHub with the workflow's token,
-  with settings that ship with PR Verify rather than the project's own.
+  The gate's checks that look things up on GitHub, with the workflow's token,
+  and on package registries.
 runs:
   using: composite
   steps:
