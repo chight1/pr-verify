@@ -1,0 +1,8 @@
+# Every action pinned to a commit, except PR Verify's own: a project calls it at
+# the v1 branch to get each release, and its review runs at v1 so a pull request
+# to PR Verify cannot change the reviewer that judges it.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        chight1/pr-verify/*: ref-pin

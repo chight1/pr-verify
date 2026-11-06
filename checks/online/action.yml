@@ -1,0 +1,12 @@
+name: PR Verify online checks
+description: >-
+  The gate's checks that look things up on GitHub with the workflow's token,
+  with settings that ship with PR Verify rather than the project's own.
+runs:
+  using: composite
+  steps:
+    - name: online checks
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: bash "$GITHUB_ACTION_PATH/../run.sh" online

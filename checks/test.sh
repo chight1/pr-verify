@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Runs run.sh on scratch projects whose own configs try to loosen every check:
-# one of badly formatted files, which must fail and then pass once each
-# formatter has fixed them, and one of lint and type errors hidden behind
-# suppression comments, which must fail at every tool.
+# Runs run.sh, and run.sh online, on scratch projects whose own configs try to
+# loosen every check: one of badly formatted files, which must fail and then pass
+# once each formatter has fixed them, and one of lint and type errors hidden
+# behind suppression comments, which must fail at every tool.
 # It downloads its tools, so it runs in CI rather than in the sandboxed suite.
 set -euo pipefail
 
@@ -52,6 +52,13 @@ printf '<div>\n{%% if x %%}\n<p>{{ x }}</p>\n{%% endif %%}\n</div>\n' > template
 printf '{"lockfileVersion":3}\n' > package-lock.json
 printf 'const   gen=1\n' > generated.js
 printf 'generated.js linguist-generated=true\n' > .gitattributes
+# A clean workflow, the templates a project copies, and a clean shell script,
+# which the every-project checks must pass.
+mkdir -p .github/workflows
+printf 'name: ci\non: push\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: echo ok\n' \
+  > .github/workflows/ci.yml
+cp "$here"/../templates/*.yml .github/workflows/
+printf '#!/usr/bin/env bash\necho "ok"\n' > build.sh
 git add -A
 
 if output="$(bash "$here/run.sh" 2>&1)"; then
@@ -74,6 +81,9 @@ git add -A
 if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on formatted files"
 fi
+if ! output="$(bash "$here/run.sh" online 2>&1)"; then
+  fail "run.sh online failed on a clean workflow or a template"
+fi
 
 mkdir "$scratch/lint" && cd "$scratch/lint"
 git init -q
@@ -87,14 +97,30 @@ printf '// Package main is a fixture.\npackage main\n\nimport "os"\n\nfunc main(
 # The comments the gate rejects outright, written so this file has none of them.
 printf 'x = 1  # pyright%s basic\n' ':' > suppressed.py
 printf '// prettier%signore\nexport const y = 1;\n' '-' > suppressed.ts
+printf '#!/usr/bin/env bash\ncd %s\n' "\$1" > deploy.sh
+printf '#!/usr/bin/env bash\n# shellcheck%sdisable=SC2086\necho %s\n' ' ' "\$1" > suppressed.sh
+# A workflow with an unpinned action and a script injection behind zizmor's ignore comment.
+mkdir -p .github/workflows
+printf 'name: ci\non: pull_request\npermissions: {}\njobs:\n  test:\n    runs-on: ubuntu-24.04\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo "%s" # zizmor: ignore[template-injection]\n      - run: echo %s\n' \
+  "\${{ github.event.pull_request.title }}" "\$HOME" > .github/workflows/ci.yml
+printf 'FROM ubuntu\n# hadolint ignore=DL3008\nRUN apt-get install curl\n' > Dockerfile
+# CRLF, trailing whitespace and no final newline, in a file no formatter reads.
+printf 'one\r\ntwo \nthree' > notes.txt
+head -c 1100000 /dev/zero > big.bin
 git add -A
 
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on lint and type errors"
 fi
-for tool in "ruff check" pyright tsc ESLint golangci-lint suppressions; do
+if online="$(bash "$here/run.sh" online 2>&1)"; then
+  fail "run.sh online passed on an unpinned action and a script injection"
+fi
+output+="$online"
+for tool in "ruff check" pyright tsc ESLint golangci-lint whitespace "file size" actionlint zizmor \
+  shellcheck hadolint suppressions; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
-  errcheck suppressed.py suppressed.ts
+  errcheck suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
+  "notes.txt: no newline" big.bin SC2086 SC2164 unpinned-uses template-injection DL3006 DL3008
 echo "checks: ok"

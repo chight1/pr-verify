@@ -77,7 +77,14 @@ The gate's `code quality` step checks formatting, lint and types. Tools are pick
 | Lint   | `ruff check` with every rule, minus docstring style and the rules that conflict with the formatter | `golangci-lint` with errcheck, errorlint, exhaustive, gocritic, govet, ineffassign, revive, staticcheck and unused | ESLint with typescript-eslint's `strict-type-checked` and `stylistic-type-checked`; JavaScript gets the rules that need no type information  |
 | Types  | pyright in strict mode                                                                             | the compiler                                                                                                       | `tsc` with every strict flag on, plus `noUncheckedIndexedAccess`, `noImplicitOverride`, `noImplicitReturns` and `noFallthroughCasesInSwitch` |
 
-Every tool runs with PR Verify's settings, and a project's own config and ignore files have no effect, so a pull request cannot loosen a check. The one exception is the project's `tsconfig.json`, which the type check extends for module settings and paths, with the strict flags forced on top. Suppression comments do nothing: `# noqa`, `# type: ignore` and ESLint directives are ignored, and an `@ts-` comment is a lint error. Comments that a tool cannot be told to ignore, such as `# pyright:`, `# fmt: off`, `prettier-ignore`, `djlint:off` and `//nolint`, fail the step. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out.
+Every tool runs with PR Verify's settings, and a project's own config and ignore files have no effect, so a pull request cannot loosen a check. The one exception is the project's `tsconfig.json`, which the type check extends for module settings and paths, with the strict flags forced on top. Suppression comments do nothing: `# noqa`, `# type: ignore`, ESLint directives, zizmor's ignore comments and hadolint's are ignored, and an `@ts-` comment is a lint error. Comments that a tool cannot be told to ignore, such as `# pyright:`, `# fmt: off`, `prettier-ignore`, `djlint:off`, `//nolint` and `# shellcheck disable`, fail the step. Lockfiles, minified files, source maps and files marked `linguist-generated` are left out.
+
+Every project also gets, whatever its runtime:
+
+- LF line endings, no trailing whitespace and a final newline in every text file, including the ones no formatter reads.
+- No committed file over 1 MB outside Git LFS.
+- actionlint on workflows, with shellcheck on every `run:` block, and zizmor on workflows and actions. zizmor requires every action pinned to a commit, except PR Verify's own, which a project calls at `@v1`. zizmor looks actions up on GitHub with the workflow's token, so it runs in an `online checks` step of its own, before the install step runs any of the project's code.
+- shellcheck on shell scripts, and hadolint on Dockerfiles.
 
 Each tool runs even when another fails, and the log shows each one in its own group. The type checks and typed lint rules run after install, against the project's dependencies. The tools are pinned to a version.
 
