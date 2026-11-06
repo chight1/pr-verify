@@ -13,9 +13,16 @@ import type { PullRequestRef } from "./types.js";
 
 export type Octokit = ReturnType<typeof getOctokit>;
 
-export const GUIDANCE_CAP_BYTES = 8 * 1024;
-export const MAP_CAP_BYTES = 48 * 1024;
-export const LOG_TAIL_BYTES = 64 * 1024;
+const GUIDANCE_CAP_BYTES = 8 * 1024;
+const MAP_CAP_BYTES = 48 * 1024;
+const LOG_TAIL_BYTES = 64 * 1024;
+
+/** The most items GitHub returns in one page of a list. */
+export const PAGE_SIZE = 100;
+const CHECK_ATTR_FIELDS = 3;
+const MIN_SECRET_LENGTH = 8;
+const UTF8_CONTINUATION_MASK = 0xc0;
+const UTF8_CONTINUATION_BITS = 0x80;
 
 export async function git(
   args: string[],
@@ -105,12 +112,13 @@ async function generatedPaths(
   );
   const fields = out.split("\0");
   const generated = new Set<string>();
-  for (let i = 0; i + 2 < fields.length; i += 3) {
-    const file = fields[i];
-    if (
-      file !== undefined &&
-      (fields[i + 2] === "true" || fields[i + 2] === "set")
-    )
+  for (
+    let i = 0;
+    i + CHECK_ATTR_FIELDS <= fields.length;
+    i += CHECK_ATTR_FIELDS
+  ) {
+    const [file, , value] = fields.slice(i, i + CHECK_ATTR_FIELDS);
+    if (file !== undefined && (value === "true" || value === "set"))
       generated.add(file);
   }
   return generated;
@@ -150,12 +158,17 @@ export interface RepositoryMap {
   truncated: boolean;
 }
 
+/** Orders strings by UTF-16 code unit, as `sort()` does with no comparator. */
+export function byCodeUnits(a: string, b: string): number {
+  return Number(a > b) - Number(a < b);
+}
+
 /** One path per line, sorted, capped so a huge monorepo can't eat the prompt budget. */
 export function buildRepositoryMap(
   files: string[],
   capBytes = MAP_CAP_BYTES,
 ): RepositoryMap {
-  const sorted = [...files].sort();
+  const sorted = [...files].sort(byCodeUnits);
   const lines: string[] = [];
   let bytes = 0;
   for (const file of sorted) {
@@ -208,7 +221,11 @@ export function capUtf8(raw: Buffer, capBytes: number): Guidance {
   }
   // Cut on a UTF-8 boundary so we never emit a half character.
   let end = capBytes;
-  while (end > 0 && (raw.readUInt8(end) & 0xc0) === 0x80) end -= 1;
+  while (
+    end > 0 &&
+    (raw.readUInt8(end) & UTF8_CONTINUATION_MASK) === UTF8_CONTINUATION_BITS
+  )
+    end -= 1;
   return {
     text: raw.subarray(0, end).toString("utf8"),
     bytes: end,
@@ -226,14 +243,17 @@ export class Scrubber {
   private static readonly PATTERNS: RegExp[] = [
     /sk-ant-[A-Za-z0-9_-]{20,}/g,
     /\bgh[pousr]_[A-Za-z0-9]{20,}\b/g,
-    /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
+    /\bgithub_pat_\w{20,}\b/g,
     /\bAKIA[0-9A-Z]{16}\b/g,
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   ];
 
   constructor(secrets: (string | undefined)[]) {
     this.secrets = secrets
-      .filter((s): s is string => typeof s === "string" && s.length >= 8)
+      .filter(
+        (s): s is string =>
+          typeof s === "string" && s.length >= MIN_SECRET_LENGTH,
+      )
       .sort((a, b) => b.length - a.length);
   }
 
@@ -269,7 +289,7 @@ export async function fetchFailingStepLog(
       owner,
       repo,
       run_id: runId,
-      per_page: 100,
+      per_page: PAGE_SIZE,
     },
   );
   const gate = jobs.find(
@@ -289,6 +309,36 @@ export async function fetchFailingStepLog(
   return { stepName: failing.name, log: extractStepLog(log, failing.name) };
 }
 
+/** The index of the last `##[group]` line whose header passes `matches`, or -1. */
+function lastGroup(
+  lines: string[],
+  matches: (header: string) => boolean,
+): number {
+  let found = -1;
+  for (const [i, line] of lines.entries()) {
+    if (
+      line.startsWith("##[group]") &&
+      matches(line.slice("##[group]".length).trim())
+    ) {
+      found = i;
+    }
+  }
+  return found;
+}
+
+/** Where the step's section starts in the log's lines, or -1 when no section can be tied to it. */
+function stepGroupStart(lines: string[], stepName: string): number {
+  const named = lastGroup(
+    lines,
+    (header) => header === stepName || header === `Run ${stepName}`,
+  );
+  if (named !== -1) return named;
+  // The group header names the command, not the step. Use the section containing the first error.
+  const errorAt = lines.findIndex((l) => l.startsWith("##[error]"));
+  if (errorAt === -1) return -1;
+  return lastGroup(lines.slice(0, errorAt + 1), () => true);
+}
+
 /**
  * Pulls one step's section out of a job log. GitHub separates steps with a
  * `##[group]` line that names the step; the failing step's section carries
@@ -304,22 +354,7 @@ export function extractStepLog(
     l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/, ""),
   );
 
-  let start = -1;
-  for (const [i, line] of stripped.entries()) {
-    if (line.startsWith("##[group]")) {
-      const header = line.slice("##[group]".length).trim();
-      if (header === stepName || header === `Run ${stepName}`) start = i;
-    }
-  }
-  if (start === -1) {
-    // The group header names the command, not the step. Use the section containing the first error.
-    const errorAt = stripped.findIndex((l) => l.startsWith("##[error]"));
-    if (errorAt !== -1) {
-      for (const [i, line] of stripped.slice(0, errorAt + 1).entries()) {
-        if (line.startsWith("##[group]")) start = i;
-      }
-    }
-  }
+  const start = stepGroupStart(stripped, stepName);
   if (start === -1) return tail(stripped.join("\n"), tailBytes);
 
   const next = stripped.findIndex(
@@ -333,6 +368,6 @@ export function tail(text: string, bytes: number): string {
   const buffer = Buffer.from(text, "utf8");
   if (buffer.byteLength <= bytes) return text;
   const slice = buffer.subarray(buffer.byteLength - bytes);
-  const firstNewline = slice.indexOf(0x0a);
+  const firstNewline = slice.indexOf("\n");
   return `[... ${String(buffer.byteLength - bytes)} bytes trimmed]\n${slice.subarray(firstNewline + 1).toString("utf8")}`;
 }

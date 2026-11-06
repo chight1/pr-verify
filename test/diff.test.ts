@@ -173,7 +173,7 @@ describe("hunk bodies", () => {
 
 describe("recountHunks", () => {
   it("leaves git diff output unchanged", () => {
-    expect(recountHunks(SAMPLE)).toBe(SAMPLE.replace(/\n+$/, "\n"));
+    expect(recountHunks(SAMPLE)).toBe(`${SAMPLE.trimEnd()}\n`);
   });
 
   it("corrects overstated and understated counts from the hunk body", () => {
