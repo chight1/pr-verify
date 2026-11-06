@@ -4,13 +4,15 @@
  * network or a full disk.
  */
 
-export type InfraLabel =
+type InfraLabel =
   "network" | "registry" | "out-of-memory" | "disk" | "cancelled" | "timeout";
 
 interface Rule {
   label: InfraLabel;
   patterns: RegExp[];
 }
+
+const EVIDENCE_MAX_CHARS = 300;
 
 const RULES: Rule[] = [
   {
@@ -77,7 +79,7 @@ const RULES: Rule[] = [
 ];
 
 /** Gate steps the agent never investigates: it cannot run the scanner, so it could not verify a fix. */
-export const SCAN_STEPS: Record<string, string> = {
+const SCAN_STEPS: Record<string, string> = {
   "security scan":
     "Trivy found a vulnerability, secret or misconfiguration; the step log lists each one.",
   "install security scanner":
@@ -106,7 +108,10 @@ export function preclassify(log: string): PreclassifyResult | null {
     for (const pattern of rule.patterns) {
       const hit = lines.find((line) => pattern.test(line));
       if (hit !== undefined) {
-        return { label: rule.label, evidence: hit.trim().slice(0, 300) };
+        return {
+          label: rule.label,
+          evidence: hit.trim().slice(0, EVIDENCE_MAX_CHARS),
+        };
       }
     }
   }

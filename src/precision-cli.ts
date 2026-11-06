@@ -12,14 +12,16 @@ import {
   tallyPrecision,
 } from "./precision.js";
 
-const [target, author] = process.argv.slice(2);
+const USAGE_EXIT_CODE = 2;
+
+const [, , target, author] = process.argv;
 const [owner, repo] = target?.split("/") ?? [];
 const token = process.env.GITHUB_TOKEN;
 if (!owner || !repo || !token) {
-  console.error(
-    "usage: GITHUB_TOKEN=... npm run precision -- owner/repo [author]",
+  process.stderr.write(
+    "usage: GITHUB_TOKEN=... npm run precision -- owner/repo [author]\n",
   );
-  process.exit(2);
+  process.exit(USAGE_EXIT_CODE);
 }
 
 const comments = await fetchRatedComments(
@@ -28,4 +30,4 @@ const comments = await fetchRatedComments(
   repo,
   author,
 );
-console.log(renderPrecision(tallyPrecision(comments)));
+process.stdout.write(`${renderPrecision(tallyPrecision(comments))}\n`);

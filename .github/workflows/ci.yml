@@ -69,5 +69,7 @@ jobs:
           persist-credentials: false
       - name: install check tools
         run: npm ci --prefix checks --ignore-scripts --no-audit --no-fund
+      - name: checks unit tests
+        run: pipx run pytest==9.1.1 -q -p no:cacheprovider --rootdir=. -o pythonpath=checks checks
       - name: checks test
         run: bash checks/test.sh

@@ -6,7 +6,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BudgetName } from "./budget.js";
-import type { ToolCallRecord } from "./tools.js";
+import type { ToolCallRecord } from "./tool-executor.js";
 import type {
   FindingCategory,
   GateResult,
@@ -14,6 +14,8 @@ import type {
   Outcome,
   ResolvedFinding,
 } from "./types.js";
+
+const JSON_INDENT = 2;
 
 export interface FindingRecord {
   n: number;
@@ -107,6 +109,10 @@ export async function writeRecord(
 ): Promise<string> {
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `run-${String(record.identity.runId)}.json`);
-  await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+  await writeFile(
+    file,
+    `${JSON.stringify(record, null, JSON_INDENT)}\n`,
+    "utf8",
+  );
   return file;
 }
