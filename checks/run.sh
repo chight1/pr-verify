@@ -1,17 +1,55 @@
 #!/usr/bin/env bash
-# The gate's code-quality checks, run on the project in the working directory.
-# Every tool runs with settings that ship here, so a project's own config and
-# ignore files have no effect on the result. Each check runs even when an
-# earlier one fails, and the script fails at the end if any did.
+# The gate's code-quality checks, run on the project in the working directory,
+# or with "online", the checks that need the workflow's token. Every tool runs
+# with settings that ship here, so a project's own config and ignore files have
+# no effect on the result. Each check runs even when an earlier one fails, and
+# the script fails at the end if any did.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=SCRIPTDIR/common.sh
-source "$here/common.sh"
+failed=()
 # Configs written at the project root, since pyright and TypeScript resolve the
 # project's imports from the config's own directory. Untracked, and removed on exit.
 written=()
 trap 'rm -f "${written[@]}"' EXIT
+
+# Tracked files a person writes: not lockfiles, minified bundles, source maps,
+# or files .gitattributes marks linguist-generated. The same files the review reads.
+written_files() {
+  git ls-files -z \
+    | git check-attr -z --stdin linguist-generated \
+    | while IFS= read -r -d '' path && IFS= read -r -d '' _ && IFS= read -r -d '' value; do
+      [ "$value" = set ] || [ "$value" = true ] || printf '%s\n' "$path"
+    done \
+    | grep -vE '(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|Pipfile\.lock|uv\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|packages\.lock\.json|composer\.lock)$|\.min\.(js|css)$|\.map$'
+}
+
+# Runs one tool in a collapsible log group and records it if it fails.
+run() {
+  local name="$1"
+  shift
+  echo "::group::$name"
+  "$@"
+  local status=$?
+  echo "::endgroup::"
+  if [ "$status" -ne 0 ]; then
+    failed+=("$name")
+    echo "::error title=$name::$name failed. The log group above shows what to fix."
+  fi
+}
+
+# Lists the failed checks under a heading in the job summary and ends the
+# script, failing it if any check failed.
+finish() {
+  local heading="$1"
+  [ ${#failed[@]} -eq 0 ] && exit 0
+  {
+    echo "### $heading"
+    echo
+    printf -- '- %s failed\n' "${failed[@]}"
+  } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 1
+}
 
 # Downloads a pinned release and checks it against its SHA-256, then prints the
 # path of the binary: the download itself, or the named member of its archive.
@@ -48,9 +86,25 @@ hadolint() {
     c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
 }
 
+mapfile -t files < <(written_files)
+mapfile -t workflows < <(printf '%s\n' "${files[@]}" | grep -E '^\.github/workflows/[^/]+\.ya?ml$')
+mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml$')
+
+# With "online", only the checks that look things up on GitHub with the
+# workflow's token. The gate runs them in a step of their own before its install
+# step, the first to run the project's code, so no process the project starts is
+# alive to read the token.
+if [ "${1:-}" = online ]; then
+  # zizmor's online audits look up the actions a workflow uses.
+  if [ $((${#workflows[@]} + ${#actions[@]})) -gt 0 ]; then
+    run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
+      "${workflows[@]}" "${actions[@]}"
+  fi
+  finish "Online checks"
+fi
+
 # Files are kept apart by type, not by the project's runtime, so a Python
 # project's HTML and JavaScript are checked too.
-mapfile -t files < <(written_files)
 mapfile -t python < <(printf '%s\n' "${files[@]}" | grep -E '\.pyi?$')
 mapfile -t go < <(printf '%s\n' "${files[@]}" | grep -E '\.go$')
 # Jinja and Django templates go to djLint, since Prettier breaks their tags.
@@ -175,8 +229,6 @@ large_files() {
 }
 run "file size" large_files
 
-mapfile -t workflows < <(printf '%s\n' "${files[@]}" | grep -E '^\.github/workflows/[^/]+\.ya?ml$')
-mapfile -t actions < <(printf '%s\n' "${files[@]}" | grep -E '(^|/)action\.ya?ml$')
 mapfile -t shell < <(
   for file in "${files[@]}"; do
     if [[ "$file" =~ \.(sh|bash)$ ]] || head -n1 "$file" | grep -qE '^#!.*[/ ](ba|da|k)?sh$'; then

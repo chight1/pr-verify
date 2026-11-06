@@ -9,4 +9,4 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-      run: bash "$GITHUB_ACTION_PATH/../online.sh"
+      run: bash "$GITHUB_ACTION_PATH/../run.sh" online

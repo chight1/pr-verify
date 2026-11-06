@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Runs run.sh and online.sh on scratch projects whose own configs try to loosen
-# every check: one of badly formatted files, which must fail and then pass once
-# each formatter has fixed them, and one of lint and type errors hidden behind
-# suppression comments, which must fail at every tool.
+# Runs run.sh, and run.sh online, on scratch projects whose own configs try to
+# loosen every check: one of badly formatted files, which must fail and then pass
+# once each formatter has fixed them, and one of lint and type errors hidden
+# behind suppression comments, which must fail at every tool.
 # It downloads its tools, so it runs in CI rather than in the sandboxed suite.
 set -euo pipefail
 
@@ -79,8 +79,8 @@ git add -A
 if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on formatted files"
 fi
-if ! output="$(bash "$here/online.sh" 2>&1)"; then
-  fail "online.sh failed on a clean workflow"
+if ! output="$(bash "$here/run.sh" online 2>&1)"; then
+  fail "run.sh online failed on a clean workflow"
 fi
 
 mkdir "$scratch/lint" && cd "$scratch/lint"
@@ -110,8 +110,8 @@ git add -A
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on lint and type errors"
 fi
-if online="$(bash "$here/online.sh" 2>&1)"; then
-  fail "online.sh passed on an unpinned action and a script injection"
+if online="$(bash "$here/run.sh" online 2>&1)"; then
+  fail "run.sh online passed on an unpinned action and a script injection"
 fi
 output+="$online"
 for tool in "ruff check" pyright tsc ESLint golangci-lint whitespace "file size" actionlint zizmor \
