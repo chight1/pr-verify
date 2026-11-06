@@ -52,12 +52,13 @@ export function testEnvironment(
     if (value !== undefined) env[name] = value;
   }
   // The module proxy is unreachable anyway; off makes Go fail at once instead of retrying.
+  // Go's build cache goes outside ~/.cache, which the sandbox mounts read-only.
   return {
     ...env,
     HOME: home,
     CI: "true",
     GOPROXY: "off",
-    GOCACHE: `${home}/.cache/go-build`,
+    GOCACHE: `${home}/.go-build`,
   };
 }
 
