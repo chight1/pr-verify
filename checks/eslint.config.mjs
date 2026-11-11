@@ -8,7 +8,6 @@ import { defineConfig } from "eslint/config";
 import sonarjs from "eslint-plugin-sonarjs";
 import globals from "globals";
 import tseslint from "typescript-eslint";
-import gate from "./eslint-rules.mjs";
 
 const TESTS = [
   "**/*.{test,spec}.{js,jsx,mjs,cjs,ts,tsx,mts,cts}",
@@ -42,11 +41,23 @@ export default defineConfig(
     extends: [tseslint.configs.strict, tseslint.configs.stylistic],
   },
   {
-    plugins: { "pr-verify": gate },
     rules: {
-      // Numbers other than 0, 1 and -1 are named where they are declared. The
-      // published rules also flag the parts of a named value, as in 8 * 1024.
-      "pr-verify/no-magic-numbers": "error",
+      // Numbers other than 0, 1 and -1 are named where they are declared: a
+      // constant, an enum member, a readonly field, a type or a default value.
+      "no-magic-numbers": "off",
+      "@typescript-eslint/no-magic-numbers": [
+        "error",
+        {
+          ignore: [0, 1, -1],
+          ignoreArrayIndexes: true,
+          ignoreDefaultValues: true,
+          ignoreEnums: true,
+          ignoreNumericLiteralTypes: true,
+          ignoreReadonlyClassProperties: true,
+          ignoreTypeIndexes: true,
+          enforceConst: true,
+        },
+      ],
       // A command found on PATH is how every program runs a tool; replacing it
       // means already controlling PATH. Semgrep follows untrusted input to a
       // command where it matters.
@@ -100,7 +111,7 @@ export default defineConfig(
       "vitest/no-conditional-expect": "error",
       "vitest/no-disabled-tests": "error",
       "vitest/no-focused-tests": "error",
-      "pr-verify/no-magic-numbers": "off",
+      "@typescript-eslint/no-magic-numbers": "off",
     },
   },
 );

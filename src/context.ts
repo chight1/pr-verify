@@ -8,14 +8,21 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { getExecOutput } from "@actions/exec";
 import type { getOctokit } from "@actions/github";
+import { BYTES_PER_KB } from "./budget.js";
 import { parseDiff } from "./diff.js";
 import type { PullRequestRef } from "./types.js";
 
 export type Octokit = ReturnType<typeof getOctokit>;
 
-const GUIDANCE_CAP_BYTES = 8 * 1024;
-const MAP_CAP_BYTES = 48 * 1024;
-const LOG_TAIL_BYTES = 64 * 1024;
+/** The project's instructions for the reviewer, from the guidance-file input. */
+const GUIDANCE_FILE_LIMIT_KB = 8;
+const GUIDANCE_FILE_LIMIT_BYTES = GUIDANCE_FILE_LIMIT_KB * BYTES_PER_KB;
+/** The list of every file path in the repo, sent to Claude so it knows what files exist. */
+const FILE_LIST_LIMIT_KB = 48;
+const FILE_LIST_LIMIT_BYTES = FILE_LIST_LIMIT_KB * BYTES_PER_KB;
+/** Only the end of a failed CI step's log is sent to Claude. */
+const FAILED_CI_LOG_LIMIT_KB = 64;
+const FAILED_CI_LOG_LIMIT_BYTES = FAILED_CI_LOG_LIMIT_KB * BYTES_PER_KB;
 
 /** The most items GitHub returns in one page of a list. */
 export const PAGE_SIZE = 100;
@@ -166,7 +173,7 @@ export function byCodeUnits(a: string, b: string): number {
 /** One path per line, sorted, capped so a huge monorepo can't eat the prompt budget. */
 export function buildRepositoryMap(
   files: string[],
-  capBytes = MAP_CAP_BYTES,
+  capBytes = FILE_LIST_LIMIT_BYTES,
 ): RepositoryMap {
   const sorted = [...files].sort(byCodeUnits);
   const lines: string[] = [];
@@ -199,7 +206,7 @@ export interface Guidance {
 export async function readGuidance(
   repoRoot: string,
   relativePath: string,
-  capBytes = GUIDANCE_CAP_BYTES,
+  capBytes = GUIDANCE_FILE_LIMIT_BYTES,
 ): Promise<Guidance | null> {
   let raw: Buffer;
   try {
@@ -347,7 +354,7 @@ function stepGroupStart(lines: string[], stepName: string): number {
 export function extractStepLog(
   log: string,
   stepName: string,
-  tailBytes = LOG_TAIL_BYTES,
+  tailBytes = FAILED_CI_LOG_LIMIT_BYTES,
 ): string {
   const lines = log.split("\n");
   const stripped = lines.map((l) =>

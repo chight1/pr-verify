@@ -7,12 +7,15 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { Budget } from "./budget.js";
+import { BYTES_PER_KB, type Budget } from "./budget.js";
 import type { Scrubber } from "./context.js";
 import { applyHints, recountHunks } from "./diff.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
 import type { ScratchTree } from "./scratch-tree.js";
-import { READ_FILE_MAX_KB, READ_FILE_MAX_LINES } from "./tool-definitions.js";
+import {
+  READ_FILE_LIMIT_KB,
+  READ_FILE_LIMIT_LINES,
+} from "./tool-definitions.js";
 import {
   expectInteger,
   expectString,
@@ -23,7 +26,7 @@ import {
 } from "./tool-input.js";
 import type { Mode, Patch, PatchKind } from "./types.js";
 
-const READ_FILE_MAX_BYTES = READ_FILE_MAX_KB * 1024;
+const READ_FILE_LIMIT_BYTES = READ_FILE_LIMIT_KB * BYTES_PER_KB;
 
 /** How much of a rejected patch the run record keeps. */
 const PREVIEW_BYTES = 2048;
@@ -216,7 +219,7 @@ export class ToolExecutor {
     const all = raw.split("\n");
     if (raw.endsWith("\n")) all.pop(); // the final newline ends the last line; it does not start another
     const wantedEnd = Math.min(requestedEnd ?? all.length, all.length);
-    const end = Math.min(wantedEnd, start - 1 + READ_FILE_MAX_LINES);
+    const end = Math.min(wantedEnd, start - 1 + READ_FILE_LIMIT_LINES);
     const slice = all.slice(start - 1, end);
 
     const numbered: string[] = [];
@@ -226,7 +229,7 @@ export class ToolExecutor {
     for (const [i, text] of slice.entries()) {
       const line = `${String(start + i)}\t${text}`;
       bytes += Buffer.byteLength(line) + 1;
-      if (bytes > READ_FILE_MAX_BYTES) {
+      if (bytes > READ_FILE_LIMIT_BYTES) {
         truncated = true;
         break;
       }

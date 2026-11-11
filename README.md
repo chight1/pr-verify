@@ -81,15 +81,15 @@ Every tool runs with PR Verify's settings, and a project's own config and ignore
 
 Common mistakes are checked in every language:
 
-| Pattern                                                         | Python                         | Go                                    | JavaScript and TypeScript                                                  |
-| --------------------------------------------------------------- | ------------------------------ | ------------------------------------- | -------------------------------------------------------------------------- |
-| Debug output                                                    | ruff `T20`                     | forbidigo on `fmt.Print*` and `print` | `no-console`                                                               |
-| Magic numbers, other than 0, 1 and -1, outside a named constant | ruff `PLR2004`, in comparisons | mnd                                   | the gate's own rule, which allows arithmetic like `8 * 1024` in a constant |
-| Commented-out code                                              | ruff `ERA001`                  | gocritic `commentedOutCode`           | SonarJS `no-commented-code`                                                |
-| A `TODO` or `FIXME` that names no issue                         | ruff `TD003`                   | the gate's own check                  | SonarJS `comment-regex`                                                    |
-| Swallowed errors                                                | ruff `BLE`, `S110`, `S112`     | errcheck, nilerr                      | `no-empty`, typescript-eslint's promise rules                              |
-| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-match`                                                                 |
-| A test that is always skipped, or asserts nothing               | Semgrep rules                  | Semgrep rules                         | the Vitest plugin's rules, which also fit Jest                             |
+| Pattern                                                         | Python                         | Go                                    | JavaScript and TypeScript                      |
+| --------------------------------------------------------------- | ------------------------------ | ------------------------------------- | ---------------------------------------------- |
+| Debug output                                                    | ruff `T20`                     | forbidigo on `fmt.Print*` and `print` | `no-console`                                   |
+| Magic numbers, other than 0, 1 and -1, outside a named constant | ruff `PLR2004`, in comparisons | mnd                                   | typescript-eslint `no-magic-numbers`           |
+| Commented-out code                                              | ruff `ERA001`                  | gocritic `commentedOutCode`           | SonarJS `no-commented-code`                    |
+| A `TODO` or `FIXME` that names no issue                         | ruff `TD003`                   | the gate's own check                  | SonarJS `comment-regex`                        |
+| Swallowed errors                                                | ruff `BLE`, `S110`, `S112`     | errcheck, nilerr                      | `no-empty`, typescript-eslint's promise rules  |
+| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-match`                                     |
+| A test that is always skipped, or asserts nothing               | Semgrep rules                  | Semgrep rules                         | the Vitest plugin's rules, which also fit Jest |
 
 JavaScript and TypeScript also get SonarJS's recommended rules. The Semgrep rules ship in `checks/semgrep.yml` and run from the image the static analysis step uses.
 

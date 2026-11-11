@@ -8,12 +8,15 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { BYTES_PER_KB } from "./budget.js";
 import { git } from "./context.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
 import { runCommand, type ScratchTree } from "./scratch-tree.js";
 import type { Patch } from "./types.js";
 
-const SEMGREP_OUTPUT_TAIL_BYTES = 16 * 1024;
+/** Only the end of Semgrep's console output is kept, to show when Semgrep itself fails. */
+const SEMGREP_OUTPUT_LIMIT_KB = 16;
+const SEMGREP_OUTPUT_LIMIT_BYTES = SEMGREP_OUTPUT_LIMIT_KB * BYTES_PER_KB;
 
 export interface Verification {
   /** True when the test patch alone makes the suite fail on the PR commit. Null when no test patch. */
@@ -111,7 +114,7 @@ export async function runStaticAnalysis(
       command,
       tree.root,
       timeoutMs,
-      SEMGREP_OUTPUT_TAIL_BYTES,
+      SEMGREP_OUTPUT_LIMIT_BYTES,
     );
     if (result.exitCode !== 0)
       return {

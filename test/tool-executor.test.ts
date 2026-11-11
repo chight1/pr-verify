@@ -7,7 +7,7 @@ import { Budget } from "../src/budget.js";
 import { Scrubber } from "../src/context.js";
 import { recountHunks } from "../src/diff.js";
 import type { ApplyResult, ScratchTree, TestRun } from "../src/scratch-tree.js";
-import { READ_FILE_MAX_LINES } from "../src/tool-definitions.js";
+import { READ_FILE_LIMIT_LINES } from "../src/tool-definitions.js";
 import { ToolExecutor } from "../src/tool-executor.js";
 
 /** A ScratchTree stand-in that records what was asked of it. */
@@ -98,9 +98,9 @@ describe("read_file", () => {
     const text = whole.block.content as string;
     expect(text.startsWith("1\tline 1\n")).toBe(true);
     expect(text).toContain(
-      `${String(READ_FILE_MAX_LINES)}\tline ${String(READ_FILE_MAX_LINES)}`,
+      `${String(READ_FILE_LIMIT_LINES)}\tline ${String(READ_FILE_LIMIT_LINES)}`,
     );
-    expect(text).not.toContain(`${String(READ_FILE_MAX_LINES + 1)}\tline`);
+    expect(text).not.toContain(`${String(READ_FILE_LIMIT_LINES + 1)}\tline`);
     expect(text).toMatch(/\[truncated: showing lines 1-400 of 500\]$/);
 
     const range = await exec.execute(
