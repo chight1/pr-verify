@@ -121,9 +121,14 @@ describe.runIf(canSandbox)("Sandbox", () => {
     }
   });
 
-  it("kills a command that runs past its timeout", async () => {
-    const result = await run("sleep 60", 2_000);
-    expect(result).toMatchObject({ exitCode: null, timedOut: true });
-    expect(result.durationMs).toBeLessThan(20_000);
-  });
+  // vitest stops a test after 5 seconds by default, sooner than the duration check allows.
+  it(
+    "kills a command that runs past its timeout",
+    { timeout: 30_000 },
+    async () => {
+      const result = await run("sleep 60", 2_000);
+      expect(result).toMatchObject({ exitCode: null, timedOut: true });
+      expect(result.durationMs).toBeLessThan(20_000);
+    },
+  );
 });
