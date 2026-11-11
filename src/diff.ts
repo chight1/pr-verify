@@ -1,6 +1,7 @@
 /**
- * A small unified-diff parser. Three modules depend on it: context (what
- * changed), review (is this line commentable), verify (the patch policy).
+ * A small unified-diff parser for context (what changed), review (is this
+ * line commentable), prior findings (did its line change) and the patch
+ * policy (what a patch touches).
  * It reads `git diff` output and the diffs the agent proposes, which may be
  * plain unified diffs without git's headers.
  */

@@ -112,17 +112,7 @@ Finding accuracy is measured by you, not by a proxy: a thumbs-down reaction on a
 
 PR Verify is one repository holding three things: the action (TypeScript, compiled and bundled into a single dist/index.js with ncc, Vercel's bundler for Node actions, committed on every release tag), the reusable workflow that runs the gate and then the action, and the README. A project attaches it with one short workflow file. The check names in that project appear as "PR Verify / gate" and "PR Verify / review", and "PR Verify / gate" is the one to mark required in the branch rules.
 
-Source files in the action, one concern each:
-
-- main.ts: reads inputs, picks review or red-gate mode from the gate result, runs the stages in order, always writes the record even on an internal error.
-- context.ts: diff and changed files, repository map, guidance file, prior findings, job-log fetch and step extraction for red-gate mode, secret scrubbing.
-- preclassify.ts: the infra pattern list for red-gate mode.
-- agent.ts: the Messages API loop, prompt assembly for both briefs, prompt caching.
-- tools.ts: the four tools and their limits.
-- verify.ts: scratch-tree reset, patch policy, apply, the harness test runs.
-- review.ts: the posting policy, line-to-diff mapping, the review upsert and prior-finding resolution.
-- record.ts: the run record and artifact upload.
-- budget.ts: token, time, call and finding counters that every stage reports into.
+The source files of the action, one concern each, are listed in the README's file table.
 
 The action declares the node24 runtime (node20 also works on an older runner). Dependencies are the Actions toolkit packages for inputs, GitHub API access, process execution and artifact upload, plus the Anthropic TypeScript SDK. Its inputs:
 

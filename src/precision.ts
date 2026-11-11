@@ -11,7 +11,7 @@ import {
   DEFAULT_TOKEN_LOGIN,
   parseFindingMarkers,
   postedBy,
-} from "./review.js";
+} from "./markers.js";
 
 const PERCENT = 100;
 const COLUMN_WIDTHS = {

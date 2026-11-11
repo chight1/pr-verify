@@ -5,11 +5,12 @@
  */
 
 import type { BudgetLimits } from "./budget.js";
+import { verifyDemonstration } from "./proof.js";
 import type { FindingRecord, RunRecord } from "./record.js";
 import { isDuplicate } from "./review.js";
+import type { ScratchTree } from "./scratch-tree.js";
 import type { Stage } from "./stage.js";
 import type { Finding, Patch, PriorFinding, ProposedFinding } from "./types.js";
-import { verifyDemonstration, type ScratchTree } from "./verify.js";
 
 interface Selection {
   kept: Finding[];

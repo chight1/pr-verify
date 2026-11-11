@@ -6,8 +6,9 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { type Budget, BudgetExceeded, type BudgetName } from "./budget.js";
-import type { FinishPayload, ToolExecutor } from "./tools.js";
-import { toolDefinitions } from "./tools.js";
+import { toolDefinitions } from "./tool-definitions.js";
+import type { ToolExecutor } from "./tool-executor.js";
+import type { FinishPayload } from "./tool-input.js";
 import type { Mode, Outcome, PriorFinding } from "./types.js";
 
 export const DEFAULT_MODEL = "claude-sonnet-5-5";
