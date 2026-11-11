@@ -306,7 +306,8 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
   const { messages } = state;
 
   try {
-    for (;;) {
+    let outcome: AgentOutcome | null = null;
+    while (outcome === null) {
       budget.checkClock();
       state.turns += 1;
       moveCacheBreakpoint(messages);
@@ -321,9 +322,9 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
         cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
       });
       messages.push({ role: "assistant", content: response.content });
-      const outcome = await afterResponse(response, executor, state);
-      if (outcome) return outcome;
+      outcome = await afterResponse(response, executor, state);
     }
+    return outcome;
   } catch (error) {
     if (error instanceof BudgetExceeded) {
       return {
