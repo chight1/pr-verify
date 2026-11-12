@@ -7,15 +7,35 @@ linters:
     - errorlint
     - exhaustive
     - forbidigo
+    - funlen
+    - gocognit
     - gocritic
+    - gocyclo
     - govet
     - ineffassign
     - mnd
+    - nestif
     - nilerr
     - revive
     - staticcheck
     - unused
   settings:
+    # The size and complexity limits, the same in every language.
+    funlen:
+      lines: 50
+      statements: -1
+      ignore-comments: true
+    gocognit:
+      min-complexity: 15
+    gocyclo:
+      min-complexity: 10
+    nestif:
+      min-complexity: 4
+    revive:
+      enable-default-rules: true
+      rules:
+        - name: argument-limit
+          arguments: [5]
     forbidigo:
       # Debug output left in. A command writes through a logger or its own writer.
       forbid:
@@ -23,6 +43,8 @@ linters:
     gocritic:
       enabled-checks:
         - commentedOutCode
+# Every finding, even several on one line.
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
+  uniq-by-line: false
