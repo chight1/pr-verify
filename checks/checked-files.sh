@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Which of a project's files the gate checks: the tracked files a person
-# writes, and the helpers that pick files from a list. Sourced by run.sh.
+# writes, and the helpers that pick the files of one kind from a list of them.
+# Files are kept apart by type, not by the project's runtime, so a Python
+# project's HTML and JavaScript are checked too. Sourced by run.sh.
 
 # Files a package manager writes rather than a person.
 lockfiles=(
@@ -48,4 +50,85 @@ matching() {
 # Succeeds when given any paths, for checks that run only when there are files to check.
 any() {
   [ $# -gt 0 ]
+}
+
+# Each of these prints the given paths that are files of one kind.
+
+python_files() {
+  matching '\.pyi?$' "$@"
+}
+
+go_files() {
+  matching '\.go$' "$@"
+}
+
+typescript_files() {
+  matching '\.(ts|tsx|mts|cts)$' "$@"
+}
+
+javascript_files() {
+  matching '\.(js|jsx|mjs|cjs)$' "$@"
+}
+
+docker_files() {
+  matching '(^|/)(Dockerfile|Containerfile)([.-][^/]*)?$|\.dockerfile$' "$@"
+}
+
+workflow_files() {
+  matching '^\.github/workflows/[^/]+\.ya?ml$' "$@"
+}
+
+action_files() {
+  matching '(^|/)action\.ya?ml$' "$@"
+}
+
+# Jinja and Django templates go to djLint, since Prettier breaks their tags.
+is_template() {
+  [[ "$1" =~ \.(jinja2?|j2)$ ]] || grep -qE '\{%|\{\{' "$1"
+}
+
+template_files() {
+  local file
+  while IFS= read -r file; do
+    if is_template "$file"; then
+      printf '%s\n' "$file"
+    fi
+  done < <(matching '\.(html?|jinja2?|j2)$' "$@")
+}
+
+plain_html_files() {
+  local file
+  while IFS= read -r file; do
+    if ! is_template "$file"; then
+      printf '%s\n' "$file"
+    fi
+  done < <(matching '\.html?$' "$@")
+}
+
+prettier_files() {
+  matching '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|json5|css|scss|less|vue|md|ya?ml|graphql)$' "$@"
+  plain_html_files "$@"
+}
+
+# Scripts named for a shell, or that start with a shebang naming one.
+is_shell_script() {
+  [[ "$1" == *.sh || "$1" == *.bash ]] || head -n1 "$1" | grep -qE '^#!.*[/ ](bash|dash|ksh|sh)$'
+}
+
+shell_files() {
+  local file
+  for file in "$@"; do
+    if is_shell_script "$file"; then
+      printf '%s\n' "$file"
+    fi
+  done
+}
+
+# Code in every language, for the size checks that treat them all alike.
+source_code_files() {
+  python_files "$@"
+  go_files "$@"
+  typescript_files "$@"
+  javascript_files "$@"
+  shell_files "$@"
 }
