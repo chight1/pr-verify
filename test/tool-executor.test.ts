@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { Budget } from "../src/budget.js";
 import { Scrubber } from "../src/context.js";
-import { recountHunks } from "../src/diff.js";
+import { recountHunks } from "../src/patch-repair.js";
 import type { ApplyResult, ScratchTree, TestRun } from "../src/scratch-tree.js";
 import { READ_FILE_LIMIT_LINES } from "../src/tool-definitions.js";
 import { ToolExecutor } from "../src/tool-executor.js";

@@ -136,35 +136,36 @@ Nothing here runs on a push to the default branch, only on pull requests.
 
 ## Repository layout
 
-| File                              | Concern                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------- |
-| `src/main.ts`                     | Picks the mode from the gate result, runs it, always writes the record.                     |
-| `src/inputs.ts`                   | The action's inputs and the pull request from the event.                                    |
-| `src/stage.ts`                    | What both modes share: the stage, the comment keys, the scratch tree.                       |
-| `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.            |
-| `src/selection.ts`                | Verification and caps that turn proposals into posted findings.                             |
-| `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification. |
-| `src/notes.ts`                    | The too-large and baseline notes.                                                           |
-| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                       |
-| `src/diff.ts`                     | Unified-diff parser shared by context, review, prior findings and patch policy.             |
-| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                  |
-| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                         |
-| `src/tool-definitions.ts`         | The four tools' schemas, finish shaped per mode.                                            |
-| `src/tool-input.ts`               | Checks on the model's tool input, and the finish payload.                                   |
-| `src/tool-executor.ts`            | Runs each tool call: budget, limits, the call trail.                                        |
-| `src/patch-policy.ts`             | What a patch may touch, decided from the diff alone.                                        |
-| `src/scratch-tree.ts`             | Scratch-tree reset, apply, harness test runs.                                               |
-| `src/proof.ts`                    | Demonstration, recheck, red-gate and static analysis verification.                          |
-| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                  |
-| `src/review.ts`                   | Posting policy, line-to-diff mapping, the review itself.                                    |
-| `src/markers.ts`                  | The hidden markers, and reading findings back from comments.                                |
-| `src/prior-findings.ts`           | Prior findings: which this push resolved, and their review threads.                         |
-| `src/pr-comments.ts`              | The one comment per key: red-gate verdict, too-large and baseline notes.                    |
-| `src/record.ts`                   | The run record.                                                                             |
-| `src/budget.ts`                   | Token, time, call and finding counters.                                                     |
-| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                      |
-| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                |
-| `templates/`                      | The one-file workflow a project copies, per runtime.                                        |
+| File                              | Concern                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/main.ts`                     | Picks the mode from the gate result, runs it, always writes the record.                       |
+| `src/inputs.ts`                   | The action's inputs and the pull request from the event.                                      |
+| `src/stage.ts`                    | What both modes share: the stage, the comment keys, the scratch tree.                         |
+| `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.              |
+| `src/selection.ts`                | Verification and caps that turn proposals into posted findings.                               |
+| `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification.   |
+| `src/notes.ts`                    | The too-large and baseline notes.                                                             |
+| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                         |
+| `src/diff.ts`                     | Unified-diff parser shared by context, review, prior findings and patch policy.               |
+| `src/patch-repair.ts`             | Recounts the hunk headers of a patch Claude writes, and explains why `git apply` rejects one. |
+| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                    |
+| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                           |
+| `src/tool-definitions.ts`         | The four tools' schemas, finish shaped per mode.                                              |
+| `src/tool-input.ts`               | Checks on the model's tool input, and the finish payload.                                     |
+| `src/tool-executor.ts`            | Runs each tool call: budget, limits, the call trail.                                          |
+| `src/patch-policy.ts`             | What a patch may touch, decided from the diff alone.                                          |
+| `src/scratch-tree.ts`             | Scratch-tree reset, apply, harness test runs.                                                 |
+| `src/proof.ts`                    | Demonstration, recheck, red-gate and static analysis verification.                            |
+| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                    |
+| `src/review.ts`                   | Posting policy, line-to-diff mapping, the review itself.                                      |
+| `src/markers.ts`                  | The hidden markers, and reading findings back from comments.                                  |
+| `src/prior-findings.ts`           | Prior findings: which this push resolved, and their review threads.                           |
+| `src/pr-comments.ts`              | The one comment per key: red-gate verdict, too-large and baseline notes.                      |
+| `src/record.ts`                   | The run record.                                                                               |
+| `src/budget.ts`                   | Token, time, call and finding counters.                                                       |
+| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                        |
+| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                  |
+| `templates/`                      | The one-file workflow a project copies, per runtime.                                          |
 
 `dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
 
