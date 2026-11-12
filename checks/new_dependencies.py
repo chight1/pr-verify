@@ -38,6 +38,9 @@ NPM_SECTIONS = (
 REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # A go.mod requirement is a module path and a version.
 GO_REQUIREMENT_FIELDS = 2
+# The go.mod directives that bring a module in, and the lines that open a block of them.
+GO_DIRECTIVES = ("require", "replace")
+GO_BLOCK_STARTS = {"require (": "require", "replace (": "replace"}
 GO_VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)")
 
 
@@ -69,11 +72,25 @@ def requirement_names(specs: Iterable[str]) -> set[str]:
     return names
 
 
+def npm_installed_name(name: str, spec: object) -> str:
+    """The package a dependency entry installs. An alias such as
+    "npm:real-package@1.0.0" installs real-package under the entry's name."""
+    if not isinstance(spec, str) or not spec.startswith("npm:"):
+        return name
+    target = spec.removeprefix("npm:")
+    # A scoped name starts with @, so the version's @ is searched for after it.
+    version_at = target.find("@", 1)
+    if version_at == -1:
+        return target
+    return target[:version_at]
+
+
 def npm_names(text: str) -> set[str]:
     manifest: dict[str, Any] = json.loads(text)
     names: set[str] = set()
     for section in NPM_SECTIONS:
-        names.update(manifest.get(section, {}))
+        for name, spec in manifest.get(section, {}).items():
+            names.add(npm_installed_name(name, spec))
     return names
 
 
@@ -104,34 +121,63 @@ def requirements_names(text: str) -> set[str]:
     return names
 
 
-def required_module(code: str, *, in_require_block: bool) -> str | None:
-    """The module a go.mod line requires, given the line without its comment."""
-    if code.startswith("require "):
-        code = code.removeprefix("require ")
-    elif not in_require_block:
+def go_directive(code: str, block: str | None) -> tuple[str, str] | None:
+    """A go.mod line's directive and the rest of the line: "require x v1" gives
+    ("require", "x v1"), and a line inside a block gives the block's directive."""
+    for directive in GO_DIRECTIVES:
+        if code.startswith(f"{directive} "):
+            return directive, code.removeprefix(f"{directive} ")
+    if block is None:
         return None
-    fields = code.split()
+    return block, code
+
+
+def required_module(requirement: str) -> str | None:
+    """The module in a requirement such as "example.com/module v1.2.3"."""
+    fields = requirement.split()
     if len(fields) != GO_REQUIREMENT_FIELDS:
         return None
     return fields[0]
 
 
+def replacement_module(replacement: str) -> str | None:
+    """The module a replace swaps in, as in "old => new v1.2.3". A local
+    directory, which has no version, is not on any registry to look up."""
+    if "=>" not in replacement:
+        return None
+    swapped_in = replacement.split("=>", 1)[1]
+    return required_module(swapped_in)
+
+
+def go_module(code: str, block: str | None) -> str | None:
+    """The module a go.mod line brings in: required, or swapped in by replace."""
+    directive = go_directive(code, block)
+    if directive is None:
+        return None
+    kind, rest = directive
+    if kind == "require":
+        return required_module(rest)
+    return replacement_module(rest)
+
+
 def go_names(text: str) -> set[str]:
-    """The modules go.mod requires directly, in require lines and blocks."""
+    """The modules go.mod requires directly or swaps in with replace, in single
+    lines and in blocks."""
     names: set[str] = set()
-    in_require_block = False
+    block: str | None = None
     for line in text.splitlines():
         if "// indirect" in line:
             continue
         code = line.split("//", 1)[0].strip()
-        if code == "require (":
-            in_require_block = True
-        elif code == ")":
-            in_require_block = False
-        else:
-            module = required_module(code, in_require_block=in_require_block)
-            if module is not None:
-                names.add(module)
+        if code in GO_BLOCK_STARTS:
+            block = GO_BLOCK_STARTS[code]
+            continue
+        if code == ")":
+            block = None
+            continue
+        module = go_module(code, block)
+        if module is not None:
+            names.add(module)
     return names
 
 

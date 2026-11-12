@@ -104,8 +104,10 @@ printf '{"pull_request": {"base": {"sha": "%s"}}}\n' "$(git rev-parse HEAD)" > "
 export GITHUB_EVENT_PATH="$scratch/event.json"
 # Each tool's own suppression comment, which the gate ignores or rejects.
 printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
-# A dependency no registry has, as a made-up name would be.
-printf '{\n  "name": "fixture",\n  "private": true,\n  "dependencies": { "pr-verify-fixture-made-up-name": "1.0.0" }\n}\n' > package.json
+# Dependencies no registry has, as made-up names would be: one by name, one
+# installed under an old package's name, and one Go module swapped in by replace.
+printf '{\n  "name": "fixture",\n  "private": true,\n  "dependencies": {\n    "pr-verify-fixture-made-up-name": "1.0.0",\n    "lodash": "npm:pr-verify-fixture-made-up-alias@1.0.0"\n  }\n}\n' > package.json
+printf '\nreplace golang.org/x/text => github.com/pr-verify-fixture/made-up-module v1.0.0\n' >> go.mod
 printf '{ "entry": ["**"], "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
@@ -253,5 +255,7 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   unconditional-skip-go test-without-assertion-python test-without-assertion-go \
   PLR0913 argument-limit nestif gocognit sonarjs/cognitive-complexity max-depth \
   max-params max-lines-per-function max-statements "long.sh has 401 lines" "Clone found" second.js \
-  "pr-verify-fixture-made-up-name (npm) is not on its registry"
+  "pr-verify-fixture-made-up-name (npm) is not on its registry" \
+  "pr-verify-fixture-made-up-alias (npm) is not on its registry" \
+  "github.com/pr-verify-fixture/made-up-module (go) is not on its registry"
 echo "checks: ok"
