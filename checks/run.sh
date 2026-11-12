@@ -100,7 +100,7 @@ prettier+=("${plain_html[@]}")
 
 # Scripts named for a shell, or that start with a shebang naming one.
 is_shell_script() {
-  [[ "$1" == *.sh || "$1" == *.bash ]] || head -n1 "$1" | grep -qE '^#!.*[/ ](ba|da|k)?sh$'
+  [[ "$1" == *.sh || "$1" == *.bash ]] || head -n1 "$1" | grep -qE '^#!.*[/ ](bash|dash|ksh|sh)$'
 }
 shell=()
 for file in "${files[@]}"; do
