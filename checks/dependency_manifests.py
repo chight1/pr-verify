@@ -120,6 +120,36 @@ def npm_requirement(name: str, spec: object) -> Requirement | None:
     return Requirement(name)
 
 
+def npm_override(selector: str, spec: str) -> Requirement | None:
+    """What an override swaps in: another registry package, as "npm:other@1", or
+    code from git or a URL. A plain version only pins a package already depended
+    on, and a local path is in the repository, so neither names one."""
+    requirement = npm_requirement(selector, spec)
+    if requirement is None:
+        return None
+    if spec.startswith("npm:") or requirement.outside_source is not None:
+        return requirement
+    return None
+
+
+def npm_overrides(overrides: object) -> set[Requirement]:
+    """The packages that npm's overrides, Yarn's resolutions or pnpm's overrides
+    swap in."""
+    requirements: set[Requirement] = set()
+    if not isinstance(overrides, dict):
+        return requirements
+    table = cast("dict[str, object]", overrides)
+    for selector, spec in table.items():
+        if not isinstance(spec, str):
+            # npm nests the overrides for a dependency's own dependencies in a table.
+            requirements.update(npm_overrides(spec))
+            continue
+        requirement = npm_override(selector, spec)
+        if requirement is not None:
+            requirements.add(requirement)
+    return requirements
+
+
 def npm_requirements(text: str) -> set[Requirement]:
     manifest: dict[str, Any] = json.loads(text)
     requirements: set[Requirement] = set()
@@ -128,6 +158,10 @@ def npm_requirements(text: str) -> set[Requirement]:
             requirement = npm_requirement(name, spec)
             if requirement is not None:
                 requirements.add(requirement)
+    pnpm: dict[str, Any] = manifest.get("pnpm", {})
+    requirements.update(npm_overrides(manifest.get("overrides")))
+    requirements.update(npm_overrides(manifest.get("resolutions")))
+    requirements.update(npm_overrides(pnpm.get("overrides")))
     return requirements
 
 
@@ -158,6 +192,32 @@ def standard_specs(document: dict[str, Any]) -> list[str]:
     return specs
 
 
+def poetry_tables(tool: dict[str, Any]) -> list[dict[str, Any]]:
+    """Poetry's dependency tables: the main one, the older dev-dependencies, and
+    one per dependency group."""
+    poetry: dict[str, Any] = tool.get("poetry", {})
+    groups: dict[str, Any] = poetry.get("group", {})
+    tables: list[dict[str, Any]] = [
+        poetry.get("dependencies", {}),
+        poetry.get("dev-dependencies", {}),
+    ]
+    tables.extend(group.get("dependencies", {}) for group in groups.values())
+    return tables
+
+
+def poetry_requirements(tool: dict[str, Any]) -> set[Requirement]:
+    requirements: set[Requirement] = set()
+    for table in poetry_tables(tool):
+        for name, spec in table.items():
+            # Poetry lists the Python version it needs among the dependencies.
+            if name == "python":
+                continue
+            requirement = table_requirement(normalized(name), spec)
+            if requirement is not None:
+                requirements.add(requirement)
+    return requirements
+
+
 def uv_sourced(requirement: Requirement, sources: dict[str, Any]) -> Requirement | None:
     """A requirement as uv installs it: from where [tool.uv.sources] says, if it
     names the package, or else from PyPI."""
@@ -178,13 +238,7 @@ def pyproject_requirements(text: str) -> set[Requirement]:
         requirement = uv_sourced(listed, sources)
         if requirement is not None:
             requirements.add(requirement)
-    poetry: dict[str, Any] = tool.get("poetry", {}).get("dependencies", {})
-    for name, spec in poetry.items():
-        if name == "python":
-            continue
-        requirement = table_requirement(normalized(name), spec)
-        if requirement is not None:
-            requirements.add(requirement)
+    requirements.update(poetry_requirements(tool))
     return requirements
 
 
