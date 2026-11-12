@@ -23,7 +23,7 @@ import {
 } from "./context.js";
 import { parseDiff, type DiffFile } from "./diff.js";
 import { postingLogin, type PostedFinding } from "./markers.js";
-import { baselineNote, tooLargeNote } from "./notes.js";
+import { baselineNote, tooLargeNote } from "./skip-notes.js";
 import { isTestPath } from "./patch-policy.js";
 import { deleteComment, updateComment, upsertComment } from "./pr-comments.js";
 import {

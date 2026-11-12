@@ -1,5 +1,5 @@
 /**
- * The notes that say why a run did not review or investigate: the diff is too
+ * The comments posted instead of a review or an investigation: the diff is too
  * large for the budget, or the suite does not pass on the PR commit in the sandbox.
  */
 

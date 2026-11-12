@@ -144,7 +144,7 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.              |
 | `src/selection.ts`                | Verification and caps that turn proposals into posted findings.                               |
 | `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification.   |
-| `src/notes.ts`                    | The too-large and baseline notes.                                                             |
+| `src/skip-notes.ts`               | Comments posted instead of a review: the diff is too large, or tests fail in the sandbox.     |
 | `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                         |
 | `src/diff.ts`                     | Unified-diff parser shared by context, review, prior findings and patch policy.               |
 | `src/patch-repair.ts`             | Recounts the hunk headers of a patch Claude writes, and explains why `git apply` rejects one. |

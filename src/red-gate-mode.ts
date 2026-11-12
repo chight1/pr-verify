@@ -17,7 +17,7 @@ import {
   type PullRequestDiff,
   type RepositoryMap,
 } from "./context.js";
-import { tooLargeNote } from "./notes.js";
+import { tooLargeNote } from "./skip-notes.js";
 import { upsertComment } from "./pr-comments.js";
 import { preclassify, scanFailure } from "./preclassify.js";
 import {
