@@ -150,7 +150,7 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/patch-repair.ts`             | Recounts the hunk headers of a patch Claude writes, and explains why `git apply` rejects one. |
 | `src/failure-triage.ts`           | Labels infrastructure, scanner and flaky failures in red-gate mode, without Claude.           |
 | `src/claude-harness.ts`           | The Messages API loop and prompt caching.                                                     |
-| `src/prompts.ts`                  | The system prompts of both modes, and both briefs.                                            |
+| `src/claude-prompts.ts`           | The system prompts of both modes, and both briefs.                                            |
 | `src/tool-definitions.ts`         | The four tools' schemas, finish shaped per mode.                                              |
 | `src/tool-input.ts`               | Checks on the model's tool input, and the finish payload.                                     |
 | `src/tool-executor.ts`            | Runs each tool call: budget, limits, the call trail.                                          |

@@ -7,7 +7,7 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 import { stoppedOutcome } from "./claude-harness.js";
-import { buildRedGateBrief } from "./prompts.js";
+import { buildRedGateBrief } from "./claude-prompts.js";
 import {
   buildRepositoryMap,
   collectDiff,

@@ -6,7 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { type Budget, BudgetExceeded, type BudgetName } from "./budget.js";
-import { systemPrompt } from "./prompts.js";
+import { systemPrompt } from "./claude-prompts.js";
 import { toolDefinitions } from "./tool-definitions.js";
 import type { ToolExecutor } from "./tool-executor.js";
 import type { FinishPayload } from "./tool-input.js";

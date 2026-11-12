@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRedGateBrief, buildReviewBrief } from "../src/prompts.js";
+import { buildRedGateBrief, buildReviewBrief } from "../src/claude-prompts.js";
 
 describe("briefs", () => {
   it("includes guidance, conventions, open findings and the diff in the review brief", () => {

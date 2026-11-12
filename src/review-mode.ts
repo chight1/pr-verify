@@ -7,7 +7,7 @@
 import path from "node:path";
 import * as core from "@actions/core";
 import { type AgentOutcome, stoppedOutcome } from "./claude-harness.js";
-import { buildReviewBrief } from "./prompts.js";
+import { buildReviewBrief } from "./claude-prompts.js";
 import {
   buildRepositoryMap,
   byCodeUnits,
