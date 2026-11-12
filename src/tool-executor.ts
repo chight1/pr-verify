@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { BYTES_PER_KB, type Budget } from "./budget.js";
-import type { Scrubber } from "./context.js";
+import type { Scrubber } from "./claude-context.js";
 import { applyHints, recountHunks } from "./patch-repair.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
 import type { TestCheckout } from "./test-checkout.js";

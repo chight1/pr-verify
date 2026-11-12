@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { Budget } from "../src/budget.js";
-import { Scrubber } from "../src/context.js";
+import { Scrubber } from "../src/claude-context.js";
 import { recountHunks } from "../src/patch-repair.js";
 import type {
   ApplyResult,

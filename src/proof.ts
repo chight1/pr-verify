@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BYTES_PER_KB } from "./budget.js";
-import { git } from "./context.js";
+import { git } from "./claude-context.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
 import { runCommand, type TestCheckout } from "./test-checkout.js";
 import type { Patch } from "./types.js";

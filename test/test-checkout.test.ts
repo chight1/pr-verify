@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { repoAt } from "./harness-fixtures.js";
+import { repoAt } from "./proof-fixtures.js";
 
 describe("TestCheckout.runTests", () => {
   it("builds before the suite runs", async () => {

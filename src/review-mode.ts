@@ -6,11 +6,8 @@
 
 import path from "node:path";
 import * as core from "@actions/core";
-import {
-  buildReviewBrief,
-  type AgentOutcome,
-  stoppedOutcome,
-} from "./agent.js";
+import { type AgentOutcome, stoppedOutcome } from "./claude-harness.js";
+import { buildReviewBrief } from "./claude-prompts.js";
 import {
   buildRepositoryMap,
   byCodeUnits,
@@ -20,9 +17,9 @@ import {
   type Guidance,
   type PullRequestDiff,
   type RepositoryMap,
-} from "./context.js";
+} from "./claude-context.js";
 import { parseDiff, type DiffFile } from "./diff.js";
-import { postingLogin, type PostedFinding } from "./markers.js";
+import { postingLogin, type PostedFinding } from "./comment-markers.js";
 import { baselineNote, tooLargeNote } from "./skip-notes.js";
 import { isTestPath } from "./patch-policy.js";
 import { deleteComment, updateComment, upsertComment } from "./pr-comments.js";
@@ -34,10 +31,14 @@ import {
   type Resolution,
 } from "./prior-findings.js";
 import { recheckDemonstration } from "./proof.js";
-import type { RunRecord } from "./record.js";
-import { buildReview, postReview, type ReviewTrail } from "./review.js";
+import type { RunRecord } from "./run-record.js";
+import { buildReview, postReview, type ReviewTrail } from "./post-review.js";
 import type { TestCheckout } from "./test-checkout.js";
-import { findingRecord, findingRecords, verifyAndSelect } from "./selection.js";
+import {
+  findingRecord,
+  findingRecords,
+  verifyAndSelect,
+} from "./claude-finding-filter.js";
 import {
   BASELINE_KEY,
   createTestCheckout,
@@ -47,7 +48,7 @@ import {
   TOO_LARGE_KEY,
   type AgentRun,
   type Stage,
-} from "./stage.js";
+} from "./mode-setup.js";
 import type { Finding, PriorFinding, ResolvedFinding } from "./types.js";
 
 const TEST_EXAMPLES_SHOWN = 5;

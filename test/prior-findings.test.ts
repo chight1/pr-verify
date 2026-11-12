@@ -4,7 +4,7 @@ import {
   findingMarker,
   parsePostedFindings,
   type PostedFinding,
-} from "../src/markers.js";
+} from "../src/comment-markers.js";
 import {
   fetchPriorFindings,
   lineChanged,
@@ -12,7 +12,7 @@ import {
   resolvePriorFindings,
   resolveThreads,
 } from "../src/prior-findings.js";
-import { buildReview } from "../src/review.js";
+import { buildReview } from "../src/post-review.js";
 import type { Patch, PriorFinding } from "../src/types.js";
 import { finding, PR, prior, TRAIL } from "./review-fixtures.js";
 

@@ -4,7 +4,7 @@
  */
 
 import * as github from "@actions/github";
-import { createClient, runAgent, type AgentOutcome } from "./agent.js";
+import { createClient, runAgent, type AgentOutcome } from "./claude-harness.js";
 import { Budget } from "./budget.js";
 import {
   Scrubber,
@@ -12,9 +12,9 @@ import {
   type Octokit,
   type PullRequestDiff,
   type RepositoryMap,
-} from "./context.js";
+} from "./claude-context.js";
 import type { Inputs } from "./inputs.js";
-import { emptyRecord, type RunRecord } from "./record.js";
+import { emptyRecord, type RunRecord } from "./run-record.js";
 import { Sandbox } from "./sandbox.js";
 import { TestCheckout } from "./test-checkout.js";
 import { ToolExecutor } from "./tool-executor.js";

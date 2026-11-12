@@ -1,6 +1,6 @@
 import { assert, describe, expect, it, vi } from "vitest";
 import { parseDiff } from "../src/diff.js";
-import { buildReview, isDuplicate, postReview } from "../src/review.js";
+import { buildReview, isDuplicate, postReview } from "../src/post-review.js";
 import type { Patch } from "../src/types.js";
 import { finding, PR, prior, TRAIL } from "./review-fixtures.js";
 

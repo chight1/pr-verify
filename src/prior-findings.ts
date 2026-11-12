@@ -4,8 +4,8 @@
  * the review threads of the ones it did.
  */
 
-import type { Octokit } from "./context.js";
-import { git, PAGE_SIZE } from "./context.js";
+import type { Octokit } from "./claude-context.js";
+import { git, PAGE_SIZE } from "./claude-context.js";
 import { parseDiff, type DiffFile } from "./diff.js";
 import {
   findingKey,
@@ -14,7 +14,7 @@ import {
   parseResolvedMarkers,
   postedBy,
   type PostedFinding,
-} from "./markers.js";
+} from "./comment-markers.js";
 import type { RecheckResult } from "./proof.js";
 import type { PriorFinding, PullRequestRef, ResolvedFinding } from "./types.js";
 

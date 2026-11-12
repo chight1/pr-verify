@@ -6,13 +6,7 @@ import {
   verifyDemonstration,
   verifyStaticAnalysisFix,
 } from "../src/proof.js";
-import {
-  FIX_SRC,
-  LIMITS,
-  repoAt,
-  TEST,
-  TEST_PATCH,
-} from "./harness-fixtures.js";
+import { FIX_SRC, LIMITS, repoAt, TEST, TEST_PATCH } from "./proof-fixtures.js";
 
 describe("recheckDemonstration", () => {
   it("passes once the bug is fixed, wherever the fix landed", async () => {

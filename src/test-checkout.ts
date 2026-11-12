@@ -10,7 +10,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { BYTES_PER_KB } from "./budget.js";
-import { git } from "./context.js";
+import { git } from "./claude-context.js";
 import type { Sandbox } from "./sandbox.js";
 
 /** Output held in memory before the oldest chunks are dropped, as a multiple of the tail returned. */

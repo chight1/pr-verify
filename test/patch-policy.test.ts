@@ -4,7 +4,7 @@ import {
   isDependencyFile,
   isTestPath,
 } from "../src/patch-policy.js";
-import { FIX_SRC, LIMITS, patch } from "./harness-fixtures.js";
+import { FIX_SRC, LIMITS, patch } from "./proof-fixtures.js";
 
 const ADD_TEST = patch(
   "test/order.test.ts",

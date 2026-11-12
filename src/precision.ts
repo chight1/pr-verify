@@ -6,12 +6,12 @@
  * reactions through the API.
  */
 
-import { PAGE_SIZE, type Octokit } from "./context.js";
+import { PAGE_SIZE, type Octokit } from "./claude-context.js";
 import {
   DEFAULT_TOKEN_LOGIN,
   parseFindingMarkers,
   postedBy,
-} from "./markers.js";
+} from "./comment-markers.js";
 
 const PERCENT = 100;
 const COLUMN_WIDTHS = {

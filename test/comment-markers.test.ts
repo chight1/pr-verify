@@ -5,7 +5,7 @@ import {
   parseFindingMarkers,
   postedBy,
   postingLogin,
-} from "../src/markers.js";
+} from "../src/comment-markers.js";
 import { prior } from "./review-fixtures.js";
 
 describe("finding markers", () => {
