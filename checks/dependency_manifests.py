@@ -37,6 +37,9 @@ OUTSIDE_SOURCES = (
     "http:",
     "https:",
 )
+# Keys of a Poetry or uv dependency table that say where it comes from instead of PyPI.
+LOCAL_TABLE_KEYS = ("path", "workspace")
+OUTSIDE_TABLE_KEYS = ("git", "url")
 REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # A go.mod requirement is a module path and a version.
 GO_REQUIREMENT_FIELDS = 2
@@ -128,23 +131,23 @@ def npm_requirements(text: str) -> set[Requirement]:
     return requirements
 
 
-def poetry_requirement(name: str, spec: object) -> Requirement | None:
-    """A Poetry dependency: a version, or a table that can name a local path, a
-    git repository or a URL instead."""
-    package = normalized(name)
+def table_requirement(package: str, spec: object) -> Requirement | None:
+    """A Python dependency as Poetry or uv describe it: a version, or a table
+    that can name a local path or workspace member, a git repository or a URL."""
     if not isinstance(spec, dict):
         return Requirement(package)
     table = cast("dict[str, object]", spec)
-    if "path" in table:
-        return None
-    for source_key in ("git", "url"):
-        if source_key in table:
-            return Requirement(package, outside_source=str(table[source_key]))
+    for local_key in LOCAL_TABLE_KEYS:
+        if local_key in table:
+            return None
+    for outside_key in OUTSIDE_TABLE_KEYS:
+        if outside_key in table:
+            return Requirement(package, outside_source=str(table[outside_key]))
     return Requirement(package)
 
 
-def pyproject_requirements(text: str) -> set[Requirement]:
-    document = tomllib.loads(text)
+def standard_specs(document: dict[str, Any]) -> list[str]:
+    """The requirements pyproject.toml lists in the standard tables."""
     project: dict[str, Any] = document.get("project", {})
     specs: list[str] = list(project.get("dependencies", []))
     for group in project.get("optional-dependencies", {}).values():
@@ -152,13 +155,34 @@ def pyproject_requirements(text: str) -> set[Requirement]:
     for group in document.get("dependency-groups", {}).values():
         # A group can also include another group by name, as a table.
         specs.extend(spec for spec in group if isinstance(spec, str))
-    requirements = python_requirements(specs)
+    return specs
+
+
+def uv_sourced(requirement: Requirement, sources: dict[str, Any]) -> Requirement | None:
+    """A requirement as uv installs it: from where [tool.uv.sources] says, if it
+    names the package, or else from PyPI."""
+    source = sources.get(requirement.name)
+    if source is None:
+        return requirement
+    return table_requirement(requirement.name, source)
+
+
+def pyproject_requirements(text: str) -> set[Requirement]:
+    document = tomllib.loads(text)
     tool: dict[str, Any] = document.get("tool", {})
+    uv: dict[str, Any] = tool.get("uv", {})
+    raw_sources: dict[str, Any] = uv.get("sources", {})
+    sources = {normalized(name): source for name, source in raw_sources.items()}
+    requirements: set[Requirement] = set()
+    for listed in python_requirements(standard_specs(document)):
+        requirement = uv_sourced(listed, sources)
+        if requirement is not None:
+            requirements.add(requirement)
     poetry: dict[str, Any] = tool.get("poetry", {}).get("dependencies", {})
     for name, spec in poetry.items():
         if name == "python":
             continue
-        requirement = poetry_requirement(name, spec)
+        requirement = table_requirement(normalized(name), spec)
         if requirement is not None:
             requirements.add(requirement)
     return requirements
