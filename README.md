@@ -85,7 +85,7 @@ Size and complexity have the same limits in every language:
 | ---------------------------------- | ------------------------------------ | ---------------------------- | ----------------------- | ---------------------------------------------------------------- |
 | Cognitive complexity per function  | 15                                   | complexipy                   | gocognit                | SonarJS `cognitive-complexity`                                   |
 | Cyclomatic complexity per function | 10                                   | ruff `C901`                  | gocyclo                 | `complexity`                                                     |
-| Function length                    | 50 lines, or 30 statements in Python | ruff `PLR0915`               | funlen                  | `max-lines-per-function`, except a test file's `describe` blocks |
+| Function length                    | 50 lines, or 30 statements in Python | ruff `PLR0915`               | funlen                  | `max-lines-per-function`; for test files, `max-statements` at 30 |
 | Parameters                         | 5                                    | ruff `PLR0913`               | revive `argument-limit` | `max-params`                                                     |
 | Nesting                            | depth 3                              | through cognitive complexity | nestif                  | `max-depth`                                                      |
 | File length                        | 400 lines                            | the gate's own check         | the gate's own check    | the gate's own check                                             |

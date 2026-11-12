@@ -13,6 +13,7 @@ const MAX_COGNITIVE_COMPLEXITY = 15;
 const MAX_CYCLOMATIC_COMPLEXITY = 10;
 const MAX_NESTING_DEPTH = 3;
 const MAX_FUNCTION_LINES = 50;
+const MAX_FUNCTION_STATEMENTS = 30;
 const MAX_PARAMETERS = 5;
 
 const TESTS = [
@@ -125,8 +126,11 @@ export default defineConfig(
       "vitest/no-disabled-tests": "error",
       "vitest/no-focused-tests": "error",
       "@typescript-eslint/no-magic-numbers": "off",
-      // A describe block groups tests; its length is the number of tests.
+      // A describe block is as long as all its tests together, so test files
+      // count each function's own statements instead, as Python does. A nested
+      // function, such as each test in a describe block, counts as one.
       "max-lines-per-function": "off",
+      "max-statements": ["error", MAX_FUNCTION_STATEMENTS],
     },
   },
 );

@@ -191,6 +191,16 @@ JS
   echo "  return steps;"
   echo "}"
 } >> complex.js
+# A test that runs too long. In test files a function is held to 30 statements.
+{
+  echo 'describe("totals", () => {'
+  echo '  it("adds up", () => {'
+  echo "    let total = 0;"
+  for _ in $(seq 35); do echo "    total += 1;"; done
+  echo "    expect(total).toBe(35);"
+  echo "  });"
+  echo "});"
+} > long.test.js
 {
   echo "#!/usr/bin/env bash"
   for _ in $(seq 400); do echo "true"; done
@@ -233,5 +243,5 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   vitest/expect-expect forbidigo mnd vague-name-python vague-name-go unconditional-skip-python \
   unconditional-skip-go test-without-assertion-python test-without-assertion-go \
   PLR0913 argument-limit nestif gocognit sonarjs/cognitive-complexity max-depth \
-  max-params max-lines-per-function "long.sh has 401 lines" "Clone found" second.js
+  max-params max-lines-per-function max-statements "long.sh has 401 lines" "Clone found" second.js
 echo "checks: ok"
