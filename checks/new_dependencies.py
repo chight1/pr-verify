@@ -36,6 +36,7 @@ NPM_SECTIONS = (
     "peerDependencies",
 )
 REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# A go.mod requirement is a module path and a version.
 GO_REQUIREMENT_FIELDS = 2
 GO_VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)")
 
@@ -52,13 +53,28 @@ def normalized(name: str) -> str:
 
 
 def requirement_name(spec: str) -> str | None:
+    """The package a requirement such as "requests>=2" names."""
     match = REQUIREMENT_NAME.match(spec.strip())
-    return normalized(match.group(0)) if match else None
+    if match is None:
+        return None
+    return normalized(match.group(0))
+
+
+def requirement_names(specs: Iterable[str]) -> set[str]:
+    names: set[str] = set()
+    for spec in specs:
+        name = requirement_name(spec)
+        if name is not None:
+            names.add(name)
+    return names
 
 
 def npm_names(text: str) -> set[str]:
     manifest: dict[str, Any] = json.loads(text)
-    return {name for section in NPM_SECTIONS for name in manifest.get(section, {})}
+    names: set[str] = set()
+    for section in NPM_SECTIONS:
+        names.update(manifest.get(section, {}))
+    return names
 
 
 def pyproject_names(text: str) -> set[str]:
@@ -68,40 +84,54 @@ def pyproject_names(text: str) -> set[str]:
     for group in project.get("optional-dependencies", {}).values():
         specs.extend(group)
     for group in document.get("dependency-groups", {}).values():
+        # A group can also include another group by name, as a table.
         specs.extend(spec for spec in group if isinstance(spec, str))
     poetry = document.get("tool", {}).get("poetry", {}).get("dependencies", {})
     specs.extend(name for name in poetry if name != "python")
-    return {name for spec in specs if (name := requirement_name(spec))}
+    return requirement_names(specs)
 
 
 def requirements_names(text: str) -> set[str]:
-    lines = (line.strip() for line in text.splitlines())
-    specs = (line for line in lines if line and not line.startswith(("#", "-")))
-    return {name for spec in specs if (name := requirement_name(spec))}
+    names: set[str] = set()
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        # Comments, and options such as -r other.txt or --index-url.
+        if not line or line.startswith(("#", "-")):
+            continue
+        name = requirement_name(line)
+        if name is not None:
+            names.add(name)
+    return names
 
 
-def go_requirement(line: str, *, in_block: bool) -> str | None:
-    """The module a go.mod line requires directly, if it requires one."""
-    if "// indirect" in line:
-        return None
-    code = line.split("//", 1)[0].strip()
-    if code.startswith("require ") and not code.endswith("("):
+def required_module(code: str, *, in_require_block: bool) -> str | None:
+    """The module a go.mod line requires, given the line without its comment."""
+    if code.startswith("require "):
         code = code.removeprefix("require ")
-    elif not in_block:
+    elif not in_require_block:
         return None
-    parts = code.split()
-    return parts[0] if len(parts) == GO_REQUIREMENT_FIELDS else None
+    fields = code.split()
+    if len(fields) != GO_REQUIREMENT_FIELDS:
+        return None
+    return fields[0]
 
 
 def go_names(text: str) -> set[str]:
+    """The modules go.mod requires directly, in require lines and blocks."""
     names: set[str] = set()
-    in_block = False
+    in_require_block = False
     for line in text.splitlines():
+        if "// indirect" in line:
+            continue
         code = line.split("//", 1)[0].strip()
-        if code in {"require (", ")"}:
-            in_block = code == "require ("
-        elif name := go_requirement(line, in_block=in_block):
-            names.add(name)
+        if code == "require (":
+            in_require_block = True
+        elif code == ")":
+            in_require_block = False
+        else:
+            module = required_module(code, in_require_block=in_require_block)
+            if module is not None:
+                names.add(module)
     return names
 
 
@@ -141,15 +171,16 @@ def fetch_commit(sha: str) -> None:
     git("-c", header, "fetch", "--depth", "1", "--no-tags", "origin", sha)
 
 
-def names_at(sha: str | None, path: str, parse: Callable[[str], set[str]]) -> set[str]:
-    if sha is None:
-        text = Path(path).read_text(encoding="utf-8")
-    else:
-        shown = git("show", f"{sha}:{path}")
-        if shown.returncode != 0:
-            return set()
-        text = shown.stdout
-    return parse(text)
+def names_in_checkout(path: str, parse: Callable[[str], set[str]]) -> set[str]:
+    return parse(Path(path).read_text(encoding="utf-8"))
+
+
+def names_at_commit(sha: str, path: str, parse: Callable[[str], set[str]]) -> set[str]:
+    """The names in a manifest's copy on a commit; none when it had no copy."""
+    shown = git("show", f"{sha}:{path}")
+    if shown.returncode != 0:
+        return set()
+    return parse(shown.stdout)
 
 
 class RegistryError(Exception):
@@ -175,23 +206,29 @@ def fetch(host: str, path: str) -> bytes | None:
 
 def fetch_json(host: str, path: str) -> dict[str, Any] | None:
     body = fetch(host, path)
-    return json.loads(body) if body is not None else None
+    if body is None:
+        return None
+    return json.loads(body)
 
 
 def npm_published(name: str) -> datetime | None:
     package = fetch_json("registry.npmjs.org", f"/{urllib.parse.quote(name, safe='@')}")
-    return datetime.fromisoformat(package["time"]["created"]) if package else None
+    if package is None:
+        return None
+    return datetime.fromisoformat(package["time"]["created"])
 
 
 def pypi_published(name: str) -> datetime | None:
+    """When the package's first file was uploaded."""
     package = fetch_json("pypi.org", f"/pypi/{urllib.parse.quote(name)}/json")
-    if not package:
+    if package is None:
         return None
-    uploads = [
-        datetime.fromisoformat(file["upload_time_iso_8601"])
-        for files in package["releases"].values()
-        for file in files
-    ]
+    uploads: list[datetime] = []
+    for release_files in package["releases"].values():
+        uploads.extend(
+            datetime.fromisoformat(upload["upload_time_iso_8601"])
+            for upload in release_files
+        )
     return min(uploads, default=None)
 
 
@@ -201,22 +238,33 @@ def go_escaped(module: str) -> str:
 
 
 def go_version_key(version: str) -> tuple[int, int, int]:
+    """Sorts versions by number, with any that are not vX.Y.Z last."""
     match = GO_VERSION.match(version)
-    if not match:
+    if match is None:
         return (sys.maxsize, 0, 0)
     major, minor, patch = match.groups()
     return (int(major), int(minor), int(patch))
 
 
+def go_version_time(escaped_module: str, version_path: str) -> datetime | None:
+    version_info = fetch_json("proxy.golang.org", f"/{escaped_module}/{version_path}")
+    if version_info is None:
+        return None
+    return datetime.fromisoformat(version_info["Time"])
+
+
 def go_published(module: str) -> datetime | None:
-    escaped = go_escaped(module)
-    listing = fetch("proxy.golang.org", f"/{escaped}/@v/list")
+    """When the module's earliest version was published."""
+    escaped_module = go_escaped(module)
+    listing = fetch("proxy.golang.org", f"/{escaped_module}/@v/list")
     if listing is None:
         return None
     versions = listing.decode().split()
-    target = f"@v/{min(versions, key=go_version_key)}.info" if versions else "@latest"
-    version_info = fetch_json("proxy.golang.org", f"/{escaped}/{target}")
-    return datetime.fromisoformat(version_info["Time"]) if version_info else None
+    # A module with no tagged versions has only pseudo-versions, found at @latest.
+    if not versions:
+        return go_version_time(escaped_module, "@latest")
+    earliest = min(versions, key=go_version_key)
+    return go_version_time(escaped_module, f"@v/{earliest}.info")
 
 
 PUBLISHED: dict[str, Callable[[str], datetime | None]] = {
@@ -233,12 +281,15 @@ def added_dependencies(manifests: Iterable[str], base: str) -> list[Dependency]:
         if parser is None:
             continue
         ecosystem, parse = parser
-        new = names_at(None, path, parse) - names_at(base, path, parse)
-        added.extend(Dependency(ecosystem, name) for name in sorted(new))
+        current_names = names_in_checkout(path, parse)
+        base_names = names_at_commit(base, path, parse)
+        new_names = sorted(current_names - base_names)
+        added.extend(Dependency(ecosystem, name) for name in new_names)
     return added
 
 
 def problem(dependency: Dependency, now: datetime) -> str | None:
+    """Why the dependency fails the check, or None when it passes."""
     published = PUBLISHED[dependency.ecosystem](dependency.name)
     label = f"{dependency.name} ({dependency.ecosystem})"
     if published is None:
@@ -256,14 +307,16 @@ def main(manifests: list[str]) -> int:
         return 0
     fetch_commit(base)
     now = datetime.now(UTC)
-    problems = [
-        found
-        for dependency in added_dependencies(manifests, base)
-        if (found := problem(dependency, now))
-    ]
+    problems: list[str] = []
+    for dependency in added_dependencies(manifests, base):
+        found = problem(dependency, now)
+        if found is not None:
+            problems.append(found)
     for found in problems:
         sys.stderr.write(f"{found}\n")
-    return 1 if problems else 0
+    if problems:
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
