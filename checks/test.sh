@@ -98,6 +98,20 @@ fi
 mkdir "$scratch/lint" && cd "$scratch/lint"
 git init -q
 loosen
+# Dependencies the base already has, which still fail when no registry has them
+# or they come from git, beside an old real one that passes.
+mkdir existing
+cat > existing/package.json <<'JSON'
+{
+  "name": "existing",
+  "private": true,
+  "dependencies": {
+    "pr-verify-fixture-existing-made-up": "1.0.0",
+    "existing-git-lib": "github:pr-verify-fixture/existing-git-lib",
+    "is-number": "7.0.0"
+  }
+}
+JSON
 # The pull request's base, so the dependencies the files below add are new.
 git add -A
 git -c user.name=fixture -c user.email=fixture@example.test commit -qm base
@@ -322,9 +336,11 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   "pr-verify-fixture-made-up-group (pypi) is not on its registry" \
   "pr-verify-fixture-made-up-dev (pypi) is not on its registry" \
   "\`$misspelled\` should be" \
-  "left-pad@99.0.0 (npm) is not on its registry"
-if grep -qF "is-number@" <<< "$output"; then
-  fail "the dependency check rejected a locked version old enough to pass"
+  "left-pad@99.0.0 (npm) is not on its registry" \
+  "pr-verify-fixture-existing-made-up (npm) is not on its registry" \
+  "existing-git-lib (npm) comes from github:pr-verify-fixture/existing-git-lib"
+if grep -qF "is-number" <<< "$output"; then
+  fail "the dependency check rejected a dependency old enough to pass"
 fi
 for name in local-lib workspace-lib local-py-lib uv-local-lib uv-workspace-lib is-even; do
   if grep -qF "$name (" <<< "$output"; then

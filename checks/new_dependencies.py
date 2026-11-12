@@ -1,11 +1,13 @@
-"""Fails a pull request that adds a dependency its registry does not have, the mark
-of a package name a model made up, or one too new to trust: a direct dependency
-the registry has had for less than 30 days, which may be registered to catch a
-made-up name, or any locked version published less than 7 days ago, which is how
-a hijacked maintainer account ships malware before anyone notices. A version a
-published advisory names as the fix for a vulnerability is not held back. A
-direct dependency fetched from git or a URL fails too, since no registry can
-tell its age.
+"""Fails a pull request whose dependencies its registry cannot vouch for.
+
+Every direct dependency fails when its registry does not have it, the mark of a
+package name a model made up or of one the registry removed as malware, and when
+it comes from git or a URL, which no registry dates. One the pull request adds
+also fails when the registry has had it for less than 30 days, since it may be
+registered to catch a made-up name. A version the pull request adds to a
+lockfile fails when it was published less than 7 days ago, which is how a
+hijacked maintainer account ships malware before anyone notices, unless a
+published advisory names it as the fix for a vulnerability.
 
 Usage: new_dependencies.py. Compares each tracked manifest and lockfile with its
 copy on the pull request's base commit, read from the event GitHub Actions provides.
@@ -45,6 +47,8 @@ Parsed = TypeVar("Parsed")
 class Dependency:
     ecosystem: str
     requirement: Requirement
+    # Whether the pull request adds it, rather than the base commit having it.
+    added: bool
 
     def __str__(self) -> str:
         return f"{self.requirement.name} ({self.ecosystem})"
@@ -102,15 +106,19 @@ def added(path: str, base: str, parse: Callable[[str], set[Parsed]]) -> set[Pars
     return parsed_in_checkout(path, parse) - parsed_at_commit(base, path, parse)
 
 
-def added_dependencies(paths: Iterable[str], base: str) -> list[Dependency]:
+def direct_dependencies(paths: Iterable[str], base: str) -> list[Dependency]:
+    """Every dependency the manifests name, each marked as added or already there."""
     dependencies: list[Dependency] = []
     for path in paths:
         parser = manifest_parser(path)
         if parser is None:
             continue
         ecosystem, parse = parser
-        new = sorted(added(path, base, parse), key=lambda requirement: requirement.name)
-        dependencies.extend(Dependency(ecosystem, requirement) for requirement in new)
+        current = parsed_in_checkout(path, parse)
+        at_base = parsed_at_commit(base, path, parse)
+        for requirement in sorted(current, key=lambda listed: listed.name):
+            added_here = requirement not in at_base
+            dependencies.append(Dependency(ecosystem, requirement, added=added_here))
     return dependencies
 
 
@@ -128,12 +136,16 @@ def added_versions(paths: Iterable[str], base: str) -> list[LockedVersion]:
     return versions
 
 
+def not_on_registry(label: str) -> str:
+    return f"{label} is not on its registry. Check the name."
+
+
 def age_problem(
     label: str, published: datetime | None, now: datetime, minimum: timedelta
 ) -> str | None:
     """Why something its registry dates fails, or None when it is old enough."""
     if published is None:
-        return f"{label} is not on its registry. Check the name."
+        return not_on_registry(label)
     age = now - published
     if age < minimum:
         return f"{label} is {age.days} days old, under the {minimum.days}-day minimum."
@@ -144,10 +156,15 @@ def package_problem(dependency: Dependency, now: datetime) -> str | None:
     requirement = dependency.requirement
     if requirement.outside_source is not None:
         return (
-            f"{dependency} comes from {requirement.outside_source}, not a registry, "
-            "so its age can't be checked."
+            f"{dependency} comes from {requirement.outside_source}, not a registry. "
+            "Publish it to one, or keep its code in the repository."
         )
     created = CREATED[dependency.ecosystem](requirement.name)
+    if created is None:
+        return not_on_registry(str(dependency))
+    # One already on the base commit was old enough when it was added.
+    if not dependency.added:
+        return None
     return age_problem(str(dependency), created, now, MINIMUM_PACKAGE_AGE)
 
 
@@ -187,7 +204,7 @@ def main() -> int:
     # Lockfiles are among the files the other checks leave out, so every tracked
     # file is read here.
     tracked = git("ls-files").stdout.splitlines()
-    dependencies = added_dependencies(tracked, base)
+    dependencies = direct_dependencies(tracked, base)
     versions = added_versions(tracked, base)
     found = problems(dependencies, versions)
     for problem in found:
