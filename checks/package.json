@@ -13,7 +13,7 @@
     "knip": "6.43.0",
     "prettier": "3.9.10",
     "pyright": "1.1.414",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "typescript-eslint": "8.72.1"
   },
   "overrides": {
