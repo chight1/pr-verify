@@ -29,8 +29,10 @@ const DIFF_BUDGET_SHARE = 0.25;
 
 const BYTES_PER_TOKEN = 4;
 
+export const BYTES_PER_KB = 1024;
 export const MS_PER_SECOND = 1000;
-export const MS_PER_MINUTE = 60 * MS_PER_SECOND;
+const SECONDS_PER_MINUTE = 60;
+export const MS_PER_MINUTE = SECONDS_PER_MINUTE * MS_PER_SECOND;
 
 /** A rough count for text before it is sent: about four bytes per token for code and English. */
 export function estimateTokens(text: string): number {

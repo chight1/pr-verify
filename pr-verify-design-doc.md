@@ -56,8 +56,8 @@ The agent is a plain tool-use loop over the Claude Messages API using the offici
 The agent has exactly four tools.
 
 - read_file takes a repo-relative path and an optional line range. It serves tracked files only, rejects anything that resolves outside the repository, and returns at most 400 lines or 32 KB per call.
-- run_tests takes no arguments and runs the configured test command on the scratch tree as it currently stands. It has its own timeout (5 minutes by default) and returns the exit code with the last 64 KB of output.
-- propose_patch takes a unified diff, a kind (test or fix) and a one-line description. The harness resets the scratch tree to the PR commit, applies any patches the agent has marked as kept, checks the new patch against the patch policy, applies it, and reports whether it applied cleanly. A test patch may only add files under the project's test directories or add to existing test files. A fix patch follows the size and path rules below.
+- run_tests takes no arguments and runs the configured test command on the test checkout as it currently stands. It has its own timeout (5 minutes by default) and returns the exit code with the last 64 KB of output.
+- propose_patch takes a unified diff, a kind (test or fix) and a one-line description. The harness resets the test checkout to the PR commit, applies any patches the agent has marked as kept, checks the new patch against the patch policy, applies it, and reports whether it applied cleanly. A test patch may only add files under the project's test directories or add to existing test files. A fix patch follows the size and path rules below.
 - finish ends the run. In review mode it carries the list of findings, each with a category (bug, security, missing-test), a confidence (low, medium, high), a file and line, a title, an explanation of at most four lines, and references to the test patch and fix patch it rests on, if any. In red-gate mode it carries a verdict of fix, diagnosis or abstain with a three-line summary and its citations.
 
 The agent has no shell, no network, no write access except through propose_patch, and cannot see or alter the workflow files. There is deliberately no directory listing or search tool in version 1; the repository map and the diff cover that, and every tool left out is one fewer thing to reason about in the guardrails section of the README.
@@ -74,7 +74,7 @@ A bug is verified when the test patch alone, applied to the PR commit, makes the
 
 The patch policy, checked before any patch is applied: at most 200 changed lines across 6 files; no paths outside the repository, no symlinks, no binary files; nothing under .github; no lockfile or dependency-manifest changes; a test patch touches test locations only; a fix patch that touches only tests is never a fix.
 
-Patches in review mode exist only in the comment. Nothing is pushed, committed or kept anywhere but the scratch tree on the runner, which is discarded with the machine.
+Patches in review mode exist only in the comment. Nothing is pushed, committed or kept anywhere but the test checkout on the runner, which is discarded with the machine.
 
 ## Repository guidance
 

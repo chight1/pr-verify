@@ -1,6 +1,6 @@
 /**
- * Fixtures the patch-policy, scratch-tree and proof tests share: a patch
- * builder and the policy limits, and a one-file scratch repository whose
+ * Fixtures the patch-policy, test-checkout and proof tests share: a patch
+ * builder and the policy limits, and a one-file temporary repository whose
  * suite passes when value.js exports 2.
  */
 
@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ScratchTree } from "../src/scratch-tree.js";
+import { TestCheckout } from "../src/test-checkout.js";
 
 export const LIMITS = { maxLines: 200, maxFiles: 6 };
 
@@ -39,7 +39,7 @@ export function repoAt(
   value: number,
   extra: Record<string, string> = {},
   build = "",
-): ScratchTree {
+): TestCheckout {
   const dir = mkdtempSync(path.join(os.tmpdir(), "pr-verify-recheck-"));
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: dir, stdio: "pipe" }).toString().trim();
@@ -63,7 +63,7 @@ export function repoAt(
     "-qm",
     "head",
   );
-  return new ScratchTree(
+  return new TestCheckout(
     dir,
     git("rev-parse", "HEAD"),
     { build, test: "node run.js" },

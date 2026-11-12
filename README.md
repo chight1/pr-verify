@@ -9,7 +9,7 @@ The review is advisory. A person decides what to do with it.
 These are enforced by the harness code in `src/`, not requested of the model.
 
 - Approve, request changes, or merge. Every review is posted with the comment event only.
-- Push, commit, or keep a patch anywhere. Patches exist only in the comment and in the runner's scratch tree, which is discarded with the machine.
+- Push, commit, or keep a patch anywhere. Patches exist only in the comment and in the runner's test checkout, which is discarded with the machine.
 - Run on a pull request from a fork, or on a draft.
 - Let the code under test reach the job's secrets, the network, or anything that runs after it.
 - Edit anything under `.github`, or touch a lockfile, a dependency manifest or a scanner's ignore file.
@@ -81,15 +81,15 @@ Every tool runs with PR Verify's settings, and a project's own config and ignore
 
 Common mistakes are checked in every language:
 
-| Pattern                                                         | Python                         | Go                                    | JavaScript and TypeScript                                                  |
-| --------------------------------------------------------------- | ------------------------------ | ------------------------------------- | -------------------------------------------------------------------------- |
-| Debug output                                                    | ruff `T20`                     | forbidigo on `fmt.Print*` and `print` | `no-console`                                                               |
-| Magic numbers, other than 0, 1 and -1, outside a named constant | ruff `PLR2004`, in comparisons | mnd                                   | the gate's own rule, which allows arithmetic like `8 * 1024` in a constant |
-| Commented-out code                                              | ruff `ERA001`                  | gocritic `commentedOutCode`           | SonarJS `no-commented-code`                                                |
-| A `TODO` or `FIXME` that names no issue                         | ruff `TD003`                   | the gate's own check                  | SonarJS `comment-regex`                                                    |
-| Swallowed errors                                                | ruff `BLE`, `S110`, `S112`     | errcheck, nilerr                      | `no-empty`, typescript-eslint's promise rules                              |
-| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-match`                                                                 |
-| A test that is always skipped, or asserts nothing               | Semgrep rules                  | Semgrep rules                         | the Vitest plugin's rules, which also fit Jest                             |
+| Pattern                                                         | Python                         | Go                                    | JavaScript and TypeScript                      |
+| --------------------------------------------------------------- | ------------------------------ | ------------------------------------- | ---------------------------------------------- |
+| Debug output                                                    | ruff `T20`                     | forbidigo on `fmt.Print*` and `print` | `no-console`                                   |
+| Magic numbers, other than 0, 1 and -1, outside a named constant | ruff `PLR2004`, in comparisons | mnd                                   | typescript-eslint `no-magic-numbers`           |
+| Commented-out code                                              | ruff `ERA001`                  | gocritic `commentedOutCode`           | SonarJS `no-commented-code`                    |
+| A `TODO` or `FIXME` that names no issue                         | ruff `TD003`                   | the gate's own check                  | SonarJS `comment-regex`                        |
+| Swallowed errors                                                | ruff `BLE`, `S110`, `S112`     | errcheck, nilerr                      | `no-empty`, typescript-eslint's promise rules  |
+| Vague names (`data`, `info`, `tmp`, `res` and the like)         | a Semgrep rule                 | a Semgrep rule                        | `id-match`                                     |
+| A test that is always skipped, or asserts nothing               | Semgrep rules                  | Semgrep rules                         | the Vitest plugin's rules, which also fit Jest |
 
 JavaScript and TypeScript also get SonarJS's recommended rules. The Semgrep rules ship in `checks/semgrep.yml` and run from the image the static analysis step uses.
 
@@ -136,35 +136,36 @@ Nothing here runs on a push to the default branch, only on pull requests.
 
 ## Repository layout
 
-| File                              | Concern                                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------------------------- |
-| `src/main.ts`                     | Picks the mode from the gate result, runs it, always writes the record.                     |
-| `src/inputs.ts`                   | The action's inputs and the pull request from the event.                                    |
-| `src/stage.ts`                    | What both modes share: the stage, the comment keys, the scratch tree.                       |
-| `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.            |
-| `src/selection.ts`                | Verification and caps that turn proposals into posted findings.                             |
-| `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification. |
-| `src/notes.ts`                    | The too-large and baseline notes.                                                           |
-| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                       |
-| `src/diff.ts`                     | Unified-diff parser shared by context, review, prior findings and patch policy.             |
-| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                  |
-| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                         |
-| `src/tool-definitions.ts`         | The four tools' schemas, finish shaped per mode.                                            |
-| `src/tool-input.ts`               | Checks on the model's tool input, and the finish payload.                                   |
-| `src/tool-executor.ts`            | Runs each tool call: budget, limits, the call trail.                                        |
-| `src/patch-policy.ts`             | What a patch may touch, decided from the diff alone.                                        |
-| `src/scratch-tree.ts`             | Scratch-tree reset, apply, harness test runs.                                               |
-| `src/proof.ts`                    | Demonstration, recheck, red-gate and static analysis verification.                          |
-| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                  |
-| `src/review.ts`                   | Posting policy, line-to-diff mapping, the review itself.                                    |
-| `src/markers.ts`                  | The hidden markers, and reading findings back from comments.                                |
-| `src/prior-findings.ts`           | Prior findings: which this push resolved, and their review threads.                         |
-| `src/pr-comments.ts`              | The one comment per key: red-gate verdict, too-large and baseline notes.                    |
-| `src/record.ts`                   | The run record.                                                                             |
-| `src/budget.ts`                   | Token, time, call and finding counters.                                                     |
-| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                      |
-| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                |
-| `templates/`                      | The one-file workflow a project copies, per runtime.                                        |
+| File                              | Concern                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `src/main.ts`                     | Picks the mode from the gate result, runs it, always writes the record.                       |
+| `src/inputs.ts`                   | The action's inputs and the pull request from the event.                                      |
+| `src/stage.ts`                    | What both modes share: the stage, the comment keys, the test checkout.                        |
+| `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.              |
+| `src/selection.ts`                | Verification and caps that turn proposals into posted findings.                               |
+| `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification.   |
+| `src/skip-notes.ts`               | Comments posted instead of a review: the diff is too large, or tests fail in the sandbox.     |
+| `src/context.ts`                  | Diff, repository map, guidance file, job-log fetch, secret scrubbing.                         |
+| `src/diff.ts`                     | Unified-diff parser shared by context, review, prior findings and patch policy.               |
+| `src/patch-repair.ts`             | Recounts the hunk headers of a patch Claude writes, and explains why `git apply` rejects one. |
+| `src/preclassify.ts`              | Infrastructure patterns for red-gate mode.                                                    |
+| `src/agent.ts`                    | The Messages API loop, both briefs, prompt caching.                                           |
+| `src/tool-definitions.ts`         | The four tools' schemas, finish shaped per mode.                                              |
+| `src/tool-input.ts`               | Checks on the model's tool input, and the finish payload.                                     |
+| `src/tool-executor.ts`            | Runs each tool call: budget, limits, the call trail.                                          |
+| `src/patch-policy.ts`             | What a patch may touch, decided from the diff alone.                                          |
+| `src/test-checkout.ts`            | Test checkout reset, apply, harness test runs.                                                |
+| `src/proof.ts`                    | Demonstration, recheck, red-gate and static analysis verification.                            |
+| `src/sandbox.ts`                  | The namespaces every test run executes in.                                                    |
+| `src/review.ts`                   | Posting policy, line-to-diff mapping, the review itself.                                      |
+| `src/markers.ts`                  | The hidden markers, and reading findings back from comments.                                  |
+| `src/prior-findings.ts`           | Prior findings: which this push resolved, and their review threads.                           |
+| `src/pr-comments.ts`              | The one comment per key: red-gate verdict, too-large and baseline notes.                      |
+| `src/record.ts`                   | The run record.                                                                               |
+| `src/budget.ts`                   | Token, time, call and finding counters.                                                       |
+| `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                        |
+| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                  |
+| `templates/`                      | The one-file workflow a project copies, per runtime.                                          |
 
 `dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
 

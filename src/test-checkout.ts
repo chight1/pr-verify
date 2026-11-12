@@ -1,5 +1,5 @@
 /**
- * The scratch tree: the runner's checkout, treated as disposable. Every
+ * The test checkout: the runner's checkout, treated as disposable. Every
  * harness run starts from a reset to the PR commit, applies the patches under
  * test, and runs the project's own build and suite, in the sandbox when there
  * is one.
@@ -9,13 +9,15 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { BYTES_PER_KB } from "./budget.js";
 import { git } from "./context.js";
 import type { Sandbox } from "./sandbox.js";
 
 /** Output held in memory before the oldest chunks are dropped, as a multiple of the tail returned. */
 const OUTPUT_BUFFER_TAILS = 2;
-/** How much of a harness run's output, from the end, is kept. */
-const TEST_OUTPUT_TAIL_BYTES = 64 * 1024;
+/** Only the end of the project's test output is kept, and Claude sees it. */
+const TEST_OUTPUT_LIMIT_KB = 64;
+const TEST_OUTPUT_LIMIT_BYTES = TEST_OUTPUT_LIMIT_KB * BYTES_PER_KB;
 
 export interface CommandResult {
   exitCode: number | null;
@@ -135,7 +137,7 @@ export interface ApplyResult {
  * commit and removes untracked files (but keeps ignored ones such as
  * node_modules, so a reset does not cost a reinstall).
  */
-export class ScratchTree {
+export class TestCheckout {
   constructor(
     readonly root: string,
     private readonly headSha: string,
@@ -161,7 +163,7 @@ export class ScratchTree {
     });
   }
 
-  /** True when the tree already contains the patch's changes, i.e. it would apply in reverse. */
+  /** True when the checkout already contains the patch's changes, i.e. it would apply in reverse. */
   async contains(diff: string): Promise<boolean> {
     return this.withPatchFile(diff, (file) =>
       git(
@@ -195,7 +197,7 @@ export class ScratchTree {
         command,
         this.root,
         this.testTimeoutMs,
-        TEST_OUTPUT_TAIL_BYTES,
+        TEST_OUTPUT_LIMIT_BYTES,
         this.sandbox,
       );
     let buildMs = 0;

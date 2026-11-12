@@ -139,7 +139,7 @@ done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
   errcheck DEP001 "unreachable func: unused" left-pad "Unused files" suppressed.py suppressed.ts suppressed.sh "LF line endings" "trailing whitespace" \
   "notes.txt: no newline" big.bin "knip entry points are patterns" SC2086 SC2164 unpinned-uses template-injection \
-  DL3006 DL3008 no-console pr-verify/no-magic-numbers id-match sonarjs/comment-regex vitest/no-disabled-tests \
+  DL3006 DL3008 no-console @typescript-eslint/no-magic-numbers id-match sonarjs/comment-regex vitest/no-disabled-tests \
   vitest/expect-expect forbidigo mnd vague-name-python vague-name-go unconditional-skip-python \
   unconditional-skip-go test-without-assertion-python test-without-assertion-go
 echo "checks: ok"

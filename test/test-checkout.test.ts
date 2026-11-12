@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { repoAt } from "./harness-fixtures.js";
 
-describe("ScratchTree.runTests", () => {
+describe("TestCheckout.runTests", () => {
   it("builds before the suite runs", async () => {
     const files = {
       "build.js": "require('fs').writeFileSync('built.txt', '');\n",
@@ -16,7 +16,7 @@ describe("ScratchTree.runTests", () => {
   });
 
   it("returns a failed build without running the suite", async () => {
-    const tree = repoAt(
+    const checkout = repoAt(
       1,
       {
         "build.js": "process.exit(3);\n",
@@ -24,10 +24,10 @@ describe("ScratchTree.runTests", () => {
       },
       "node build.js",
     );
-    const run = await tree.runTests();
+    const run = await checkout.runTests();
     expect(run.buildFailed).toBe(true);
     expect(run.exitCode).not.toBe(0);
     expect(run.output).toMatch(/The build failed/);
-    expect(existsSync(path.join(tree.root, "ran.txt"))).toBe(false);
+    expect(existsSync(path.join(checkout.root, "ran.txt"))).toBe(false);
   });
 });

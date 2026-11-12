@@ -28,29 +28,33 @@ describe("recheckDemonstration", () => {
   });
 
   it("uses the test as it stands when the author committed it", async () => {
-    const tree = repoAt(2, { "tests/value.test.js": TEST });
-    expect(await recheckDemonstration(tree, TEST_PATCH, LIMITS)).toMatchObject({
+    const checkout = repoAt(2, { "tests/value.test.js": TEST });
+    expect(
+      await recheckDemonstration(checkout, TEST_PATCH, LIMITS),
+    ).toMatchObject({
       result: "passes",
       runs: 1,
     });
   });
 
-  it("is unusable when the test no longer fits the tree, and leaves the tree clean", async () => {
-    const tree = repoAt(2, { "tests/value.test.js": "something else\n" });
-    expect(await recheckDemonstration(tree, TEST_PATCH, LIMITS)).toMatchObject({
+  it("is unusable when the test no longer fits the checkout, and leaves the checkout clean", async () => {
+    const checkout = repoAt(2, { "tests/value.test.js": "something else\n" });
+    expect(
+      await recheckDemonstration(checkout, TEST_PATCH, LIMITS),
+    ).toMatchObject({
       result: "unusable",
       runs: 0,
     });
     expect(
       execFileSync("git", ["status", "--porcelain"], {
-        cwd: tree.root,
+        cwd: checkout.root,
       }).toString(),
     ).toBe("");
   });
 
   it("never runs a patch read back from a comment that breaks the test-patch policy", async () => {
-    const tree = repoAt(1);
-    expect(await recheckDemonstration(tree, FIX_SRC, LIMITS)).toEqual({
+    const checkout = repoAt(1);
+    expect(await recheckDemonstration(checkout, FIX_SRC, LIMITS)).toEqual({
       result: "unusable",
       runs: 0,
       durationMs: 0,
@@ -67,35 +71,41 @@ describe("verifyStaticAnalysisFix", () => {
   });
 
   it("verifies a fix that clears every finding and keeps the suite passing", async () => {
-    const tree = repoAt(1, { "tests/value.test.js": TEST });
+    const checkout = repoAt(1, { "tests/value.test.js": TEST });
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(2), () => Promise.resolve(0)),
+      await verifyStaticAnalysisFix(checkout, fixTo(2), () =>
+        Promise.resolve(0),
+      ),
     ).toMatchObject({ fixPasses: true, findingsLeft: 0, runs: 1 });
   });
 
   it("does not run the suite while findings are left", async () => {
-    const tree = repoAt(1, { "tests/value.test.js": TEST });
+    const checkout = repoAt(1, { "tests/value.test.js": TEST });
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(2), () => Promise.resolve(2)),
+      await verifyStaticAnalysisFix(checkout, fixTo(2), () =>
+        Promise.resolve(2),
+      ),
     ).toMatchObject({ fixPasses: false, findingsLeft: 2, runs: 0 });
   });
 
-  it("rejects a fix that clears the findings but breaks the suite, and leaves the tree clean", async () => {
-    const tree = repoAt(1, { "tests/value.test.js": TEST });
+  it("rejects a fix that clears the findings but breaks the suite, and leaves the checkout clean", async () => {
+    const checkout = repoAt(1, { "tests/value.test.js": TEST });
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(3), () => Promise.resolve(0)),
+      await verifyStaticAnalysisFix(checkout, fixTo(3), () =>
+        Promise.resolve(0),
+      ),
     ).toMatchObject({ fixPasses: false, findingsLeft: 0, runs: 1 });
     expect(
       execFileSync("git", ["status", "--porcelain"], {
-        cwd: tree.root,
+        cwd: checkout.root,
       }).toString(),
     ).toBe("");
   });
 
   it("says nothing about findings when Semgrep failed or the fix did not apply", async () => {
-    const tree = repoAt(1);
+    const checkout = repoAt(1);
     expect(
-      await verifyStaticAnalysisFix(tree, fixTo(2), () =>
+      await verifyStaticAnalysisFix(checkout, fixTo(2), () =>
         Promise.resolve(null),
       ),
     ).toMatchObject({ fixPasses: false, findingsLeft: null });
@@ -119,25 +129,29 @@ describe.runIf(process.platform === "linux" && process.env.SEMGREP_IMAGE)(
     };
 
     it("counts findings, including ones an inline nosemgrep comment would hide", async () => {
-      const tree = repoAt(1, {
+      const checkout = repoAt(1, {
         "rules.yml": RULES,
         "a.js":
           "eval(process.argv[2]);\n// nosemgrep\neval(process.argv[3]);\n",
       });
-      expect(await runStaticAnalysis(tree, analysis, 120_000)).toMatchObject({
+      expect(
+        await runStaticAnalysis(checkout, analysis, 120_000),
+      ).toMatchObject({
         findings: 2,
       });
     }, 180_000);
 
     it("scans a file the fix added, which git does not track yet", async () => {
-      const tree = repoAt(1, { "rules.yml": RULES });
+      const checkout = repoAt(1, { "rules.yml": RULES });
       const added =
         "diff --git a/b.js b/b.js\nnew file mode 100644\n--- /dev/null\n+++ b/b.js\n@@ -0,0 +1,1 @@\n+eval(process.argv[2]);\n";
-      expect((await tree.apply(added)).applied).toBe(true);
-      expect(await runStaticAnalysis(tree, analysis, 120_000)).toMatchObject({
+      expect((await checkout.apply(added)).applied).toBe(true);
+      expect(
+        await runStaticAnalysis(checkout, analysis, 120_000),
+      ).toMatchObject({
         findings: 1,
       });
-      await tree.reset();
+      await checkout.reset();
     }, 180_000);
   },
 );
@@ -157,16 +171,16 @@ describe("a test patch that breaks the build", () => {
   };
 
   it("does not count as a failing test", async () => {
-    const tree = repoAt(2, { "build.js": BUILD }, "node build.js");
-    expect((await verifyDemonstration(tree, broken, undefined)).testFails).toBe(
-      false,
-    );
+    const checkout = repoAt(2, { "build.js": BUILD }, "node build.js");
+    expect(
+      (await verifyDemonstration(checkout, broken, undefined)).testFails,
+    ).toBe(false);
   });
 
   it("makes a recheck unusable rather than still failing", async () => {
-    const tree = repoAt(2, { "build.js": BUILD }, "node build.js");
+    const checkout = repoAt(2, { "build.js": BUILD }, "node build.js");
     expect(
-      await recheckDemonstration(tree, BROKEN_TEST_PATCH, LIMITS),
+      await recheckDemonstration(checkout, BROKEN_TEST_PATCH, LIMITS),
     ).toMatchObject({ result: "unusable", runs: 1 });
   });
 });

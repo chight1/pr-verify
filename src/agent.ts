@@ -40,7 +40,7 @@ Look for, in this order:
 
 Never comment on style, naming, formatting, structure or "consider refactoring", and never praise.
 
-The evidence rule: a claim about behavior must be demonstrated. Write the smallest test that shows the problem with propose_patch (kind "test"), then run_tests. The suite is green on this commit, so the suite going red with only your test added is the demonstration. If you can also fix it, propose a "fix" patch based on the test and run_tests again. Cite both patch ids in the finding. The harness re-runs these demonstrations itself from a clean tree; a test that does not fail there downgrades the finding to unverified.
+The evidence rule: a claim about behavior must be demonstrated. Write the smallest test that shows the problem with propose_patch (kind "test"), then run_tests. The suite is green on this commit, so the suite going red with only your test added is the demonstration. If you can also fix it, propose a "fix" patch based on the test and run_tests again. Cite both patch ids in the finding. The harness re-runs these demonstrations itself from a clean checkout; a test that does not fail there downgrades the finding to unverified.
 
 A finding you cannot demonstrate by execution (most security findings, a race you can't reproduce, a missing test) may still be reported at medium or high confidence, with the exact lines and the data path it rests on. At most three such findings survive; choose the ones that matter.
 
@@ -161,6 +161,13 @@ export interface AgentRunInput {
   budget: Budget;
 }
 
+function clearCacheBreakpoints(message: Anthropic.MessageParam): void {
+  if (message.role !== "user" || typeof message.content === "string") return;
+  for (const block of message.content) {
+    if ("cache_control" in block) delete block.cache_control;
+  }
+}
+
 /**
  * Puts the conversation's cache breakpoint on the newest user message and
  * takes it off the older ones. Each request then reads everything up to the
@@ -169,13 +176,7 @@ export interface AgentRunInput {
  * the API allows.
  */
 function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
-  for (const message of messages) {
-    if (message.role !== "user" || typeof message.content === "string")
-      continue;
-    for (const block of message.content) {
-      if ("cache_control" in block) delete block.cache_control;
-    }
-  }
+  for (const message of messages) clearCacheBreakpoints(message);
   const last = messages[messages.length - 1];
   if (last?.role !== "user") return;
   if (typeof last.content === "string")
@@ -185,9 +186,12 @@ function moveCacheBreakpoint(messages: Anthropic.MessageParam[]): void {
     block.cache_control = { type: "ephemeral" };
 }
 
-export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
-  const { client, model, mode, executor, budget } = input;
-  const system: Anthropic.TextBlockParam[] = [
+/** The system prompt as two cached blocks: the mode's rules, then the repository map. */
+function systemBlocks(
+  mode: Mode,
+  repositoryMap: string,
+): Anthropic.TextBlockParam[] {
+  return [
     {
       type: "text",
       text: mode === "review" ? REVIEW_SYSTEM_PROMPT : RED_GATE_SYSTEM_PROMPT,
@@ -195,21 +199,117 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
     },
     {
       type: "text",
-      text: `## Repository map\n\n${input.repositoryMap}`,
+      text: `## Repository map\n\n${repositoryMap}`,
       cache_control: { type: "ephemeral" },
     },
   ];
+}
+
+/** What the loop carries from one turn to the next. */
+interface LoopState {
+  messages: Anthropic.MessageParam[];
+  turns: number;
+  nudges: number;
+}
+
+/** The outcome of a run that ended without finish and without a budget. */
+function stopped(
+  stopReason: NonNullable<AgentOutcome["stopReason"]>,
+  turns: number,
+): AgentOutcome {
+  return { finished: null, budgetTripped: null, stopReason, turns };
+}
+
+/** Runs a response's tool calls in order, and returns their results and the first finish among them. */
+async function runToolCalls(
+  content: Anthropic.ContentBlock[],
+  executor: ToolExecutor,
+): Promise<{
+  results: Anthropic.ToolResultBlockParam[];
+  finished: FinishPayload | null;
+}> {
+  const results: Anthropic.ToolResultBlockParam[] = [];
+  let finished: FinishPayload | null = null;
+  for (const block of content) {
+    if (block.type !== "tool_use") continue;
+    // Tools run one at a time: propose_patch and run_tests share the working tree.
+    const result = await executor.execute(block);
+    results.push(result.block);
+    if (result.finished && !finished) finished = result.finished;
+  }
+  return { results, finished };
+}
+
+/** Asks a model that ended its turn without finish to call it, until it has been asked MAX_NUDGES times. */
+function nudge(state: LoopState): AgentOutcome | null {
+  if (state.nudges >= MAX_NUDGES) return stopped("no_finish", state.turns);
+  state.nudges += 1;
+  state.messages.push({
+    role: "user",
+    content:
+      "Call finish to end the run. Report an empty list if there is nothing to report.",
+  });
+  return null;
+}
+
+/**
+ * Acts on a response by its stop reason. Returns the run's outcome when the
+ * run is over, or null when the conversation goes back to the model.
+ */
+async function afterResponse(
+  response: Anthropic.Message,
+  executor: ToolExecutor,
+  state: LoopState,
+): Promise<AgentOutcome | null> {
+  switch (response.stop_reason) {
+    case "tool_use": {
+      const { results, finished } = await runToolCalls(
+        response.content,
+        executor,
+      );
+      if (finished) {
+        return {
+          finished,
+          budgetTripped: null,
+          stopReason: null,
+          turns: state.turns,
+        };
+      }
+      state.messages.push({ role: "user", content: results });
+      return null;
+    }
+    case "pause_turn":
+      return null;
+    case "end_turn":
+    case "stop_sequence":
+      return nudge(state);
+    case "max_tokens":
+      return stopped("max_tokens", state.turns);
+    case "refusal":
+      return stopped("refusal", state.turns);
+    case "model_context_window_exceeded":
+      return stopped("context_window", state.turns);
+    default:
+      return stopped("no_finish", state.turns);
+  }
+}
+
+export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
+  const { client, model, mode, executor, budget } = input;
+  const system = systemBlocks(mode, input.repositoryMap);
   const tools = toolDefinitions(mode);
-  const messages: Anthropic.MessageParam[] = [
-    { role: "user", content: input.brief },
-  ];
-  let turns = 0;
-  let nudges = 0;
+  const state: LoopState = {
+    messages: [{ role: "user", content: input.brief }],
+    turns: 0,
+    nudges: 0,
+  };
+  const { messages } = state;
 
   try {
-    for (;;) {
+    let outcome: AgentOutcome | null = null;
+    while (outcome === null) {
       budget.checkClock();
-      turns += 1;
+      state.turns += 1;
       moveCacheBreakpoint(messages);
       const response = await client.messages.create(
         { model, max_tokens: MAX_OUTPUT_TOKENS, system, tools, messages },
@@ -222,79 +322,16 @@ export async function runAgent(input: AgentRunInput): Promise<AgentOutcome> {
         cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
       });
       messages.push({ role: "assistant", content: response.content });
-
-      switch (response.stop_reason) {
-        case "tool_use": {
-          const results: Anthropic.ToolResultBlockParam[] = [];
-          let finished: FinishPayload | null = null;
-          for (const block of response.content) {
-            if (block.type !== "tool_use") continue;
-            // Tools run one at a time: propose_patch and run_tests share the working tree.
-            const result = await executor.execute(block);
-            results.push(result.block);
-            if (result.finished && !finished) finished = result.finished;
-          }
-          if (finished)
-            return { finished, budgetTripped: null, stopReason: null, turns };
-          messages.push({ role: "user", content: results });
-          continue;
-        }
-        case "pause_turn":
-          continue;
-        case "end_turn":
-        case "stop_sequence": {
-          if (nudges >= MAX_NUDGES)
-            return {
-              finished: null,
-              budgetTripped: null,
-              stopReason: "no_finish",
-              turns,
-            };
-          nudges += 1;
-          messages.push({
-            role: "user",
-            content:
-              "Call finish to end the run. Report an empty list if there is nothing to report.",
-          });
-          continue;
-        }
-        case "max_tokens":
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "max_tokens",
-            turns,
-          };
-        case "refusal":
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "refusal",
-            turns,
-          };
-        case "model_context_window_exceeded":
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "context_window",
-            turns,
-          };
-        default:
-          return {
-            finished: null,
-            budgetTripped: null,
-            stopReason: "no_finish",
-            turns,
-          };
-      }
+      outcome = await afterResponse(response, executor, state);
     }
+    return outcome;
   } catch (error) {
     if (error instanceof BudgetExceeded) {
       return {
         finished: null,
         budgetTripped: error.budget,
         stopReason: null,
-        turns,
+        turns: state.turns,
       };
     }
     throw error;

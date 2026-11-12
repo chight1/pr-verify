@@ -7,12 +7,15 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { Budget } from "./budget.js";
+import { BYTES_PER_KB, type Budget } from "./budget.js";
 import type { Scrubber } from "./context.js";
-import { applyHints, recountHunks } from "./diff.js";
+import { applyHints, recountHunks } from "./patch-repair.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
-import type { ScratchTree } from "./scratch-tree.js";
-import { READ_FILE_MAX_KB, READ_FILE_MAX_LINES } from "./tool-definitions.js";
+import type { TestCheckout } from "./test-checkout.js";
+import {
+  READ_FILE_LIMIT_KB,
+  READ_FILE_LIMIT_LINES,
+} from "./tool-definitions.js";
 import {
   expectInteger,
   expectString,
@@ -23,7 +26,7 @@ import {
 } from "./tool-input.js";
 import type { Mode, Patch, PatchKind } from "./types.js";
 
-const READ_FILE_MAX_BYTES = READ_FILE_MAX_KB * 1024;
+const READ_FILE_LIMIT_BYTES = READ_FILE_LIMIT_KB * BYTES_PER_KB;
 
 /** How much of a rejected patch the run record keeps. */
 const PREVIEW_BYTES = 2048;
@@ -41,7 +44,7 @@ export interface ToolContext {
   repoRoot: string;
   tracked: ReadonlySet<string>;
   budget: Budget;
-  tree: ScratchTree;
+  checkout: TestCheckout;
   patchLimits: PatchLimits;
   scrubber: Scrubber;
 }
@@ -216,7 +219,7 @@ export class ToolExecutor {
     const all = raw.split("\n");
     if (raw.endsWith("\n")) all.pop(); // the final newline ends the last line; it does not start another
     const wantedEnd = Math.min(requestedEnd ?? all.length, all.length);
-    const end = Math.min(wantedEnd, start - 1 + READ_FILE_MAX_LINES);
+    const end = Math.min(wantedEnd, start - 1 + READ_FILE_LIMIT_LINES);
     const slice = all.slice(start - 1, end);
 
     const numbered: string[] = [];
@@ -226,7 +229,7 @@ export class ToolExecutor {
     for (const [i, text] of slice.entries()) {
       const line = `${String(start + i)}\t${text}`;
       bytes += Buffer.byteLength(line) + 1;
-      if (bytes > READ_FILE_MAX_BYTES) {
+      if (bytes > READ_FILE_LIMIT_BYTES) {
         truncated = true;
         break;
       }
@@ -247,7 +250,7 @@ export class ToolExecutor {
 
   private async runTests() {
     this.ctx.budget.chargeTestRun();
-    const result = await this.ctx.tree.runTests();
+    const result = await this.ctx.checkout.runTests();
     const status = result.timedOut
       ? "timed out"
       : `exit code ${String(result.exitCode)}`;
@@ -288,7 +291,7 @@ export class ToolExecutor {
       };
     }
 
-    const failure = await this.applyOnCleanTree(proposal);
+    const failure = await this.applyOnCleanCheckout(proposal);
     if (failure) return failure;
 
     const patch: Patch = {
@@ -328,13 +331,13 @@ export class ToolExecutor {
     return { kind, description, sent, diff, baseOn, bases };
   }
 
-  /** Resets the tree, applies the bases in order, then the proposal. Null when every one applied. */
-  private async applyOnCleanTree(
+  /** Resets the checkout, applies the bases in order, then the proposal. Null when every one applied. */
+  private async applyOnCleanCheckout(
     proposal: Proposal,
   ): Promise<PatchOutcome | null> {
-    await this.ctx.tree.reset();
+    await this.ctx.checkout.reset();
     for (const base of proposal.bases) {
-      const applied = await this.ctx.tree.apply(base.diff);
+      const applied = await this.ctx.checkout.apply(base.diff);
       if (!applied.applied) {
         return {
           ok: false,
@@ -343,7 +346,7 @@ export class ToolExecutor {
         };
       }
     }
-    const applied = await this.ctx.tree.apply(proposal.diff);
+    const applied = await this.ctx.checkout.apply(proposal.diff);
     if (applied.applied) return null;
     const hints = applyHints(proposal.diff);
     const hintText =

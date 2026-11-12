@@ -7,12 +7,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Mode } from "./types.js";
 
-export const READ_FILE_MAX_LINES = 400;
-export const READ_FILE_MAX_KB = 32;
+export const READ_FILE_LIMIT_LINES = 400;
+/** The most Claude's read-file tool returns per call. */
+export const READ_FILE_LIMIT_KB = 32;
 
 const READ_FILE: Anthropic.Tool = {
   name: "read_file",
-  description: `Read a tracked file from the repository at the PR commit. Returns at most ${String(READ_FILE_MAX_LINES)} lines or ${String(READ_FILE_MAX_KB)} KB per call; use start_line and end_line to read further.`,
+  description: `Read a tracked file from the repository at the PR commit. Returns at most ${String(READ_FILE_LIMIT_LINES)} lines or ${String(READ_FILE_LIMIT_KB)} KB per call; use start_line and end_line to read further.`,
   input_schema: {
     type: "object",
     properties: {

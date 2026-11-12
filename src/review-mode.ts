@@ -8,12 +8,9 @@ import path from "node:path";
 import * as core from "@actions/core";
 import {
   buildReviewBrief,
-  createClient,
-  runAgent,
   type AgentOutcome,
   stoppedOutcome,
 } from "./agent.js";
-import { Budget } from "./budget.js";
 import {
   buildRepositoryMap,
   byCodeUnits,
@@ -26,7 +23,7 @@ import {
 } from "./context.js";
 import { parseDiff, type DiffFile } from "./diff.js";
 import { postingLogin, type PostedFinding } from "./markers.js";
-import { baselineNote, tooLargeNote } from "./notes.js";
+import { baselineNote, tooLargeNote } from "./skip-notes.js";
 import { isTestPath } from "./patch-policy.js";
 import { deleteComment, updateComment, upsertComment } from "./pr-comments.js";
 import {
@@ -39,18 +36,18 @@ import {
 import { recheckDemonstration } from "./proof.js";
 import type { RunRecord } from "./record.js";
 import { buildReview, postReview, type ReviewTrail } from "./review.js";
-import type { ScratchTree } from "./scratch-tree.js";
+import type { TestCheckout } from "./test-checkout.js";
 import { findingRecord, findingRecords, verifyAndSelect } from "./selection.js";
 import {
   BASELINE_KEY,
-  createScratchTree,
+  createTestCheckout,
   RED_GATE_KEY,
-  recordAgentRun,
+  recordContextSizes,
+  runStageAgent,
   TOO_LARGE_KEY,
   type AgentRun,
   type Stage,
 } from "./stage.js";
-import { ToolExecutor } from "./tool-executor.js";
 import type { Finding, PriorFinding, ResolvedFinding } from "./types.js";
 
 const TEST_EXAMPLES_SHOWN = 5;
@@ -80,12 +77,12 @@ export async function reviewMode(stage: Stage): Promise<void> {
     return;
   }
 
-  const tree = await createScratchTree(stage);
-  if (!(await baselinePasses(stage, tree))) return;
-  const resolution = await recheckPriorFindings(stage, tree, context.prior);
-  const agent = await runReviewAgent(stage, tree, context, resolution.open);
+  const checkout = await createTestCheckout(stage);
+  if (!(await baselinePasses(stage, checkout))) return;
+  const resolution = await recheckPriorFindings(stage, checkout, context.prior);
+  const agent = await runReviewAgent(stage, checkout, context, resolution.open);
   if (agent.outcome.finished?.mode !== "review") {
-    await reportStopped(stage, tree, agent.outcome);
+    await reportStopped(stage, checkout, agent.outcome);
     return;
   }
 
@@ -93,10 +90,10 @@ export async function reviewMode(stage: Stage): Promise<void> {
     agent.outcome.finished.findings,
     agent.executor.patches,
     resolution.open,
-    tree,
+    checkout,
     stage,
   );
-  await tree.reset();
+  await checkout.reset();
   record.findings = findingRecords(selection);
 
   if (selection.kept.length === 0 && resolution.resolved.length === 0) {
@@ -135,9 +132,7 @@ async function gatherContext(stage: Stage): Promise<ReviewContext> {
   ]);
   const diffFiles = parseDiff(diff.text);
   const map = buildRepositoryMap(tracked);
-  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
-  record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
-  record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+  recordContextSizes(record, diff, map, guidance);
   return { author, diff, diffFiles, tracked, guidance, prior, map };
 }
 
@@ -177,12 +172,12 @@ async function reportEmptyDiff(
 /** Runs the suite on the PR commit as it stands; when it fails, posts the baseline note instead of a review. */
 async function baselinePasses(
   stage: Stage,
-  tree: ScratchTree,
+  checkout: TestCheckout,
 ): Promise<boolean> {
   const { octokit, pr, record } = stage;
   // A failing test proves a bug only if the suite passes here, in the sandbox, without it.
-  await tree.reset();
-  const baseline = await tree.runTests();
+  await checkout.reset();
+  const baseline = await checkout.runTests();
   record.baseline = {
     passed: baseline.exitCode === 0,
     buildFailed: baseline.buildFailed,
@@ -205,13 +200,13 @@ async function baselinePasses(
 /** Re-runs each earlier finding's test on this commit, so the ones this push fixed are marked resolved. */
 async function recheckPriorFindings(
   stage: Stage,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   prior: PostedFinding[],
 ): Promise<Resolution> {
   const { inputs, record } = stage;
   const recheck = async (testPatch: string) => {
     const { result, runs, durationMs } = await recheckDemonstration(
-      tree,
+      checkout,
       testPatch,
       inputs.patchLimits,
     );
@@ -234,41 +229,24 @@ async function recheckPriorFindings(
 
 async function runReviewAgent(
   stage: Stage,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   context: ReviewContext,
   open: PriorFinding[],
 ): Promise<AgentRun> {
-  const { inputs, scrubber } = stage;
-  const budget = new Budget(inputs.limits);
-  const executor = new ToolExecutor({
-    mode: "review",
-    repoRoot: stage.repoRoot,
-    tracked: new Set(context.tracked),
-    budget,
-    tree,
-    patchLimits: inputs.patchLimits,
-    scrubber,
+  const brief = buildReviewBrief({
+    diff: context.diff.text,
+    omitted: context.diff.omitted,
+    guidance: context.guidance?.text ?? null,
+    openFindings: open,
+    testConventions: describeTestConventions(context.tracked),
   });
-
-  const outcome = await runAgent({
-    client: createClient(inputs.anthropicApiKey),
-    model: inputs.model,
-    mode: "review",
-    repositoryMap: context.map.text,
-    brief: scrubber.scrub(
-      buildReviewBrief({
-        diff: context.diff.text,
-        omitted: context.diff.omitted,
-        guidance: context.guidance?.text ?? null,
-        openFindings: open,
-        testConventions: describeTestConventions(context.tracked),
-      }),
-    ),
-    executor,
-    budget,
-  });
-  recordAgentRun(stage.record, executor, budget, outcome);
-  return { outcome, executor, budget };
+  return runStageAgent(
+    stage,
+    "review",
+    checkout,
+    context,
+    stage.scrubber.scrub(brief),
+  );
 }
 
 function describeTestConventions(files: string[]): string {
@@ -293,11 +271,11 @@ function describeTestConventions(files: string[]): string {
 /** The agent stopped without calling finish, so there is nothing to post. */
 async function reportStopped(
   stage: Stage,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   outcome: AgentOutcome,
 ): Promise<void> {
   stage.record.outcome = stoppedOutcome(outcome);
-  await tree.reset();
+  await checkout.reset();
   const reason = outcome.budgetTripped
     ? `budget: ${outcome.budgetTripped}`
     : String(outcome.stopReason);

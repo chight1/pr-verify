@@ -6,13 +6,7 @@
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import {
-  buildRedGateBrief,
-  createClient,
-  runAgent,
-  stoppedOutcome,
-} from "./agent.js";
-import { Budget } from "./budget.js";
+import { buildRedGateBrief, stoppedOutcome } from "./agent.js";
 import {
   buildRepositoryMap,
   collectDiff,
@@ -23,7 +17,7 @@ import {
   type PullRequestDiff,
   type RepositoryMap,
 } from "./context.js";
-import { tooLargeNote } from "./notes.js";
+import { tooLargeNote } from "./skip-notes.js";
 import { upsertComment } from "./pr-comments.js";
 import { preclassify, scanFailure } from "./preclassify.js";
 import {
@@ -32,15 +26,15 @@ import {
   verifyStaticAnalysisFix,
   type StaticAnalysis,
 } from "./proof.js";
-import type { ScratchTree } from "./scratch-tree.js";
+import type { TestCheckout } from "./test-checkout.js";
 import {
-  createScratchTree,
+  createTestCheckout,
   RED_GATE_KEY,
-  recordAgentRun,
+  recordContextSizes,
+  runStageAgent,
   type AgentRun,
   type Stage,
 } from "./stage.js";
-import { ToolExecutor } from "./tool-executor.js";
 import type { Patch, RedGateResult } from "./types.js";
 
 /** The failing gate step, and what its name says about how a fix can be checked. */
@@ -85,20 +79,21 @@ export async function redGateMode(stage: Stage): Promise<void> {
   }
   if (await preclassified(stage, failure)) return;
 
-  const tree = await createScratchTree(stage);
-  if (failure.isTestStep && (await passesOnRerun(stage, failure, tree))) return;
+  const checkout = await createTestCheckout(stage);
+  if (failure.isTestStep && (await passesOnRerun(stage, failure, checkout)))
+    return;
   const context = await gatherContext(stage);
   if (await declinedAsTooLarge(stage, failure, context.diff)) return;
 
   const { outcome, executor } = await runRedGateAgent(
     stage,
     failure,
-    tree,
+    checkout,
     context,
   );
   if (outcome.finished?.mode !== "red-gate") {
     record.outcome = stoppedOutcome(outcome);
-    await tree.reset();
+    await checkout.reset();
     return;
   }
 
@@ -106,11 +101,11 @@ export async function redGateMode(stage: Stage): Promise<void> {
   const checked = await checkProposedFix(
     stage,
     failure,
-    tree,
+    checkout,
     result,
     executor.patches,
   );
-  await tree.reset();
+  await checkout.reset();
   await postVerdict(stage, failure, result, checked);
 }
 
@@ -179,11 +174,11 @@ async function preclassified(
 async function passesOnRerun(
   stage: Stage,
   failure: GateFailure,
-  tree: ScratchTree,
+  checkout: TestCheckout,
 ): Promise<boolean> {
   const { record } = stage;
-  await tree.reset();
-  const rerun = await tree.runTests();
+  await checkout.reset();
+  const rerun = await checkout.runTests();
   record.verification.testRuns += 1;
   record.verification.durationMs += rerun.durationMs;
   if (rerun.exitCode !== 0) return false;
@@ -206,9 +201,7 @@ async function gatherContext(stage: Stage): Promise<RedGateContext> {
     readGuidance(repoRoot, inputs.guidanceFile),
   ]);
   const map = buildRepositoryMap(tracked);
-  record.contextSizes.diffBytes = Buffer.byteLength(diff.text);
-  record.contextSizes.repositoryMapBytes = Buffer.byteLength(map.text);
-  record.contextSizes.guidanceBytes = guidance?.bytes ?? 0;
+  recordContextSizes(record, diff, map, guidance);
   return { diff, tracked, guidance, map };
 }
 
@@ -235,46 +228,30 @@ async function declinedAsTooLarge(
 async function runRedGateAgent(
   stage: Stage,
   failure: GateFailure,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   context: RedGateContext,
 ): Promise<AgentRun> {
-  const { inputs, scrubber } = stage;
-  const budget = new Budget(inputs.limits);
-  const executor = new ToolExecutor({
-    mode: "red-gate",
-    repoRoot: stage.repoRoot,
-    tracked: new Set(context.tracked),
-    budget,
-    tree,
-    patchLimits: inputs.patchLimits,
-    scrubber,
+  const brief = buildRedGateBrief({
+    diff: context.diff.text,
+    omitted: context.diff.omitted,
+    guidance: context.guidance?.text ?? null,
+    stepName: failure.stepName,
+    log: failure.log,
   });
-  const outcome = await runAgent({
-    client: createClient(inputs.anthropicApiKey),
-    model: inputs.model,
-    mode: "red-gate",
-    repositoryMap: context.map.text,
-    brief: scrubber.scrub(
-      buildRedGateBrief({
-        diff: context.diff.text,
-        omitted: context.diff.omitted,
-        guidance: context.guidance?.text ?? null,
-        stepName: failure.stepName,
-        log: failure.log,
-      }),
-    ),
-    executor,
-    budget,
-  });
-  recordAgentRun(stage.record, executor, budget, outcome);
-  return { outcome, executor, budget };
+  return runStageAgent(
+    stage,
+    "red-gate",
+    checkout,
+    context,
+    stage.scrubber.scrub(brief),
+  );
 }
 
 /** The agent's verdict, keeping a proposed fix only where it can be verified and only once it has been. */
 async function checkProposedFix(
   stage: Stage,
   failure: GateFailure,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   result: RedGateResult,
   patches: Patch[],
 ): Promise<CheckedVerdict> {
@@ -295,25 +272,29 @@ async function checkProposedFix(
     };
   }
   if (result.verdict === "fix" && fixPatch)
-    return verifyFix(stage, failure, tree, fixPatch);
+    return verifyFix(stage, failure, checkout, fixPatch);
   return { verdict: result.verdict, fixPatch, note: "" };
 }
 
-/** Re-runs the proposed fix from a clean tree; a fix that does not verify falls back to the diagnosis. */
+/** Re-runs the proposed fix from a clean checkout; a fix that does not verify falls back to the diagnosis. */
 async function verifyFix(
   stage: Stage,
   failure: GateFailure,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   fixPatch: Patch,
 ): Promise<CheckedVerdict> {
   const { inputs, record } = stage;
   const { staticAnalysis } = failure;
   const scanned = staticAnalysis
-    ? await verifyStaticAnalysisFix(tree, fixPatch, () =>
-        countStaticAnalysisFindings(tree, staticAnalysis, inputs.testTimeoutMs),
+    ? await verifyStaticAnalysisFix(checkout, fixPatch, () =>
+        countStaticAnalysisFindings(
+          checkout,
+          staticAnalysis,
+          inputs.testTimeoutMs,
+        ),
       )
     : null;
-  const verification = scanned ?? (await verifyRedGateFix(tree, fixPatch));
+  const verification = scanned ?? (await verifyRedGateFix(checkout, fixPatch));
   record.verification.fixRuns += verification.runs;
   record.verification.durationMs += verification.durationMs;
   if (verification.fixPasses) return { verdict: "fix", fixPatch, note: "" };
@@ -375,11 +356,11 @@ async function postVerdict(
 }
 
 async function countStaticAnalysisFindings(
-  tree: ScratchTree,
+  checkout: TestCheckout,
   analysis: StaticAnalysis,
   timeoutMs: number,
 ): Promise<number | null> {
-  const result = await runStaticAnalysis(tree, analysis, timeoutMs);
+  const result = await runStaticAnalysis(checkout, analysis, timeoutMs);
   if (result.findings === null)
     core.warning(`Semgrep failed on the proposed fix:\n${result.output}`);
   return result.findings;
