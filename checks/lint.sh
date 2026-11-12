@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The lint and type checks, each with the gate's config and none of the
-# project's, and the Semgrep rules for common mistakes no linter here checks.
-# Sourced by run.sh.
+# project's: code in each language, workflows, shell scripts and Dockerfiles,
+# the Semgrep rules for common mistakes no linter here checks, and the comments
+# that switch a check off. Sourced by run.sh.
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -36,13 +37,75 @@ semgrep_check() {
     -- "$@"
 }
 
+# Workflows with actionlint, which runs shellcheck on every run: block, and
+# shell scripts with the same pinned shellcheck.
+script_checks() {
+  local -a workflows shell
+  mapfile -t workflows < <(workflow_files "$@")
+  mapfile -t shell < <(shell_files "$@")
+  any "${workflows[@]}" "${shell[@]}" || return 0
+  local shellcheck_bin
+  shellcheck_bin="$(shellcheck)"
+  if any "${workflows[@]}"; then
+    # actionlint 1.7.12 predates GitHub's $/ syntax for same-repository references
+    # and rejects it, so those two messages, and only for $/ references, are ignored.
+    run "actionlint" "$(actionlint)" -config-file "$here/actionlint.yml" -shellcheck "$shellcheck_bin" \
+      -ignore '"\$/[^"]*" at "uses" is not following the format' \
+      -ignore 'action "\$/[^"]*" in invalid format because ref is missing' \
+      -- "${workflows[@]}"
+  fi
+  if any "${shell[@]}"; then
+    run "shellcheck" "$shellcheck_bin" --norc --severity=style -- "${shell[@]}"
+  fi
+}
+
+# Comments that switch a check off, for tools with no flag to ignore them, in
+# each tool's own comment syntax and only in the files it reads, so prose that
+# names a directive does not match.
+grep_files() {
+  local pattern="$1"
+  shift
+  any "$@" && git grep -nE "$pattern" -- "$@"
+}
+
+suppressions() {
+  local -a python go templates prettier source_code shell workflows actions code markup yaml
+  local found=1
+  mapfile -t python < <(python_files "$@")
+  mapfile -t go < <(go_files "$@")
+  mapfile -t templates < <(template_files "$@")
+  mapfile -t prettier < <(prettier_files "$@")
+  mapfile -t source_code < <(source_code_files "$@")
+  mapfile -t shell < <(shell_files "$@")
+  mapfile -t workflows < <(workflow_files "$@")
+  mapfile -t actions < <(action_files "$@")
+  mapfile -t code < <(
+    matching '\.(js|jsx|mjs|cjs|ts|tsx|mts|cts|json|jsonc|json5|css|scss|less|graphql)$' "${prettier[@]}"
+  )
+  mapfile -t markup < <(matching '\.(html?|vue|md)$' "${prettier[@]}")
+  mapfile -t yaml < <(matching '\.ya?ml$' "${prettier[@]}")
+  grep_files '# *(pyright:|fmt: *(off|skip)|isort: *(off|skip))' "${python[@]}" && found=0
+  grep_files '(//|/\*) *prettier-ignore' "${code[@]}" && found=0
+  grep_files '<!-- *prettier-ignore' "${markup[@]}" && found=0
+  grep_files '# *prettier-ignore' "${yaml[@]}" && found=0
+  grep_files '(\{#|<!--) *djlint:off' "${templates[@]}" && found=0
+  grep_files '// *(nolint|lint:ignore)' "${go[@]}" && found=0
+  grep_files 'jscpd: *ignore' "${source_code[@]}" && found=0
+  grep_files '# *shellcheck +disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
+  if [ "$found" -eq 0 ]; then
+    echo "These comments switch a check off. Fix what the check found instead." >&2
+    return 1
+  fi
+}
+
 # Runs each linter and type checker on the given files of its kind.
 lint_checks() {
-  local -a python go typescript javascript
+  local -a python go typescript javascript dockerfiles
   mapfile -t python < <(python_files "$@")
   mapfile -t go < <(go_files "$@")
   mapfile -t typescript < <(typescript_files "$@")
   mapfile -t javascript < <(javascript_files "$@")
+  mapfile -t dockerfiles < <(docker_files "$@")
 
   if any "${python[@]}"; then
     python_lint "${python[@]}"
@@ -69,4 +132,11 @@ lint_checks() {
   if any "${python[@]}" "${go[@]}"; then
     run "Semgrep" semgrep_check "${python[@]}" "${go[@]}"
   fi
+
+  script_checks "$@"
+  if any "${dockerfiles[@]}"; then
+    run "hadolint" "$(hadolint)" --config "$here/hadolint.yml" --disable-ignore-pragma \
+      -- "${dockerfiles[@]}"
+  fi
+  run "suppressions" suppressions "$@"
 }

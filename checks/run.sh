@@ -27,8 +27,8 @@ source "$here/lint.sh"
 source "$here/size.sh"
 # shellcheck source=checks/dead-code.sh
 source "$here/dead-code.sh"
-# shellcheck source=checks/every-file.sh
-source "$here/every-file.sh"
+# shellcheck source=checks/file-hygiene.sh
+source "$here/file-hygiene.sh"
 
 # Runs one tool in a collapsible log group and records it if it fails.
 run() {
@@ -89,6 +89,6 @@ formatting_checks "${files[@]}"
 lint_checks "${files[@]}"
 size_checks "${files[@]}"
 dead_code_checks "${files[@]}"
-every_file_checks "${files[@]}"
+file_hygiene_checks "${files[@]}"
 
 summarize "Code quality"
