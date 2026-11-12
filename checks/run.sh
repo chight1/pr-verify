@@ -100,7 +100,7 @@ prettier+=("${plain_html[@]}")
 
 # Scripts named for a shell, or that start with a shebang naming one.
 is_shell_script() {
-  [[ "$1" == *.sh || "$1" == *.bash ]] || head -n1 "$1" | grep -qE '^#!.*[/ ](ba|da|k)?sh$'
+  [[ "$1" == *.sh || "$1" == *.bash ]] || head -n1 "$1" | grep -qE '^#!.*[/ ](bash|dash|ksh|sh)$'
 }
 shell=()
 for file in "${files[@]}"; do
@@ -330,6 +330,19 @@ large_files() {
   return "$status"
 }
 run "file size" large_files
+
+# Misspelled words in code, comments, docs and file names. A project's typos
+# config can teach typos a word, such as a name in its license, and nothing else.
+typos_check() {
+  local config status
+  config="$(mktemp --suffix .toml)"
+  python3 "$here/typos_config.py" "$config" \
+    && pipx run typos==1.51.1 --isolated --config "$config" --format brief -- "${files[@]}"
+  status=$?
+  rm -f "$config"
+  return "$status"
+}
+run "typos" typos_check
 
 shellcheck_bin=""
 if any "${workflows[@]}" "${shell[@]}"; then

@@ -1,0 +1,10 @@
+# Words typos would otherwise correct.
+[default.extend-words]
+# A word in LICENSE.
+hight = "hight"
+# Ruff's copyright rule prefix.
+cpy = "cpy"
+# setpriv's --inh-caps option.
+inh = "inh"
+# As in look-alikes.
+alikes = "alikes"

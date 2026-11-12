@@ -37,6 +37,7 @@ loosen() {
   printf 'export default [];\n' > eslint.config.js
   printf 'version: "2"\nlinters:\n  default: none\n' > .golangci.yml
   printf 'module example.com/fixture\n\ngo 1.22\n' > go.mod
+  printf '[files]\nextend-exclude = ["*"]\n[default]\ncheck-file = false\n' > _typos.toml
 }
 
 mkdir "$scratch/format" && cd "$scratch/format"
@@ -167,6 +168,12 @@ printf 'FROM ubuntu\n# hadolint ignore=DL3008\nRUN apt-get install curl\n' > Doc
 # CRLF, trailing whitespace and no final newline, in a file no formatter reads.
 printf 'one\r\ntwo \nthree' > notes.txt
 head -c 1100000 /dev/zero > big.bin
+# A misspelling, beside a word the project's typos config accepts. Both are
+# split here so this file does not fail typos itself.
+misspelled="rec""ieve"
+accepted="t""eh"
+printf '[default.extend-words]\n%s = "%s"\n' "$accepted" "$accepted" >> _typos.toml
+printf '%s form to %s.\n' "$accepted" "$misspelled" > words.txt
 # Code over the size and complexity limits: too many parameters, too deep and
 # too complex in each language, a function and a file that run too long, and a
 # block copied between two files, one copy behind jscpd's ignore comment.
@@ -277,7 +284,7 @@ if online="$(bash "$here/run.sh" online 2>&1)"; then
 fi
 output+="$online"
 for tool in "ruff check" pyright tsc ESLint golangci-lint deptry deadcode knip whitespace "file size" actionlint zizmor \
-  shellcheck hadolint suppressions "task comments" Semgrep complexipy "file length" jscpd "new dependencies"; do
+  shellcheck hadolint typos suppressions "task comments" Semgrep complexipy "file length" jscpd "new dependencies"; do
   expect_names "::error title=$tool::"
 done
 expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-comment no-var \
@@ -297,10 +304,14 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   "pr-verify-fixture-made-up-override (npm) is not on its registry" \
   "**/is-odd (npm) comes from github:pr-verify-fixture/resolution-lib" \
   "pr-verify-fixture-made-up-group (pypi) is not on its registry" \
-  "pr-verify-fixture-made-up-dev (pypi) is not on its registry"
+  "pr-verify-fixture-made-up-dev (pypi) is not on its registry" \
+  "\`$misspelled\` should be"
 for name in local-lib workspace-lib local-py-lib uv-local-lib uv-workspace-lib is-even; do
   if grep -qF "$name (" <<< "$output"; then
     fail "the dependency check looked up $name, which adds no package from a registry"
   fi
 done
+if grep -qF "\`$accepted\`" <<< "$output"; then
+  fail "typos rejected a word the project accepts"
+fi
 echo "checks: ok"
