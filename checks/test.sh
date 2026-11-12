@@ -139,7 +139,8 @@ cat > package.json <<'JSON'
   "pnpm": { "overrides": { "is-even": "1.0.0" } }
 }
 JSON
-# A locked version no registry has, beside one old enough to pass.
+# A locked version no registry has and one locked to git, which fail, beside one
+# old enough to pass.
 cat > package-lock.json <<'JSON'
 {
   "lockfileVersion": 3,
@@ -147,6 +148,10 @@ cat > package-lock.json <<'JSON'
     "node_modules/left-pad": {
       "version": "99.0.0",
       "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-99.0.0.tgz"
+    },
+    "node_modules/git-locked": {
+      "version": "1.0.0",
+      "resolved": "git+ssh://git@github.com/pr-verify-fixture/git-locked.git#abc"
     },
     "node_modules/is-number": {
       "version": "7.0.0",
@@ -338,7 +343,8 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   "\`$misspelled\` should be" \
   "left-pad@99.0.0 (npm) is not on its registry" \
   "pr-verify-fixture-existing-made-up (npm) is not on its registry" \
-  "existing-git-lib (npm) comes from github:pr-verify-fixture/existing-git-lib"
+  "existing-git-lib (npm) comes from github:pr-verify-fixture/existing-git-lib" \
+  "git-locked (npm) is locked to git+ssh://git@github.com/pr-verify-fixture/git-locked.git#abc"
 if grep -qF "is-number" <<< "$output"; then
   fail "the dependency check rejected a dependency old enough to pass"
 fi

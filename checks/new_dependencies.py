@@ -7,7 +7,8 @@ also fails when the registry has had it for less than 30 days, since it may be
 registered to catch a made-up name. A version the pull request adds to a
 lockfile fails when it was published less than 7 days ago, which is how a
 hijacked maintainer account ships malware before anyone notices, unless a
-published advisory names it as the fix for a vulnerability.
+published advisory names it as the fix for a vulnerability, and a package it
+adds to a lockfile from git or a URL fails, as a direct one does.
 
 Usage: new_dependencies.py. Compares each tracked manifest and lockfile with its
 copy on the pull request's base commit, read from the event GitHub Actions provides.
@@ -28,7 +29,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from dependency_manifests import manifest_parser
-from lockfiles import lockfile_parser
+from lockfiles import lockfile_parser, outside_source_parser
 from registries import CREATED, RELEASED, fixes_advisory
 
 if TYPE_CHECKING:
@@ -62,6 +63,18 @@ class LockedVersion:
 
     def __str__(self) -> str:
         return f"{self.name}@{self.version} ({self.ecosystem})"
+
+
+@dataclass(frozen=True)
+class LockedSource:
+    """A package a lockfile installs from git or a URL rather than a registry."""
+
+    ecosystem: str
+    name: str
+    source: str
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.ecosystem})"
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -168,6 +181,25 @@ def package_problem(dependency: Dependency, now: datetime) -> str | None:
     return age_problem(str(dependency), created, now, MINIMUM_PACKAGE_AGE)
 
 
+def added_sources(paths: Iterable[str], base: str) -> list[LockedSource]:
+    sources: list[LockedSource] = []
+    for path in paths:
+        parser = outside_source_parser(path)
+        if parser is None:
+            continue
+        ecosystem, parse = parser
+        new = sorted(added(path, base, parse))
+        sources.extend(LockedSource(ecosystem, name, source) for name, source in new)
+    return sources
+
+
+def source_problem(locked: LockedSource) -> str:
+    return (
+        f"{locked} is locked to {locked.source}, not a registry. "
+        "Publish it to one, or keep its code in the repository."
+    )
+
+
 def version_problem(locked: LockedVersion, now: datetime) -> str | None:
     released = RELEASED[locked.ecosystem](locked.name, locked.version)
     problem = age_problem(str(locked), released, now, MINIMUM_VERSION_AGE)
@@ -206,7 +238,8 @@ def main() -> int:
     tracked = git("ls-files").stdout.splitlines()
     dependencies = direct_dependencies(tracked, base)
     versions = added_versions(tracked, base)
-    found = problems(dependencies, versions)
+    found = [source_problem(locked) for locked in added_sources(tracked, base)]
+    found.extend(problems(dependencies, versions))
     for problem in found:
         sys.stderr.write(f"{problem}\n")
     if found:
