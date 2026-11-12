@@ -3,7 +3,7 @@
  * request, a finding an earlier run posted, a trail, and a finding builder.
  */
 
-import type { ReviewTrail } from "../src/review.js";
+import type { ReviewTrail } from "../src/post-review.js";
 import type { Finding, PriorFinding, PullRequestRef } from "../src/types.js";
 
 export const PR: PullRequestRef = {

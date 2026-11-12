@@ -1,16 +1,16 @@
 /**
  * Entry point. Reads inputs, picks the mode from the gate result, runs it,
  * and always writes the run record, even on an internal error. Nothing here
- * talks to the model directly; that is agent.ts.
+ * talks to the model directly; that is claude-harness.ts.
  */
 
 import path from "node:path";
 import * as core from "@actions/core";
 import { pullRequestFromEvent, readInputs } from "./inputs.js";
-import { writeRecord } from "./record.js";
+import { writeRecord } from "./run-record.js";
 import { redGateMode } from "./red-gate-mode.js";
 import { reviewMode } from "./review-mode.js";
-import { createStage } from "./stage.js";
+import { createStage } from "./mode-setup.js";
 import type { Mode, Outcome } from "./types.js";
 
 async function run(): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preclassify, scanFailure } from "../src/preclassify.js";
+import { preclassify, scanFailure } from "../src/failure-triage.js";
 
 describe("preclassify", () => {
   it.each([

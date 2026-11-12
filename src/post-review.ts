@@ -5,14 +5,14 @@
  */
 
 import { MS_PER_SECOND } from "./budget.js";
-import type { Octokit } from "./context.js";
+import type { Octokit } from "./claude-context.js";
 import { isCommentable, type DiffFile } from "./diff.js";
 import {
   findingMarker,
   resolvedMarker,
   reviewMarker,
   TEST_SUMMARY,
-} from "./markers.js";
+} from "./comment-markers.js";
 import type {
   Finding,
   Patch,

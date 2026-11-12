@@ -4,7 +4,7 @@
  * markers are trusted only from the account this action posts as.
  */
 
-import type { Octokit } from "./context.js";
+import type { Octokit } from "./claude-context.js";
 import type { PriorFinding } from "./types.js";
 
 const MARKER = "pr-verify";

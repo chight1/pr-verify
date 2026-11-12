@@ -6,7 +6,8 @@
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { buildRedGateBrief, stoppedOutcome } from "./agent.js";
+import { stoppedOutcome } from "./claude-harness.js";
+import { buildRedGateBrief } from "./prompts.js";
 import {
   buildRepositoryMap,
   collectDiff,
@@ -16,10 +17,10 @@ import {
   type Guidance,
   type PullRequestDiff,
   type RepositoryMap,
-} from "./context.js";
+} from "./claude-context.js";
 import { tooLargeNote } from "./skip-notes.js";
 import { upsertComment } from "./pr-comments.js";
-import { preclassify, scanFailure } from "./preclassify.js";
+import { preclassify, scanFailure } from "./failure-triage.js";
 import {
   runStaticAnalysis,
   verifyRedGateFix,
@@ -34,7 +35,7 @@ import {
   runStageAgent,
   type AgentRun,
   type Stage,
-} from "./stage.js";
+} from "./mode-setup.js";
 import type { Patch, RedGateResult } from "./types.js";
 
 /** The failing gate step, and what its name says about how a fix can be checked. */

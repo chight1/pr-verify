@@ -4,8 +4,8 @@
  * run updates or deletes it instead of posting another.
  */
 
-import { PAGE_SIZE, type Octokit } from "./context.js";
-import { COMMENT_MARKER } from "./markers.js";
+import { PAGE_SIZE, type Octokit } from "./claude-context.js";
+import { COMMENT_MARKER } from "./comment-markers.js";
 import type { PullRequestRef } from "./types.js";
 
 async function findComment(

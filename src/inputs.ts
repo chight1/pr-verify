@@ -5,7 +5,7 @@
 
 import * as core from "@actions/core";
 import * as github from "@actions/github";
-import { DEFAULT_MODEL } from "./agent.js";
+import { DEFAULT_MODEL } from "./claude-harness.js";
 import { MS_PER_MINUTE, type BudgetLimits } from "./budget.js";
 import type { PatchLimits } from "./patch-policy.js";
 import type { StaticAnalysis } from "./proof.js";

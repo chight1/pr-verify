@@ -9,7 +9,7 @@ import {
   estimateTokens,
   type BudgetLimits,
 } from "./budget.js";
-import type { PullRequestDiff } from "./context.js";
+import type { PullRequestDiff } from "./claude-context.js";
 import type { TestRun } from "./test-checkout.js";
 
 /** How much of the suite's output, from the end, the baseline note quotes. */

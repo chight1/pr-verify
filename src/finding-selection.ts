@@ -6,10 +6,10 @@
 
 import type { BudgetLimits } from "./budget.js";
 import { verifyDemonstration } from "./proof.js";
-import type { FindingRecord, RunRecord } from "./record.js";
-import { isDuplicate } from "./review.js";
+import type { FindingRecord, RunRecord } from "./run-record.js";
+import { isDuplicate } from "./post-review.js";
 import type { TestCheckout } from "./test-checkout.js";
-import type { Stage } from "./stage.js";
+import type { Stage } from "./mode-setup.js";
 import type { Finding, Patch, PriorFinding, ProposedFinding } from "./types.js";
 
 interface Selection {

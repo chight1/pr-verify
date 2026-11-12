@@ -9,7 +9,7 @@ import {
   isNoise,
   Scrubber,
   tail,
-} from "../src/context.js";
+} from "../src/claude-context.js";
 import { parseDiff } from "../src/diff.js";
 
 describe("dropNoise", () => {
