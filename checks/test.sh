@@ -106,8 +106,10 @@ export GITHUB_EVENT_PATH="$scratch/event.json"
 printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
 # Dependencies no registry has, as made-up names would be: one by name, one
 # installed under an old package's name, and one Go module swapped in by replace.
-printf '{\n  "name": "fixture",\n  "private": true,\n  "dependencies": {\n    "pr-verify-fixture-made-up-name": "1.0.0",\n    "lodash": "npm:pr-verify-fixture-made-up-alias@1.0.0"\n  }\n}\n' > package.json
+# Dependencies fetched from git, which fail, and local ones, which are skipped.
+printf '{\n  "name": "fixture",\n  "private": true,\n  "dependencies": {\n    "pr-verify-fixture-made-up-name": "1.0.0",\n    "lodash": "npm:pr-verify-fixture-made-up-alias@1.0.0",\n    "git-lib": "github:pr-verify-fixture/git-lib",\n    "local-lib": "file:./local-lib",\n    "workspace-lib": "workspace:*"\n  }\n}\n' > package.json
 printf '\nreplace golang.org/x/text => github.com/pr-verify-fixture/made-up-module v1.0.0\n' >> go.mod
+printf -- '-e git+https://github.com/pr-verify-fixture/py-lib\nlocal-py-lib @ file:///tmp/local-py-lib\n' > requirements-fixture.txt
 printf '{ "entry": ["**"], "ignore": ["**"], "ignoreDependencies": ["left-pad"] }\n' > knip.json
 printf '/* eslint-disable */\nimport "left-pad";\nexport function half(n) {\n  return n / 2;\n}\n' > lint.ts
 printf '// @ts-ignore\nexport const loose: any = "text";\n' >> lint.ts
@@ -257,5 +259,12 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   max-params max-lines-per-function max-statements "long.sh has 401 lines" "Clone found" second.js \
   "pr-verify-fixture-made-up-name (npm) is not on its registry" \
   "pr-verify-fixture-made-up-alias (npm) is not on its registry" \
-  "github.com/pr-verify-fixture/made-up-module (go) is not on its registry"
+  "github.com/pr-verify-fixture/made-up-module (go) is not on its registry" \
+  "git-lib (npm) comes from github:pr-verify-fixture/git-lib, not a registry" \
+  "git+https://github.com/pr-verify-fixture/py-lib (pypi) comes from"
+for name in local-lib workspace-lib local-py-lib; do
+  if grep -qF "$name (" <<< "$output"; then
+    fail "the dependency check looked up the local dependency $name"
+  fi
+done
 echo "checks: ok"

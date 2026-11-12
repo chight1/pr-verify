@@ -1,6 +1,7 @@
 """Fails a pull request that adds a direct dependency its registry has had for
 less than 30 days, or does not have at all: the mark of a package name a model
-made up, or of one registered to catch that name.
+made up, or of one registered to catch that name. A dependency fetched from git
+or a URL fails too, since no registry can tell its age.
 
 Usage: new_dependencies.py MANIFEST... Compares each manifest with its copy on
 the pull request's base commit, read from the event GitHub Actions provides.
@@ -15,183 +16,30 @@ import os
 import re
 import subprocess
 import sys
-import tomllib
 import urllib.parse
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from dependency_manifests import parser_for
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
+
+    from dependency_manifests import Requirement
 
 MINIMUM_AGE = timedelta(days=30)
 REQUEST_TIMEOUT_SECONDS = 20
 HTTP_OK = 200
 MISSING_STATUSES = frozenset({404, 410})
-NPM_SECTIONS = (
-    "dependencies",
-    "devDependencies",
-    "optionalDependencies",
-    "peerDependencies",
-)
-REQUIREMENT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-# A go.mod requirement is a module path and a version.
-GO_REQUIREMENT_FIELDS = 2
-# The go.mod directives that bring a module in, and the lines that open a block of them.
-GO_DIRECTIVES = ("require", "replace")
-GO_BLOCK_STARTS = {"require (": "require", "replace (": "replace"}
 GO_VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)")
 
 
 @dataclass(frozen=True)
 class Dependency:
     ecosystem: str
-    name: str
-
-
-def normalized(name: str) -> str:
-    """A Python package name as PyPI compares it."""
-    return re.sub(r"[-_.]+", "-", name).lower()
-
-
-def requirement_name(spec: str) -> str | None:
-    """The package a requirement such as "requests>=2" names."""
-    match = REQUIREMENT_NAME.match(spec.strip())
-    if match is None:
-        return None
-    return normalized(match.group(0))
-
-
-def requirement_names(specs: Iterable[str]) -> set[str]:
-    names: set[str] = set()
-    for spec in specs:
-        name = requirement_name(spec)
-        if name is not None:
-            names.add(name)
-    return names
-
-
-def npm_installed_name(name: str, spec: object) -> str:
-    """The package a dependency entry installs. An alias such as
-    "npm:real-package@1.0.0" installs real-package under the entry's name."""
-    if not isinstance(spec, str) or not spec.startswith("npm:"):
-        return name
-    target = spec.removeprefix("npm:")
-    # A scoped name starts with @, so the version's @ is searched for after it.
-    version_at = target.find("@", 1)
-    if version_at == -1:
-        return target
-    return target[:version_at]
-
-
-def npm_names(text: str) -> set[str]:
-    manifest: dict[str, Any] = json.loads(text)
-    names: set[str] = set()
-    for section in NPM_SECTIONS:
-        for name, spec in manifest.get(section, {}).items():
-            names.add(npm_installed_name(name, spec))
-    return names
-
-
-def pyproject_names(text: str) -> set[str]:
-    document = tomllib.loads(text)
-    project: dict[str, Any] = document.get("project", {})
-    specs: list[str] = list(project.get("dependencies", []))
-    for group in project.get("optional-dependencies", {}).values():
-        specs.extend(group)
-    for group in document.get("dependency-groups", {}).values():
-        # A group can also include another group by name, as a table.
-        specs.extend(spec for spec in group if isinstance(spec, str))
-    poetry = document.get("tool", {}).get("poetry", {}).get("dependencies", {})
-    specs.extend(name for name in poetry if name != "python")
-    return requirement_names(specs)
-
-
-def requirements_names(text: str) -> set[str]:
-    names: set[str] = set()
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        # Comments, and options such as -r other.txt or --index-url.
-        if not line or line.startswith(("#", "-")):
-            continue
-        name = requirement_name(line)
-        if name is not None:
-            names.add(name)
-    return names
-
-
-def go_directive(code: str, block: str | None) -> tuple[str, str] | None:
-    """A go.mod line's directive and the rest of the line: "require x v1" gives
-    ("require", "x v1"), and a line inside a block gives the block's directive."""
-    for directive in GO_DIRECTIVES:
-        if code.startswith(f"{directive} "):
-            return directive, code.removeprefix(f"{directive} ")
-    if block is None:
-        return None
-    return block, code
-
-
-def required_module(requirement: str) -> str | None:
-    """The module in a requirement such as "example.com/module v1.2.3"."""
-    fields = requirement.split()
-    if len(fields) != GO_REQUIREMENT_FIELDS:
-        return None
-    return fields[0]
-
-
-def replacement_module(replacement: str) -> str | None:
-    """The module a replace swaps in, as in "old => new v1.2.3". A local
-    directory, which has no version, is not on any registry to look up."""
-    if "=>" not in replacement:
-        return None
-    swapped_in = replacement.split("=>", 1)[1]
-    return required_module(swapped_in)
-
-
-def go_module(code: str, block: str | None) -> str | None:
-    """The module a go.mod line brings in: required, or swapped in by replace."""
-    directive = go_directive(code, block)
-    if directive is None:
-        return None
-    kind, rest = directive
-    if kind == "require":
-        return required_module(rest)
-    return replacement_module(rest)
-
-
-def go_names(text: str) -> set[str]:
-    """The modules go.mod requires directly or swaps in with replace, in single
-    lines and in blocks."""
-    names: set[str] = set()
-    block: str | None = None
-    for line in text.splitlines():
-        if "// indirect" in line:
-            continue
-        code = line.split("//", 1)[0].strip()
-        if code in GO_BLOCK_STARTS:
-            block = GO_BLOCK_STARTS[code]
-            continue
-        if code == ")":
-            block = None
-            continue
-        module = go_module(code, block)
-        if module is not None:
-            names.add(module)
-    return names
-
-
-def parser_for(path: str) -> tuple[str, Callable[[str], set[str]]] | None:
-    file_name = Path(path).name
-    if file_name == "package.json":
-        return "npm", npm_names
-    if file_name == "pyproject.toml":
-        return "pypi", pyproject_names
-    if file_name.startswith("requirements") and file_name.endswith(".txt"):
-        return "pypi", requirements_names
-    if file_name == "go.mod":
-        return "go", go_names
-    return None
+    requirement: Requirement
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -217,12 +65,16 @@ def fetch_commit(sha: str) -> None:
     git("-c", header, "fetch", "--depth", "1", "--no-tags", "origin", sha)
 
 
-def names_in_checkout(path: str, parse: Callable[[str], set[str]]) -> set[str]:
+def requirements_in_checkout(
+    path: str, parse: Callable[[str], set[Requirement]]
+) -> set[Requirement]:
     return parse(Path(path).read_text(encoding="utf-8"))
 
 
-def names_at_commit(sha: str, path: str, parse: Callable[[str], set[str]]) -> set[str]:
-    """The names in a manifest's copy on a commit; none when it had no copy."""
+def requirements_at_commit(
+    sha: str, path: str, parse: Callable[[str], set[Requirement]]
+) -> set[Requirement]:
+    """The requirements in a manifest's copy on a commit; none when it had no copy."""
     shown = git("show", f"{sha}:{path}")
     if shown.returncode != 0:
         return set()
@@ -327,17 +179,23 @@ def added_dependencies(manifests: Iterable[str], base: str) -> list[Dependency]:
         if parser is None:
             continue
         ecosystem, parse = parser
-        current_names = names_in_checkout(path, parse)
-        base_names = names_at_commit(base, path, parse)
-        new_names = sorted(current_names - base_names)
-        added.extend(Dependency(ecosystem, name) for name in new_names)
+        current = requirements_in_checkout(path, parse)
+        at_base = requirements_at_commit(base, path, parse)
+        new = sorted(current - at_base, key=lambda requirement: requirement.name)
+        added.extend(Dependency(ecosystem, requirement) for requirement in new)
     return added
 
 
 def problem(dependency: Dependency, now: datetime) -> str | None:
     """Why the dependency fails the check, or None when it passes."""
-    published = PUBLISHED[dependency.ecosystem](dependency.name)
-    label = f"{dependency.name} ({dependency.ecosystem})"
+    requirement = dependency.requirement
+    label = f"{requirement.name} ({dependency.ecosystem})"
+    if requirement.outside_source is not None:
+        return (
+            f"{label} comes from {requirement.outside_source}, not a registry, "
+            "so its age can't be checked."
+        )
+    published = PUBLISHED[dependency.ecosystem](requirement.name)
     if published is None:
         return f"{label} is not on its registry. Check the name."
     age = now - published
