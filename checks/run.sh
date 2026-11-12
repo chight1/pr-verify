@@ -14,8 +14,8 @@ written=()
 trap 'rm -f "${written[@]}"' EXIT
 
 # Which files are checked, and the pinned tools that check them.
-# shellcheck source=checks/project-files.sh
-source "$here/project-files.sh"
+# shellcheck source=checks/checked-files.sh
+source "$here/checked-files.sh"
 # shellcheck source=checks/tool-downloads.sh
 source "$here/tool-downloads.sh"
 
