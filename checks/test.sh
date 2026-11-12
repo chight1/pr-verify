@@ -125,6 +125,22 @@ cat > package.json <<'JSON'
   "pnpm": { "overrides": { "is-even": "1.0.0" } }
 }
 JSON
+# A locked version no registry has, beside one old enough to pass.
+cat > package-lock.json <<'JSON'
+{
+  "lockfileVersion": 3,
+  "packages": {
+    "node_modules/left-pad": {
+      "version": "99.0.0",
+      "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-99.0.0.tgz"
+    },
+    "node_modules/is-number": {
+      "version": "7.0.0",
+      "resolved": "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz"
+    }
+  }
+}
+JSON
 printf '\nreplace golang.org/x/text => github.com/pr-verify-fixture/made-up-module v1.0.0\n' >> go.mod
 printf -- '-e git+https://github.com/pr-verify-fixture/py-lib\nlocal-py-lib @ file:///tmp/local-py-lib\n' > requirements-fixture.txt
 # uv says where a dependency comes from in a table of its own.
@@ -305,7 +321,11 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   "**/is-odd (npm) comes from github:pr-verify-fixture/resolution-lib" \
   "pr-verify-fixture-made-up-group (pypi) is not on its registry" \
   "pr-verify-fixture-made-up-dev (pypi) is not on its registry" \
-  "\`$misspelled\` should be"
+  "\`$misspelled\` should be" \
+  "left-pad@99.0.0 (npm) is not on its registry"
+if grep -qF "is-number@" <<< "$output"; then
+  fail "the dependency check rejected a locked version old enough to pass"
+fi
 for name in local-lib workspace-lib local-py-lib uv-local-lib uv-workspace-lib is-even; do
   if grep -qF "$name (" <<< "$output"; then
     fail "the dependency check looked up $name, which adds no package from a registry"

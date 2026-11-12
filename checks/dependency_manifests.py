@@ -324,7 +324,7 @@ def go_requirements(text: str) -> set[Requirement]:
     return requirements
 
 
-def parser_for(path: str) -> tuple[str, Callable[[str], set[Requirement]]] | None:
+def manifest_parser(path: str) -> tuple[str, Callable[[str], set[Requirement]]] | None:
     """The ecosystem a manifest belongs to, and the function that reads it."""
     file_name = Path(path).name
     if file_name == "package.json":

@@ -1,45 +1,63 @@
-"""Fails a pull request that adds a direct dependency its registry has had for
-less than 30 days, or does not have at all: the mark of a package name a model
-made up, or of one registered to catch that name. A dependency fetched from git
-or a URL fails too, since no registry can tell its age.
+"""Fails a pull request that adds a dependency its registry does not have, the mark
+of a package name a model made up, or one too new to trust: a direct dependency
+the registry has had for less than 30 days, which may be registered to catch a
+made-up name, or any locked version published less than 7 days ago, which is how
+a hijacked maintainer account ships malware before anyone notices. A version a
+published advisory names as the fix for a vulnerability is not held back. A
+direct dependency fetched from git or a URL fails too, since no registry can
+tell its age.
 
-Usage: new_dependencies.py MANIFEST... Compares each manifest with its copy on
-the pull request's base commit, read from the event GitHub Actions provides.
+Usage: new_dependencies.py. Compares each tracked manifest and lockfile with its
+copy on the pull request's base commit, read from the event GitHub Actions provides.
 """
 
 from __future__ import annotations
 
 import base64
-import http.client
 import json
 import os
-import re
 import subprocess
 import sys
-import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from dependency_manifests import parser_for
+from dependency_manifests import manifest_parser
+from lockfiles import lockfile_parser
+from registries import CREATED, RELEASED, fixes_advisory
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
     from dependency_manifests import Requirement
 
-MINIMUM_AGE = timedelta(days=30)
-REQUEST_TIMEOUT_SECONDS = 20
-HTTP_OK = 200
-MISSING_STATUSES = frozenset({404, 410})
-GO_VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)")
+MINIMUM_PACKAGE_AGE = timedelta(days=30)
+MINIMUM_VERSION_AGE = timedelta(days=7)
+LOOKUP_THREADS = 16
+
+Parsed = TypeVar("Parsed")
 
 
 @dataclass(frozen=True)
 class Dependency:
     ecosystem: str
     requirement: Requirement
+
+    def __str__(self) -> str:
+        return f"{self.requirement.name} ({self.ecosystem})"
+
+
+@dataclass(frozen=True)
+class LockedVersion:
+    ecosystem: str
+    name: str
+    version: str
+
+    def __str__(self) -> str:
+        return f"{self.name}@{self.version} ({self.ecosystem})"
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -65,163 +83,119 @@ def fetch_commit(sha: str) -> None:
     git("-c", header, "fetch", "--depth", "1", "--no-tags", "origin", sha)
 
 
-def requirements_in_checkout(
-    path: str, parse: Callable[[str], set[Requirement]]
-) -> set[Requirement]:
+def parsed_in_checkout(path: str, parse: Callable[[str], set[Parsed]]) -> set[Parsed]:
     return parse(Path(path).read_text(encoding="utf-8"))
 
 
-def requirements_at_commit(
-    sha: str, path: str, parse: Callable[[str], set[Requirement]]
-) -> set[Requirement]:
-    """The requirements in a manifest's copy on a commit; none when it had no copy."""
+def parsed_at_commit(
+    sha: str, path: str, parse: Callable[[str], set[Parsed]]
+) -> set[Parsed]:
+    """What a file held on a commit; nothing when the commit had no such file."""
     shown = git("show", f"{sha}:{path}")
     if shown.returncode != 0:
         return set()
     return parse(shown.stdout)
 
 
-class RegistryError(Exception):
-    """A registry answered with neither the package nor its absence."""
+def added(path: str, base: str, parse: Callable[[str], set[Parsed]]) -> set[Parsed]:
+    """What a file holds now that it did not hold on the base commit."""
+    return parsed_in_checkout(path, parse) - parsed_at_commit(base, path, parse)
 
 
-def fetch(host: str, path: str) -> bytes | None:
-    """The body of an HTTPS GET, or None when the registry has no such package."""
-    connection = http.client.HTTPSConnection(host, timeout=REQUEST_TIMEOUT_SECONDS)
-    try:
-        connection.request("GET", path, headers={"Accept": "application/json"})
-        response = connection.getresponse()
-        body = response.read()
-    finally:
-        connection.close()
-    if response.status in MISSING_STATUSES:
-        return None
-    if response.status != HTTP_OK:
-        message = f"https://{host}{path} answered {response.status}"
-        raise RegistryError(message)
-    return body
-
-
-def fetch_json(host: str, path: str) -> dict[str, Any] | None:
-    body = fetch(host, path)
-    if body is None:
-        return None
-    return json.loads(body)
-
-
-def npm_published(name: str) -> datetime | None:
-    package = fetch_json("registry.npmjs.org", f"/{urllib.parse.quote(name, safe='@')}")
-    if package is None:
-        return None
-    return datetime.fromisoformat(package["time"]["created"])
-
-
-def pypi_published(name: str) -> datetime | None:
-    """When the package's first file was uploaded."""
-    package = fetch_json("pypi.org", f"/pypi/{urllib.parse.quote(name)}/json")
-    if package is None:
-        return None
-    uploads: list[datetime] = []
-    for release_files in package["releases"].values():
-        uploads.extend(
-            datetime.fromisoformat(upload["upload_time_iso_8601"])
-            for upload in release_files
-        )
-    return min(uploads, default=None)
-
-
-def go_escaped(module: str) -> str:
-    """A module path as the Go module proxy spells it: capitals as !lowercase."""
-    return re.sub(r"[A-Z]", lambda capital: "!" + capital.group(0).lower(), module)
-
-
-def go_version_key(version: str) -> tuple[int, int, int]:
-    """Sorts versions by number, with any that are not vX.Y.Z last."""
-    match = GO_VERSION.match(version)
-    if match is None:
-        return (sys.maxsize, 0, 0)
-    major, minor, patch = match.groups()
-    return (int(major), int(minor), int(patch))
-
-
-def go_version_time(escaped_module: str, version_path: str) -> datetime | None:
-    version_info = fetch_json("proxy.golang.org", f"/{escaped_module}/{version_path}")
-    if version_info is None:
-        return None
-    return datetime.fromisoformat(version_info["Time"])
-
-
-def go_published(module: str) -> datetime | None:
-    """When the module's earliest version was published."""
-    escaped_module = go_escaped(module)
-    listing = fetch("proxy.golang.org", f"/{escaped_module}/@v/list")
-    if listing is None:
-        return None
-    versions = listing.decode().split()
-    # A module with no tagged versions has only pseudo-versions, found at @latest.
-    if not versions:
-        return go_version_time(escaped_module, "@latest")
-    earliest = min(versions, key=go_version_key)
-    return go_version_time(escaped_module, f"@v/{earliest}.info")
-
-
-PUBLISHED: dict[str, Callable[[str], datetime | None]] = {
-    "npm": npm_published,
-    "pypi": pypi_published,
-    "go": go_published,
-}
-
-
-def added_dependencies(manifests: Iterable[str], base: str) -> list[Dependency]:
-    added: list[Dependency] = []
-    for path in manifests:
-        parser = parser_for(path)
+def added_dependencies(paths: Iterable[str], base: str) -> list[Dependency]:
+    dependencies: list[Dependency] = []
+    for path in paths:
+        parser = manifest_parser(path)
         if parser is None:
             continue
         ecosystem, parse = parser
-        current = requirements_in_checkout(path, parse)
-        at_base = requirements_at_commit(base, path, parse)
-        new = sorted(current - at_base, key=lambda requirement: requirement.name)
-        added.extend(Dependency(ecosystem, requirement) for requirement in new)
-    return added
+        new = sorted(added(path, base, parse), key=lambda requirement: requirement.name)
+        dependencies.extend(Dependency(ecosystem, requirement) for requirement in new)
+    return dependencies
 
 
-def problem(dependency: Dependency, now: datetime) -> str | None:
-    """Why the dependency fails the check, or None when it passes."""
-    requirement = dependency.requirement
-    label = f"{requirement.name} ({dependency.ecosystem})"
-    if requirement.outside_source is not None:
-        return (
-            f"{label} comes from {requirement.outside_source}, not a registry, "
-            "so its age can't be checked."
+def added_versions(paths: Iterable[str], base: str) -> list[LockedVersion]:
+    versions: list[LockedVersion] = []
+    for path in paths:
+        parser = lockfile_parser(path)
+        if parser is None:
+            continue
+        ecosystem, parse = parser
+        new = sorted(added(path, base, parse))
+        versions.extend(
+            LockedVersion(ecosystem, name, version) for name, version in new
         )
-    published = PUBLISHED[dependency.ecosystem](requirement.name)
+    return versions
+
+
+def age_problem(
+    label: str, published: datetime | None, now: datetime, minimum: timedelta
+) -> str | None:
+    """Why something its registry dates fails, or None when it is old enough."""
     if published is None:
         return f"{label} is not on its registry. Check the name."
     age = now - published
-    if age < MINIMUM_AGE:
-        return f"{label} has existed for {age.days} days, under {MINIMUM_AGE.days}."
+    if age < minimum:
+        return f"{label} is {age.days} days old, under the {minimum.days}-day minimum."
     return None
 
 
-def main(manifests: list[str]) -> int:
+def package_problem(dependency: Dependency, now: datetime) -> str | None:
+    requirement = dependency.requirement
+    if requirement.outside_source is not None:
+        return (
+            f"{dependency} comes from {requirement.outside_source}, not a registry, "
+            "so its age can't be checked."
+        )
+    created = CREATED[dependency.ecosystem](requirement.name)
+    return age_problem(str(dependency), created, now, MINIMUM_PACKAGE_AGE)
+
+
+def version_problem(locked: LockedVersion, now: datetime) -> str | None:
+    released = RELEASED[locked.ecosystem](locked.name, locked.version)
+    problem = age_problem(str(locked), released, now, MINIMUM_VERSION_AGE)
+    if problem is None or released is None:
+        return problem
+    # A version too new to trust still passes when an advisory names it as a fix,
+    # so a security update is never held back.
+    if fixes_advisory(locked.ecosystem, locked.name, locked.version):
+        return None
+    return problem
+
+
+def problems(
+    dependencies: list[Dependency], versions: list[LockedVersion]
+) -> list[str]:
+    """Every failure, with the registries asked many packages at a time."""
+    now = datetime.now(UTC)
+    check_package = partial(package_problem, now=now)
+    check_version = partial(version_problem, now=now)
+    with ThreadPoolExecutor(max_workers=LOOKUP_THREADS) as pool:
+        package_results = list(pool.map(check_package, dependencies))
+        version_results = list(pool.map(check_version, versions))
+    found = [result for result in package_results if result is not None]
+    found.extend(result for result in version_results if result is not None)
+    return found
+
+
+def main() -> int:
     base = base_sha()
     if base is None:
         sys.stdout.write("Not a pull request, so there is no base to compare with.\n")
         return 0
     fetch_commit(base)
-    now = datetime.now(UTC)
-    problems: list[str] = []
-    for dependency in added_dependencies(manifests, base):
-        found = problem(dependency, now)
-        if found is not None:
-            problems.append(found)
-    for found in problems:
-        sys.stderr.write(f"{found}\n")
-    if problems:
+    # Lockfiles are among the files the other checks leave out, so every tracked
+    # file is read here.
+    tracked = git("ls-files").stdout.splitlines()
+    dependencies = added_dependencies(tracked, base)
+    versions = added_versions(tracked, base)
+    found = problems(dependencies, versions)
+    for problem in found:
+        sys.stderr.write(f"{problem}\n")
+    if found:
         return 1
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main())
