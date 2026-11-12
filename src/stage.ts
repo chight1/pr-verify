@@ -16,7 +16,7 @@ import {
 import type { Inputs } from "./inputs.js";
 import { emptyRecord, type RunRecord } from "./record.js";
 import { Sandbox } from "./sandbox.js";
-import { ScratchTree } from "./scratch-tree.js";
+import { TestCheckout } from "./test-checkout.js";
 import { ToolExecutor } from "./tool-executor.js";
 import type { Mode, PullRequestRef } from "./types.js";
 
@@ -71,10 +71,10 @@ export function createStage(
   };
 }
 
-/** The runner's checkout as a scratch tree at the PR commit, running the project's own commands in the sandbox. */
-export async function createScratchTree(stage: Stage): Promise<ScratchTree> {
+/** The runner's checkout, reset to the PR commit, running the project's own commands in the sandbox. */
+export async function createTestCheckout(stage: Stage): Promise<TestCheckout> {
   const { inputs } = stage;
-  return new ScratchTree(
+  return new TestCheckout(
     stage.repoRoot,
     stage.pr.headSha,
     { build: inputs.buildCommand, test: inputs.testCommand },
@@ -111,11 +111,11 @@ function recordAgentRun(
   record.budgetTripped = outcome.budgetTripped;
 }
 
-/** Runs the agent on a fresh budget against the scratch tree, and records its tool calls and usage. */
+/** Runs the agent on a fresh budget against the test checkout, and records its tool calls and usage. */
 export async function runStageAgent(
   stage: Stage,
   mode: Mode,
-  tree: ScratchTree,
+  checkout: TestCheckout,
   context: { tracked: string[]; map: RepositoryMap },
   brief: string,
 ): Promise<AgentRun> {
@@ -126,7 +126,7 @@ export async function runStageAgent(
     repoRoot: stage.repoRoot,
     tracked: new Set(context.tracked),
     budget,
-    tree,
+    checkout,
     patchLimits: inputs.patchLimits,
     scrubber,
   });

@@ -1,6 +1,6 @@
 /**
  * Turns the agent's proposed findings into the ones a review posts: each
- * demonstration re-run from a clean tree, duplicates and weak claims dropped,
+ * demonstration re-run from a clean checkout, duplicates and weak claims dropped,
  * and the caps applied. Also the run record's entry for each finding.
  */
 
@@ -8,7 +8,7 @@ import type { BudgetLimits } from "./budget.js";
 import { verifyDemonstration } from "./proof.js";
 import type { FindingRecord, RunRecord } from "./record.js";
 import { isDuplicate } from "./review.js";
-import type { ScratchTree } from "./scratch-tree.js";
+import type { TestCheckout } from "./test-checkout.js";
 import type { Stage } from "./stage.js";
 import type { Finding, Patch, PriorFinding, ProposedFinding } from "./types.js";
 
@@ -19,14 +19,14 @@ interface Selection {
 
 /**
  * Turns the agent's proposals into postable findings: verify each
- * demonstration from a clean tree, drop duplicates and weak unverified
+ * demonstration from a clean checkout, drop duplicates and weak unverified
  * claims, then apply the caps with verified findings first.
  */
 export async function verifyAndSelect(
   proposed: ProposedFinding[],
   patches: Patch[],
   open: PriorFinding[],
-  tree: ScratchTree,
+  checkout: TestCheckout,
   stage: Stage,
 ): Promise<Selection> {
   const verified: Finding[] = [];
@@ -34,7 +34,7 @@ export async function verifyAndSelect(
   const dropped: Selection["dropped"] = [];
 
   for (const p of proposed) {
-    const finding = await verifyProposal(p, patches, tree, stage.record);
+    const finding = await verifyProposal(p, patches, checkout, stage.record);
     if (isDuplicate(finding, open)) {
       dropped.push({
         finding,
@@ -57,7 +57,7 @@ export async function verifyAndSelect(
 async function verifyProposal(
   p: ProposedFinding,
   patches: Patch[],
-  tree: ScratchTree,
+  checkout: TestCheckout,
   record: RunRecord,
 ): Promise<Finding> {
   const testPatch =
@@ -77,7 +77,7 @@ async function verifyProposal(
   };
 
   if (testPatch) {
-    const result = await verifyDemonstration(tree, testPatch, fixPatch);
+    const result = await verifyDemonstration(checkout, testPatch, fixPatch);
     record.verification.testRuns += 1;
     record.verification.fixRuns += result.fixPasses === null ? 0 : 1;
     record.verification.durationMs += result.durationMs;

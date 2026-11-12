@@ -6,12 +6,16 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { Budget } from "../src/budget.js";
 import { Scrubber } from "../src/context.js";
 import { recountHunks } from "../src/patch-repair.js";
-import type { ApplyResult, ScratchTree, TestRun } from "../src/scratch-tree.js";
+import type {
+  ApplyResult,
+  TestCheckout,
+  TestRun,
+} from "../src/test-checkout.js";
 import { READ_FILE_LIMIT_LINES } from "../src/tool-definitions.js";
 import { ToolExecutor } from "../src/tool-executor.js";
 
-/** A ScratchTree stand-in that records what was asked of it. */
-class FakeTree {
+/** A TestCheckout stand-in that records what was asked of it. */
+class FakeCheckout {
   resets = 0;
   applied: string[] = [];
   rejectDiffs = new Set<string>();
@@ -68,7 +72,7 @@ beforeAll(async () => {
 
 function executor(
   mode: "review" | "red-gate" = "review",
-  tree = new FakeTree(),
+  checkout = new FakeCheckout(),
 ) {
   const budget = new Budget({
     tokens: 1e6,
@@ -84,11 +88,11 @@ function executor(
     repoRoot,
     tracked: new Set(["src/a.ts", "src/secret.ts", "test/a.test.ts"]),
     budget,
-    tree: tree as unknown as ScratchTree,
+    checkout: checkout as unknown as TestCheckout,
     patchLimits: { maxLines: 200, maxFiles: 6 },
     scrubber: new Scrubber([]),
   });
-  return { exec, budget, tree };
+  return { exec, budget, checkout };
 }
 
 describe("read_file", () => {
@@ -147,7 +151,7 @@ describe("read_file", () => {
 
 describe("propose_patch and run_tests", () => {
   it("resets, applies bases in order, then the new patch, and hands back an id", async () => {
-    const { exec, tree } = executor();
+    const { exec, checkout } = executor();
     const test = await exec.execute(
       call("propose_patch", {
         kind: "test",
@@ -167,8 +171,8 @@ describe("propose_patch and run_tests", () => {
       }),
     );
     expect(fix.block.content).toContain("Patch 2 (fix) applied");
-    expect(tree.resets).toBe(2);
-    expect(tree.applied).toEqual([
+    expect(checkout.resets).toBe(2);
+    expect(checkout.applied).toEqual([
       recountHunks(TEST_PATCH),
       recountHunks(FIX_PATCH),
     ]);
@@ -178,8 +182,8 @@ describe("propose_patch and run_tests", () => {
     ]);
   });
 
-  it("rejects a patch the policy forbids before touching the tree", async () => {
-    const { exec, tree } = executor();
+  it("rejects a patch the policy forbids before touching the checkout", async () => {
+    const { exec, checkout } = executor();
     const result = await exec.execute(
       call("propose_patch", {
         kind: "test",
@@ -191,7 +195,7 @@ describe("propose_patch and run_tests", () => {
     expect(result.block.content).toContain(
       "a test patch may only touch test locations",
     );
-    expect(tree.resets).toBe(0);
+    expect(checkout.resets).toBe(0);
     expect(exec.patches).toEqual([]);
     expect(exec.trail[0]?.response).toMatchObject({
       applied: false,
@@ -200,9 +204,9 @@ describe("propose_patch and run_tests", () => {
   });
 
   it("reports a patch that does not apply and does not keep it", async () => {
-    const tree = new FakeTree();
-    tree.rejectDiffs.add(FIX_PATCH);
-    const { exec } = executor("review", tree);
+    const checkout = new FakeCheckout();
+    checkout.rejectDiffs.add(FIX_PATCH);
+    const { exec } = executor("review", checkout);
     const result = await exec.execute(
       call("propose_patch", { kind: "fix", description: "x", diff: FIX_PATCH }),
     );
@@ -212,7 +216,7 @@ describe("propose_patch and run_tests", () => {
   });
 
   it("applies the recounted form of a patch whose hunk counts are wrong", async () => {
-    const { exec, tree } = executor();
+    const { exec, checkout } = executor();
     const miscounted = TEST_PATCH.replace("@@ -0,0 +1 @@", "@@ -0,0 +1,9 @@");
     const result = await exec.execute(
       call("propose_patch", {
@@ -222,16 +226,16 @@ describe("propose_patch and run_tests", () => {
       }),
     );
     expect(result.block.is_error).toBeUndefined();
-    expect(tree.applied[0]).toContain("@@ -0,0 +1,1 @@");
-    expect(exec.patches[0]?.diff).toBe(tree.applied[0]);
+    expect(checkout.applied[0]).toContain("@@ -0,0 +1,1 @@");
+    expect(exec.patches[0]?.diff).toBe(checkout.applied[0]);
   });
 
   it("explains a rejected hunk that has context before its change and none after", async () => {
-    const tree = new FakeTree();
+    const checkout = new FakeCheckout();
     const noTrailing =
       "diff --git a/src/a.ts b/src/a.ts\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -5,2 +5,3 @@\n line 5\n line 6\n+added\n";
-    tree.rejectDiffs.add(recountHunks(noTrailing));
-    const { exec } = executor("review", tree);
+    checkout.rejectDiffs.add(recountHunks(noTrailing));
+    const { exec } = executor("review", checkout);
     const result = await exec.execute(
       call("propose_patch", {
         kind: "fix",
@@ -250,9 +254,9 @@ describe("propose_patch and run_tests", () => {
   });
 
   it("charges the test-run budget and returns the exit code", async () => {
-    const tree = new FakeTree();
-    tree.testExitCode = 1;
-    const { exec, budget } = executor("review", tree);
+    const checkout = new FakeCheckout();
+    checkout.testExitCode = 1;
+    const { exec, budget } = executor("review", checkout);
     const result = await exec.execute(call("run_tests", {}));
     expect(result.block.content).toContain("Test run exit code 1.");
     expect(budget.usage().testRuns).toBe(1);

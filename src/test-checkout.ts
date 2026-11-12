@@ -1,5 +1,5 @@
 /**
- * The scratch tree: the runner's checkout, treated as disposable. Every
+ * The test checkout: the runner's checkout, treated as disposable. Every
  * harness run starts from a reset to the PR commit, applies the patches under
  * test, and runs the project's own build and suite, in the sandbox when there
  * is one.
@@ -137,7 +137,7 @@ export interface ApplyResult {
  * commit and removes untracked files (but keeps ignored ones such as
  * node_modules, so a reset does not cost a reinstall).
  */
-export class ScratchTree {
+export class TestCheckout {
   constructor(
     readonly root: string,
     private readonly headSha: string,
@@ -163,7 +163,7 @@ export class ScratchTree {
     });
   }
 
-  /** True when the tree already contains the patch's changes, i.e. it would apply in reverse. */
+  /** True when the checkout already contains the patch's changes, i.e. it would apply in reverse. */
   async contains(diff: string): Promise<boolean> {
     return this.withPatchFile(diff, (file) =>
       git(

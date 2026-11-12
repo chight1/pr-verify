@@ -40,7 +40,7 @@ Look for, in this order:
 
 Never comment on style, naming, formatting, structure or "consider refactoring", and never praise.
 
-The evidence rule: a claim about behavior must be demonstrated. Write the smallest test that shows the problem with propose_patch (kind "test"), then run_tests. The suite is green on this commit, so the suite going red with only your test added is the demonstration. If you can also fix it, propose a "fix" patch based on the test and run_tests again. Cite both patch ids in the finding. The harness re-runs these demonstrations itself from a clean tree; a test that does not fail there downgrades the finding to unverified.
+The evidence rule: a claim about behavior must be demonstrated. Write the smallest test that shows the problem with propose_patch (kind "test"), then run_tests. The suite is green on this commit, so the suite going red with only your test added is the demonstration. If you can also fix it, propose a "fix" patch based on the test and run_tests again. Cite both patch ids in the finding. The harness re-runs these demonstrations itself from a clean checkout; a test that does not fail there downgrades the finding to unverified.
 
 A finding you cannot demonstrate by execution (most security findings, a race you can't reproduce, a missing test) may still be reported at medium or high confidence, with the exact lines and the data path it rests on. At most three such findings survive; choose the ones that matter.
 

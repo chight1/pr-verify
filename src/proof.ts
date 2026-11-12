@@ -1,6 +1,6 @@
 /**
  * The only path to "verified". Each proof turns a patch into a verdict by
- * running it on the scratch tree from a clean reset: a test that fails and a
+ * running it on the test checkout from a clean reset: a test that fails and a
  * fix that makes it pass, an earlier finding's test re-run on a new push, a
  * red-gate fix, or a fix that clears what Semgrep found.
  */
@@ -11,7 +11,7 @@ import path from "node:path";
 import { BYTES_PER_KB } from "./budget.js";
 import { git } from "./context.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
-import { runCommand, type ScratchTree } from "./scratch-tree.js";
+import { runCommand, type TestCheckout } from "./test-checkout.js";
 import type { Patch } from "./types.js";
 
 /** Only the end of Semgrep's console output is kept, to show when Semgrep itself fails. */
@@ -28,12 +28,12 @@ export interface Verification {
 }
 
 /**
- * Re-runs the agent's demonstration from a clean tree. Only these runs count.
+ * Re-runs the agent's demonstration from a clean checkout. Only these runs count.
  * A fix is only tried once its test has been shown to fail; a fix for a test
  * that already passes proves nothing.
  */
 export async function verifyDemonstration(
-  tree: ScratchTree,
+  checkout: TestCheckout,
   testPatch: Patch | undefined,
   fixPatch: Patch | undefined,
 ): Promise<Verification> {
@@ -43,11 +43,11 @@ export async function verifyDemonstration(
   let fixPasses: boolean | null = null;
 
   if (testPatch) {
-    await tree.reset();
-    const applied = await tree.apply(testPatch.diff);
+    await checkout.reset();
+    const applied = await checkout.apply(testPatch.diff);
     if (applied.applied) {
       runs += 1;
-      const result = await tree.runTests();
+      const result = await checkout.runTests();
       // A test that breaks the build demonstrates nothing about the code under test.
       testFails = result.exitCode !== 0 && !result.buildFailed;
     } else {
@@ -56,21 +56,21 @@ export async function verifyDemonstration(
   }
 
   if (fixPatch && testFails === true && testPatch) {
-    await tree.reset();
-    const testApplied = await tree.apply(testPatch.diff);
+    await checkout.reset();
+    const testApplied = await checkout.apply(testPatch.diff);
     const fixApplied = testApplied.applied
-      ? await tree.apply(fixPatch.diff)
+      ? await checkout.apply(fixPatch.diff)
       : testApplied;
     if (fixApplied.applied) {
       runs += 1;
-      const result = await tree.runTests();
+      const result = await checkout.runTests();
       fixPasses = result.exitCode === 0;
     } else {
       fixPasses = false;
     }
   }
 
-  await tree.reset();
+  await checkout.reset();
   return { testFails, fixPasses, runs, durationMs: Date.now() - startedAt };
 }
 
@@ -88,23 +88,23 @@ export interface StaticAnalysisResult {
 }
 
 /**
- * Runs Semgrep over the tree as the gate ran it and counts the findings. It
- * runs outside the sandbox, in its own container with only the tree mounted,
+ * Runs Semgrep over the checkout as the gate ran it and counts the findings. It
+ * runs outside the sandbox, in its own container with only the checkout mounted,
  * since it reads the project's code and never executes it.
  */
 export async function runStaticAnalysis(
-  tree: ScratchTree,
+  checkout: TestCheckout,
   analysis: StaticAnalysis,
   timeoutMs: number,
 ): Promise<StaticAnalysisResult> {
   // Semgrep scans only what git tracks, and files a patch added are untracked.
-  await git(["add", "--intent-to-add", "."], tree.root);
+  await git(["add", "--intent-to-add", "."], checkout.root);
   const out = await mkdtemp(path.join(os.tmpdir(), "pr-verify-semgrep-"));
   try {
     const command = [
       "docker run --rm",
       `--user ${String(process.getuid?.() ?? 0)}:${String(process.getgid?.() ?? 0)}`,
-      `-e HOME=/tmp -v "${tree.root}:/src" -v "${out}:/out" -w /src`,
+      `-e HOME=/tmp -v "${checkout.root}:/src" -v "${out}:/out" -w /src`,
       analysis.image,
       "semgrep scan",
       analysis.args,
@@ -112,7 +112,7 @@ export async function runStaticAnalysis(
     ].join(" ");
     const result = await runCommand(
       command,
-      tree.root,
+      checkout.root,
       timeoutMs,
       SEMGREP_OUTPUT_LIMIT_BYTES,
     );
@@ -138,26 +138,26 @@ export async function runStaticAnalysis(
 /**
  * Red-gate mode at the static analysis step: a fix is verified when Semgrep
  * finds nothing with only the fix applied and the suite still passes.
- * `countFindings` runs Semgrep on the tree as it stands.
+ * `countFindings` runs Semgrep on the checkout as it stands.
  */
 export async function verifyStaticAnalysisFix(
-  tree: ScratchTree,
+  checkout: TestCheckout,
   fixPatch: Patch,
   countFindings: () => Promise<number | null>,
 ): Promise<Verification & { findingsLeft: number | null }> {
   const startedAt = Date.now();
-  await tree.reset();
+  await checkout.reset();
   let findingsLeft: number | null = null;
   let fixPasses = false;
   let runs = 0;
-  if ((await tree.apply(fixPatch.diff)).applied) {
+  if ((await checkout.apply(fixPatch.diff)).applied) {
     findingsLeft = await countFindings();
     if (findingsLeft === 0) {
       runs = 1;
-      fixPasses = (await tree.runTests()).exitCode === 0;
+      fixPasses = (await checkout.runTests()).exitCode === 0;
     }
   }
-  await tree.reset();
+  await checkout.reset();
   return {
     testFails: null,
     fixPasses,
@@ -177,7 +177,7 @@ export type RecheckResult = "passes" | "fails" | "unusable";
  * read back from a comment.
  */
 export async function recheckDemonstration(
-  tree: ScratchTree,
+  checkout: TestCheckout,
   testDiff: string,
   limits: PatchLimits,
 ): Promise<{ result: RecheckResult; runs: number; durationMs: number }> {
@@ -185,34 +185,37 @@ export async function recheckDemonstration(
   if (!checkPatchPolicy(testDiff, "test", limits).ok)
     return { result: "unusable", runs: 0, durationMs: 0 };
 
-  await tree.reset();
+  await checkout.reset();
   let result: RecheckResult = "unusable";
   let runs = 0;
-  if ((await tree.apply(testDiff)).applied || (await tree.contains(testDiff))) {
+  if (
+    (await checkout.apply(testDiff)).applied ||
+    (await checkout.contains(testDiff))
+  ) {
     runs = 1;
-    const run = await tree.runTests();
+    const run = await checkout.runTests();
     if (!run.buildFailed) result = run.exitCode === 0 ? "passes" : "fails";
   }
-  await tree.reset();
+  await checkout.reset();
   return { result, runs, durationMs: Date.now() - startedAt };
 }
 
 /** Red-gate mode: a fix is verified when the suite that failed now passes with only the fix applied. */
 export async function verifyRedGateFix(
-  tree: ScratchTree,
+  checkout: TestCheckout,
   fixPatch: Patch,
 ): Promise<Verification> {
   const startedAt = Date.now();
-  await tree.reset();
-  const applied = await tree.apply(fixPatch.diff);
+  await checkout.reset();
+  const applied = await checkout.apply(fixPatch.diff);
   let fixPasses = false;
   let runs = 0;
   if (applied.applied) {
     runs = 1;
-    const result = await tree.runTests();
+    const result = await checkout.runTests();
     fixPasses = result.exitCode === 0;
   }
-  await tree.reset();
+  await checkout.reset();
   return {
     testFails: null,
     fixPasses,

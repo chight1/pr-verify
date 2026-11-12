@@ -11,7 +11,7 @@ import { BYTES_PER_KB, type Budget } from "./budget.js";
 import type { Scrubber } from "./context.js";
 import { applyHints, recountHunks } from "./patch-repair.js";
 import { checkPatchPolicy, type PatchLimits } from "./patch-policy.js";
-import type { ScratchTree } from "./scratch-tree.js";
+import type { TestCheckout } from "./test-checkout.js";
 import {
   READ_FILE_LIMIT_KB,
   READ_FILE_LIMIT_LINES,
@@ -44,7 +44,7 @@ export interface ToolContext {
   repoRoot: string;
   tracked: ReadonlySet<string>;
   budget: Budget;
-  tree: ScratchTree;
+  checkout: TestCheckout;
   patchLimits: PatchLimits;
   scrubber: Scrubber;
 }
@@ -250,7 +250,7 @@ export class ToolExecutor {
 
   private async runTests() {
     this.ctx.budget.chargeTestRun();
-    const result = await this.ctx.tree.runTests();
+    const result = await this.ctx.checkout.runTests();
     const status = result.timedOut
       ? "timed out"
       : `exit code ${String(result.exitCode)}`;
@@ -291,7 +291,7 @@ export class ToolExecutor {
       };
     }
 
-    const failure = await this.applyOnCleanTree(proposal);
+    const failure = await this.applyOnCleanCheckout(proposal);
     if (failure) return failure;
 
     const patch: Patch = {
@@ -331,13 +331,13 @@ export class ToolExecutor {
     return { kind, description, sent, diff, baseOn, bases };
   }
 
-  /** Resets the tree, applies the bases in order, then the proposal. Null when every one applied. */
-  private async applyOnCleanTree(
+  /** Resets the checkout, applies the bases in order, then the proposal. Null when every one applied. */
+  private async applyOnCleanCheckout(
     proposal: Proposal,
   ): Promise<PatchOutcome | null> {
-    await this.ctx.tree.reset();
+    await this.ctx.checkout.reset();
     for (const base of proposal.bases) {
-      const applied = await this.ctx.tree.apply(base.diff);
+      const applied = await this.ctx.checkout.apply(base.diff);
       if (!applied.applied) {
         return {
           ok: false,
@@ -346,7 +346,7 @@ export class ToolExecutor {
         };
       }
     }
-    const applied = await this.ctx.tree.apply(proposal.diff);
+    const applied = await this.ctx.checkout.apply(proposal.diff);
     if (applied.applied) return null;
     const hints = applyHints(proposal.diff);
     const hintText =
