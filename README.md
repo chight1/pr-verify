@@ -142,7 +142,7 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/inputs.ts`                   | The action's inputs and the pull request from the event.                                      |
 | `src/mode-setup.ts`               | What both modes share: the stage, the comment keys, the test checkout.                        |
 | `src/review-mode.ts`              | Review mode, step by step: baseline, prior-finding rechecks, agent run, posting.              |
-| `src/finding-selection.ts`        | Verification and caps that turn proposals into posted findings.                               |
+| `src/claude-finding-filter.ts`    | Verification and caps that turn proposals into posted findings.                               |
 | `src/red-gate-mode.ts`            | Red-gate mode, step by step: pre-classification, flaky re-run, agent run, fix verification.   |
 | `src/skip-notes.ts`               | Comments posted instead of a review: the diff is too large, or tests fail in the sandbox.     |
 | `src/claude-context.ts`           | What Claude may see: diff, repository map, guidance file, job log; secret scrubbing.          |

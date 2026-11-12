@@ -1,5 +1,5 @@
 /**
- * Turns the agent's proposed findings into the ones a review posts: each
+ * Turns Claude's proposed findings into the ones a review posts: each
  * demonstration re-run from a clean checkout, duplicates and weak claims dropped,
  * and the caps applied. Also the run record's entry for each finding.
  */
@@ -33,8 +33,13 @@ export async function verifyAndSelect(
   const unverified: Finding[] = [];
   const dropped: Selection["dropped"] = [];
 
-  for (const p of proposed) {
-    const finding = await verifyProposal(p, patches, checkout, stage.record);
+  for (const proposal of proposed) {
+    const finding = await verifyProposal(
+      proposal,
+      patches,
+      checkout,
+      stage.record,
+    );
     if (isDuplicate(finding, open)) {
       dropped.push({
         finding,
@@ -55,21 +60,21 @@ export async function verifyAndSelect(
 
 /** One proposal as a finding, its demonstration re-run when it has one; a patch that did not hold up is removed. */
 async function verifyProposal(
-  p: ProposedFinding,
+  proposal: ProposedFinding,
   patches: Patch[],
   checkout: TestCheckout,
   record: RunRecord,
 ): Promise<Finding> {
   const testPatch =
-    p.testPatch !== undefined
-      ? patches.find((x) => x.id === p.testPatch)
+    proposal.testPatch !== undefined
+      ? patches.find((patch) => patch.id === proposal.testPatch)
       : undefined;
   const fixPatch =
-    p.fixPatch !== undefined
-      ? patches.find((x) => x.id === p.fixPatch)
+    proposal.fixPatch !== undefined
+      ? patches.find((patch) => patch.id === proposal.fixPatch)
       : undefined;
   const finding: Finding = {
-    ...p,
+    ...proposal,
     verified: false,
     testPatchVerified: null,
     fixPatchVerified: null,
@@ -98,51 +103,56 @@ function applyCaps(
   limits: BudgetLimits,
 ): Selection {
   const rank = { high: 0, medium: 1, low: 2 } as const;
-  unverified.sort((a, b) => rank[a.confidence] - rank[b.confidence]);
+  unverified.sort(
+    (first, second) => rank[first.confidence] - rank[second.confidence],
+  );
 
   const kept: Finding[] = [];
-  for (const f of verified) {
-    if (kept.length < limits.findings) kept.push(f);
-    else dropped.push({ finding: f, reason: "over the findings cap" });
+  for (const finding of verified) {
+    if (kept.length < limits.findings) kept.push(finding);
+    else dropped.push({ finding, reason: "over the findings cap" });
   }
   let unverifiedKept = 0;
-  for (const f of unverified) {
+  for (const finding of unverified) {
     if (
       kept.length < limits.findings &&
       unverifiedKept < limits.unverifiedFindings
     ) {
-      kept.push(f);
+      kept.push(finding);
       unverifiedKept += 1;
     } else {
-      dropped.push({ finding: f, reason: "over the unverified cap" });
+      dropped.push({ finding, reason: "over the unverified cap" });
     }
   }
   return { kept, dropped };
 }
 
-export function findingRecord(f: Finding, n: number): FindingRecord {
+export function findingRecord(
+  finding: Finding,
+  position: number,
+): FindingRecord {
   return {
-    n,
-    category: f.category,
-    verified: f.verified,
-    confidence: f.confidence,
-    file: f.file,
-    line: f.line,
-    title: f.title,
-    testPatchVerified: f.testPatchVerified,
-    fixPatchVerified: f.fixPatchVerified,
-    placement: f.placement,
+    n: position,
+    category: finding.category,
+    verified: finding.verified,
+    confidence: finding.confidence,
+    file: finding.file,
+    line: finding.line,
+    title: finding.title,
+    testPatchVerified: finding.testPatchVerified,
+    fixPatchVerified: finding.fixPatchVerified,
+    placement: finding.placement,
   };
 }
 
 /** The run record's entries for a selection: the kept findings, then the dropped ones with the reason for each. */
 export function findingRecords({ kept, dropped }: Selection): FindingRecord[] {
   return [
-    ...kept.map((f, i) => findingRecord(f, i + 1)),
-    ...dropped.map((d, i) => ({
-      ...findingRecord(d.finding, kept.length + i + 1),
+    ...kept.map((finding, index) => findingRecord(finding, index + 1)),
+    ...dropped.map((drop, index) => ({
+      ...findingRecord(drop.finding, kept.length + index + 1),
       placement: "dropped" as const,
-      dropReason: d.reason,
+      dropReason: drop.reason,
     })),
   ];
 }

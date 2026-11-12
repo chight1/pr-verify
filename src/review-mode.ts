@@ -38,7 +38,7 @@ import {
   findingRecord,
   findingRecords,
   verifyAndSelect,
-} from "./finding-selection.js";
+} from "./claude-finding-filter.js";
 import {
   BASELINE_KEY,
   createTestCheckout,
