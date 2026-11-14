@@ -304,9 +304,11 @@ jobs:
           COMMAND: ${{ inputs.install-command }}
         run: eval "$COMMAND"
 
+      # From this workflow's own commit, like the checks, so a project gets the
+      # review of the version it calls.
       - name: PR Verify
         id: pr-verify
-        uses: chight1/pr-verify@v1
+        uses: $/
         with:
           gate-result: ${{ needs.gate.result }}
           gate-job-name: gate
