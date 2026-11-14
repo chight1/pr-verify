@@ -80,7 +80,7 @@ if [ "${1:-}" = online ]; then
   # A dependency the pull request adds that its registry lacks or has had under
   # 30 days, and a locked version under 7 days old that no advisory names as a
   # fix. The token fetches the pull request's base commit to compare with.
-  run "new dependencies" python3 "$here/new_dependencies.py"
+  run "new dependencies" python3 "$here/check_new_dependencies.py"
   summarize "Online checks"
   exit
 fi

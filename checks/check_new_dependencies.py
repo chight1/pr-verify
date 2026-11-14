@@ -10,8 +10,9 @@ hijacked maintainer account ships malware before anyone notices, unless a
 published advisory names it as the fix for a vulnerability, and a package it
 adds to a lockfile from git or a URL fails, as a direct one does.
 
-Usage: new_dependencies.py. Compares each tracked manifest and lockfile with its
-copy on the pull request's base commit, read from the event GitHub Actions provides.
+Usage: check_new_dependencies.py. Compares each tracked manifest and lockfile
+with its copy on the pull request's base commit, read from the event GitHub
+Actions provides.
 """
 
 from __future__ import annotations
@@ -28,14 +29,14 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from dependency_manifests import manifest_parser
 from lockfile_parsing import lockfile_parser, outside_source_parser
+from manifest_parsing import manifest_parser
 from registry_lookups import CREATED, RELEASED, fixes_advisory
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from dependency_manifests import Requirement
+    from manifest_parsing import Requirement
 
 MINIMUM_PACKAGE_AGE = timedelta(days=30)
 MINIMUM_VERSION_AGE = timedelta(days=7)

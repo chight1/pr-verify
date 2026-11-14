@@ -15,7 +15,7 @@ from datetime import datetime
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
-from dependency_manifests import normalized
+from manifest_parsing import normalized
 
 if TYPE_CHECKING:
     from collections.abc import Callable

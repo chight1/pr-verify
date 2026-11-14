@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from new_dependencies import MINIMUM_VERSION_AGE, LockedVersion, age_problem
+from check_new_dependencies import MINIMUM_VERSION_AGE, LockedVersion, age_problem
 
 NOW = datetime(2026, 11, 5, tzinfo=UTC)
 LABEL = str(LockedVersion("npm", "left-pad", "1.3.0"))

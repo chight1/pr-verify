@@ -1,6 +1,6 @@
 """What a manifest asks to install: the dependencies in package.json,
 pyproject.toml, requirements files and go.mod, each with where it comes from.
-Read by new_dependencies.py.
+Read by check_new_dependencies.py.
 
 A dependency on a local path is left out, since its code is in the repository
 and the gate checks it there.
