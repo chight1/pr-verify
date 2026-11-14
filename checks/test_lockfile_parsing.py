@@ -1,6 +1,6 @@
 import json
 
-from lockfiles import (
+from lockfile_parsing import (
     go_sum_versions,
     lockfile_parser,
     outside_source_parser,

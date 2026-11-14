@@ -1,4 +1,4 @@
-from registries import fixed_versions
+from registry_lookups import fixed_versions
 
 
 def fix(name: str, ecosystem: str, version: str) -> dict[str, object]:

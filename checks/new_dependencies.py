@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from dependency_manifests import manifest_parser
-from lockfiles import lockfile_parser, outside_source_parser
-from registries import CREATED, RELEASED, fixes_advisory
+from lockfile_parsing import lockfile_parser, outside_source_parser
+from registry_lookups import CREATED, RELEASED, fixes_advisory
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
