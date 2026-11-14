@@ -98,6 +98,20 @@ fi
 mkdir "$scratch/lint" && cd "$scratch/lint"
 git init -q
 loosen
+# Dependencies the base already has, which still fail when no registry has them
+# or they come from git, beside an old real one that passes.
+mkdir existing
+cat > existing/package.json <<'JSON'
+{
+  "name": "existing",
+  "private": true,
+  "dependencies": {
+    "pr-verify-fixture-existing-made-up": "1.0.0",
+    "existing-git-lib": "github:pr-verify-fixture/existing-git-lib",
+    "is-number": "7.0.0"
+  }
+}
+JSON
 # The pull request's base, so the dependencies the files below add are new.
 git add -A
 git -c user.name=fixture -c user.email=fixture@example.test commit -qm base
@@ -123,6 +137,27 @@ cat > package.json <<'JSON'
   "overrides": { "left-pad": "npm:pr-verify-fixture-made-up-override@1.0.0" },
   "resolutions": { "**/is-odd": "github:pr-verify-fixture/resolution-lib" },
   "pnpm": { "overrides": { "is-even": "1.0.0" } }
+}
+JSON
+# A locked version no registry has and one locked to git, which fail, beside one
+# old enough to pass.
+cat > package-lock.json <<'JSON'
+{
+  "lockfileVersion": 3,
+  "packages": {
+    "node_modules/left-pad": {
+      "version": "99.0.0",
+      "resolved": "https://registry.npmjs.org/left-pad/-/left-pad-99.0.0.tgz"
+    },
+    "node_modules/git-locked": {
+      "version": "1.0.0",
+      "resolved": "git+ssh://git@github.com/pr-verify-fixture/git-locked.git#abc"
+    },
+    "node_modules/is-number": {
+      "version": "7.0.0",
+      "resolved": "https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz"
+    }
+  }
 }
 JSON
 printf '\nreplace golang.org/x/text => github.com/pr-verify-fixture/made-up-module v1.0.0\n' >> go.mod
@@ -305,7 +340,14 @@ expect_names ANN001 reportMissingParameterType TS7006 no-explicit-any ban-ts-com
   "**/is-odd (npm) comes from github:pr-verify-fixture/resolution-lib" \
   "pr-verify-fixture-made-up-group (pypi) is not on its registry" \
   "pr-verify-fixture-made-up-dev (pypi) is not on its registry" \
-  "\`$misspelled\` should be"
+  "\`$misspelled\` should be" \
+  "left-pad@99.0.0 (npm) is not on its registry" \
+  "pr-verify-fixture-existing-made-up (npm) is not on its registry" \
+  "existing-git-lib (npm) comes from github:pr-verify-fixture/existing-git-lib" \
+  "git-locked (npm) is locked to git+ssh://git@github.com/pr-verify-fixture/git-locked.git#abc"
+if grep -qF "is-number" <<< "$output"; then
+  fail "the dependency check rejected a dependency old enough to pass"
+fi
 for name in local-lib workspace-lib local-py-lib uv-local-lib uv-workspace-lib is-even; do
   if grep -qF "$name (" <<< "$output"; then
     fail "the dependency check looked up $name, which adds no package from a registry"

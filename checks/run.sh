@@ -77,10 +77,10 @@ if [ "${1:-}" = online ]; then
     run "zizmor" pipx run zizmor==1.31.1 --config "$here/zizmor.yml" --no-ignores --no-progress \
       "${workflows[@]}" "${actions[@]}"
   fi
-  # A dependency the pull request adds that its registry has had for under 30
-  # days, or does not have: a name a model made up, or one registered to catch
-  # it. The token fetches the pull request's base commit to compare with.
-  run "new dependencies" python3 "$here/new_dependencies.py" "${files[@]}"
+  # A dependency the pull request adds that its registry lacks or has had under
+  # 30 days, and a locked version under 7 days old that no advisory names as a
+  # fix. The token fetches the pull request's base commit to compare with.
+  run "new dependencies" python3 "$here/check_new_dependencies.py"
   summarize "Online checks"
   exit
 fi

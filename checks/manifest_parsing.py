@@ -1,6 +1,6 @@
 """What a manifest asks to install: the dependencies in package.json,
 pyproject.toml, requirements files and go.mod, each with where it comes from.
-Read by new_dependencies.py.
+Read by check_new_dependencies.py.
 
 A dependency on a local path is left out, since its code is in the repository
 and the gate checks it there.
@@ -324,7 +324,7 @@ def go_requirements(text: str) -> set[Requirement]:
     return requirements
 
 
-def parser_for(path: str) -> tuple[str, Callable[[str], set[Requirement]]] | None:
+def manifest_parser(path: str) -> tuple[str, Callable[[str], set[Requirement]]] | None:
     """The ecosystem a manifest belongs to, and the function that reads it."""
     file_name = Path(path).name
     if file_name == "package.json":
