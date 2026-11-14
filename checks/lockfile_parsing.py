@@ -159,8 +159,13 @@ def requirements_versions(text: str) -> set[Locked]:
     versions: set[Locked] = set()
     for line in text.splitlines():
         pin = REQUIREMENT_PIN.match(line.strip())
-        if pin is not None:
-            versions.add((normalized(pin.group(1)), pin.group(2)))
+        if pin is None:
+            continue
+        name, version = pin.group(1), pin.group(2)
+        # A version with a wildcard, such as 4.2.*, matches every release that
+        # starts with 4.2, not one version.
+        if "*" not in version:
+            versions.add((normalized(name), version))
     return versions
 
 

@@ -185,6 +185,7 @@ def test_requirements_reads_exact_pins_only() -> None:
     --hash=sha256:abc
 requests[socks]==2.32.3 ; python_version >= "3.9"
 flask>=3
+django==4.2.*
 -r other.txt
 """
     assert requirements_versions(requirements) == {PYYAML, ("requests", "2.32.3")}
