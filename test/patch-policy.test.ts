@@ -199,7 +199,7 @@ describe("checkPatchPolicy", () => {
   });
 
   it("rejects CMake changes in a test patch other than adding its new tests", () => {
-    const flags = cmakePatch(["add_compile_options(-DORDER_BROKEN)"]);
+    const flags = cmakePatch(["add_compile_options(-O0)"]);
     expect(
       checkPatchPolicy(ADD_CPP_TEST + flags, "test", LIMITS).violations,
     ).toContain(

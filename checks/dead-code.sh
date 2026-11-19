@@ -40,6 +40,17 @@ deadcode_check() {
   [ -z "$out" ]
 }
 
+# A test framework finds each test itself, so no code calls a test by name.
+# Test files are still read, for the calls they make, but nothing in them is
+# reported unused. The patterns are the review's names for test files.
+test_file_suppressions() {
+  local pattern
+  for pattern in '*/test/*' '*/tests/*' '*/testing/*' '*_test.c*' '*_unittest.c*' '*/test_*.c*' \
+    '*Test.c*' '*Tests.c*'; do
+    echo "--suppress=unusedFunction:$pattern"
+  done
+}
+
 # C++ functions nothing calls, across the whole program, from the files and
 # flags CMake recorded. Files CMake generated or fetched, in the directory it
 # wrote the commands to, are left out. cppcheck ignores its inline suppression
@@ -48,11 +59,12 @@ unused_functions() {
   local commands cppcheck_bin
   commands="$(compile_commands_dir)" || return 1
   cppcheck_bin="$(cppcheck)" || return 1
-  local -a generated=()
+  local -a generated=() tests
   if [ "$commands" != "$PWD" ]; then
     generated=(-i "$commands")
   fi
-  "$cppcheck_bin" --project="$commands/compile_commands.json" "${generated[@]}" \
+  mapfile -t tests < <(test_file_suppressions)
+  "$cppcheck_bin" --project="$commands/compile_commands.json" "${generated[@]}" "${tests[@]}" \
     --enable=unusedFunction --library=googletest --error-exitcode=1 --quiet
 }
 
