@@ -140,6 +140,24 @@ class FindingFilter:
             return []
         return [Mention(path, self.named_function(path, match.group("function")))]
 
+    def line_mentions(self, line: str) -> list[Mention]:
+        mentions = self.complexipy_mentions(line)
+        if mentions is None:
+            return self.mentions(line)
+        return mentions
+
+    def explains(self, line: str) -> bool:
+        """Whether a line explains a finding rather than reporting one, as a
+        clang-tidy note does. shellcheck's gcc format prints its info and style
+        findings as notes too, and those are findings."""
+        return self.check == "clang-tidy" and ": note:" in line
+
+    def in_changed_code(self, line: str, mentions: list[Mention]) -> bool:
+        size_finding = self.check in SIZE_CHECKS or SIZE_RULES.search(line) is not None
+        return any(
+            self.counts(mention, size_finding=size_finding) for mention in mentions
+        )
+
     def report(self, output: Iterable[str]) -> Report:
         report = Report(kept=[], left_out=0, names_a_file=False)
         for raw_line in output:
@@ -147,23 +165,13 @@ class FindingFilter:
             if self.header(line):
                 report.names_a_file = True
                 continue
-            mentions = self.complexipy_mentions(line)
-            if mentions is None:
-                mentions = self.mentions(line)
+            mentions = self.line_mentions(line)
             if not mentions:
                 continue
             report.names_a_file = True
-            # A clang-tidy note explains a finding; it is not one. shellcheck's
-            # gcc format prints its info and style findings as notes too, and
-            # those are findings.
-            if self.check == "clang-tidy" and ": note:" in line:
+            if self.explains(line):
                 continue
-            size_finding = (
-                self.check in SIZE_CHECKS or SIZE_RULES.search(line) is not None
-            )
-            if any(
-                self.counts(mention, size_finding=size_finding) for mention in mentions
-            ):
+            if self.in_changed_code(line, mentions):
                 report.kept.append(line)
             else:
                 report.left_out += 1
