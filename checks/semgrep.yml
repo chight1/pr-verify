@@ -48,11 +48,16 @@ rules:
     languages: [cpp]
     pattern-regex: '[\w>&*]\s+(pos|idx|cnt|tmp|val|obj|res|ret|lib|mgr|data|info)\s*(=|;|\{|,|\)|:(?!:))'
 
+  # Writing to the standard streams, which a command-line tool does in main:
+  # its report, and its errors. Anywhere else it is debug output, and passing
+  # std::cout to a function that takes a stream is the way to write instead.
   - id: debug-output-cpp
     message: Debug output. Write to a std::ostream the caller passes in, so a test can check what is written.
     severity: ERROR
     languages: [cpp]
-    pattern-regex: '\bstd::(cout|cerr|clog)\b|\b(std::)?(printf|puts)\s*\(|\bfprintf\s*\(\s*(stdout|stderr)'
+    patterns:
+      - pattern-regex: '\bstd::(cout|cerr|clog)\s*<<|\b(std::)?(printf|puts)\s*\(|\bfprintf\s*\(\s*(stdout|stderr)'
+      - pattern-not-regex: '\b(int|auto)\s+main\s*\([^)]*\)[^{;]*(?<body>\{([^{}]++|(?&body))*\})'
 
   - id: unconditional-skip-python
     message: A test that is always skipped never runs. Fix it or delete it.

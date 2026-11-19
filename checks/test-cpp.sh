@@ -39,20 +39,36 @@ write_compile_commands() {
 }
 
 start_project format
+# A header with #pragma once and a plain struct, and a tool's main, which
+# CMake does not list, writing its report to std::cout.
 cat > src/order.h <<'CPP'
-#ifndef ORDER_ORDER_H
-#define ORDER_ORDER_H
+#pragma once
 
 #include <vector>
 
 namespace order {
 
+// A price, in cents.
+struct Price {
+  int cents = 0;
+
+  [[nodiscard]] bool IsFree() const { return cents == 0; }
+};
+
 // The sum of the given prices, in cents.
 [[nodiscard]] int Total(const std::vector<int>& prices);
 
 }  // namespace order
+CPP
+cat > src/main.cpp <<'CPP'
+#include <iostream>
 
-#endif  // ORDER_ORDER_H
+#include "order.h"
+
+int main() {
+  std::cout << order::Total({}) << '\n';
+  return 0;
+}
 CPP
 printf '#include "order.h"\n#include <numeric>\n#include <vector>\nnamespace order {\n' > src/order.cpp
 printf 'int Total(const std::vector<int>&prices){return std::accumulate(prices.begin(),prices.end(),0);}\n}\n' \
@@ -68,6 +84,10 @@ TEST(OrderTest, TotalOfNoPricesIsZero) {
   EXPECT_EQ(order::Total({}), 0);
 }
 
+TEST(OrderTest, NoCentsIsFree) {
+  EXPECT_TRUE(order::Price{}.IsFree());
+}
+
 }  // namespace
 CPP
 git add -A
@@ -79,7 +99,7 @@ expect_names "No compile_commands.json" "::error title=clang-format::" order.cpp
 
 write_compile_commands src/order.cpp tests/order_test.cpp
 pipx run clang-format==23.1.5 --style="file:$here/clang-format.yml" -i src/order.h src/order.cpp \
-  tests/order_test.cpp
+  src/main.cpp tests/order_test.cpp
 git add -A
 if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on clean, formatted C++"

@@ -1,9 +1,11 @@
 # The gate's C++ lint: clang-tidy's checks for bugs, security, the C++ Core
-# Guidelines, modern C++, performance and readability, with the compiler's
-# warnings on and every finding an error. Off: trailing return types, a style
+# Guidelines, miscellaneous mistakes, modern C++, performance, portability and
+# readability, with every finding an error. Off: trailing return types, a style
 # preference; the Core Guidelines' copy of the magic-number check, which
-# readability's already runs; and short names, until the gate bans them in
-# every language.
+# readability's already runs; short names, until the gate bans them in every
+# language; and the ban on #pragma once, which every compiler that matters
+# supports. The compiler's warnings are added by lint.sh, which puts them where
+# clang-tidy reads them as flags for every file.
 Checks: >-
   -*,
   bugprone-*,
@@ -19,21 +21,9 @@ Checks: >-
   readability-*,
   -modernize-use-trailing-return-type,
   -cppcoreguidelines-avoid-magic-numbers,
-  -readability-identifier-length
+  -readability-identifier-length,
+  -portability-avoid-pragma-once
 WarningsAsErrors: "*"
-# Warnings on top of the project's own flags. A GCC project's flags that clang
-# does not know are not findings.
-ExtraArgs:
-  - -Wall
-  - -Wextra
-  - -Wpedantic
-  - -Wshadow
-  - -Wconversion
-  - -Wsign-conversion
-  - -Wold-style-cast
-  - -Wmissing-declarations
-  - -Wno-unknown-warning-option
-  - -Wno-unused-command-line-argument
 CheckOptions:
   # The size and complexity limits, the same in every language.
   readability-function-cognitive-complexity.Threshold: 15
@@ -45,3 +35,6 @@ CheckOptions:
   # 0 and 1 are always allowed, and -1 is 1 negated, as in every language.
   readability-magic-numbers.IgnoredIntegerValues: "1"
   readability-magic-numbers.IgnoredFloatingPointValues: "1.0"
+  # A struct whose fields are all public is plain data, which the Core
+  # Guidelines recommend; the check is for classes that hide some of theirs.
+  misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
