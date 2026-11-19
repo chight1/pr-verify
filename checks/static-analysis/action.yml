@@ -1,0 +1,22 @@
+name: PR Verify static analysis
+description: >-
+  Semgrep's maintained rules for the runtime, which follow untrusted input to a
+  dangerous call, run from the image and with the rules the workflow names.
+inputs:
+  security-scan:
+    description: strict fails on any finding; loose only on Semgrep's ERROR
+    required: false
+    default: strict
+  scope:
+    description: repository checks every file; changes checks only the code the pull request changes
+    required: false
+    default: repository
+runs:
+  using: composite
+  steps:
+    - name: static analysis
+      shell: bash
+      env:
+        MODE: ${{ inputs.security-scan }}
+        GATE_SCOPE: ${{ inputs.scope }}
+      run: bash "$GITHUB_ACTION_PATH/../static-analysis.sh"

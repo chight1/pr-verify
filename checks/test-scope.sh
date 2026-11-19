@@ -20,9 +20,15 @@ commit_change() {
 
 mkdir "$scratch/legacy" && cd "$scratch/legacy"
 git init -q
-# Untyped, over the complexity and parameter limits, with debug output.
+# Untyped, over the complexity and parameter limits, with debug output, and a
+# shell command that Semgrep's rules find.
 cat > legacy.py <<'PY'
 import os
+import subprocess
+
+
+def run_command(command):
+    return subprocess.run(command, shell=True, check=False)
 
 
 def shipping_totals(orders, regions, carriers, discount, surcharge, limit):
@@ -63,6 +69,13 @@ fi
 if output="$(GATE_SCOPE=repository bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on the old code with every file checked"
 fi
+export SEMGREP_ARGS="--config p/python --disable-nosem"
+if ! output="$(bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis failed on a clean change to old code"
+fi
+if output="$(GATE_SCOPE=repository bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis passed on the old code with every file checked"
+fi
 
 # An unused import added, a line of the over-complex function changed, and the
 # long file made longer. The old debug output is on a line the change leaves.
@@ -80,6 +93,19 @@ for legacy_finding in T201 SC2164; do
     fail "run.sh counted $legacy_finding, on a line the change leaves alone"
   fi
 done
+
+# A new shell command, on a changed line, which static analysis must count.
+printf '\n\ndef run_script(script: str) -> object:\n    """Runs a script."""\n    return subprocess.run(script, shell=True, check=False)\n' \
+  >> legacy.py
+commit_change
+if output="$(bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis passed on a new shell command in changed code"
+fi
+expect_names "legacy.py:" shell
+# The old command is on line 7, below the three imports and run_command's def.
+if grep -qF "legacy.py:7:" <<< "$output"; then
+  fail "static analysis counted the old shell command, on a line the change leaves alone"
+fi
 
 # Outside a pull request there is no base to compare with.
 if output="$(GITHUB_EVENT_PATH="" bash "$here/run.sh" 2>&1)"; then

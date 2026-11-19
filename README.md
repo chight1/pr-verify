@@ -139,7 +139,7 @@ By default the gate checks every file. A codebase too large to fix in one pull r
 - A file over 400 lines fails only when the pull request makes it longer.
 - Copied code counts when either copy is in changed code, and copies are looked for across every file.
 - Workflows, Dockerfiles and `go.mod`, which are small, are checked in full when the pull request touches them. Trivy reports by file rather than line, so it scans each changed file in full.
-- Semgrep's static analysis reports only what it does not also find on the base commit.
+- Semgrep's static analysis scans the changed files, and only its findings on changed lines count.
 - The dependency check looks up only the dependencies the pull request adds.
 
 Each check prints every finding with its file and line, and the gate compares them with git's diff from the pull request's base commit, which the online checks fetch. A check that fails without naming any file failed to run, and still fails. The build, tests and audit run as they always do. Outside a pull request there is no base to compare with, so the setting fails.

@@ -178,33 +178,14 @@ jobs:
         run: eval "$COMMAND"
 
       # Lint finds smells; this follows untrusted input to a dangerous call.
-      # With gate-scope changes, Semgrep reports only what it does not also
-      # find on the pull request's base commit.
+      # With gate-scope changes, only findings on changed lines count, as in
+      # the code-quality checks. From this workflow's own commit.
       - name: static analysis
         if: ${{ !cancelled() }}
-        env:
-          MODE: ${{ inputs.security-scan }}
-          SCOPE: ${{ inputs.gate-scope }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          case "$MODE" in
-            strict | loose) ;;
-            *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
-          esac
-          read -ra args <<< "$SEMGREP_ARGS"
-          case "$SCOPE" in
-            repository) ;;
-            changes)
-              if [ -z "$BASE_SHA" ]; then
-                echo "gate-scope: changes needs a pull request, to compare with its base." >&2
-                exit 1
-              fi
-              args+=(--baseline-commit "$BASE_SHA")
-              ;;
-            *) echo "gate-scope must be repository or changes, not '$SCOPE'" >&2; exit 1 ;;
-          esac
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
-            "$SEMGREP_IMAGE" semgrep scan "${args[@]}" --error --metrics off --disable-version-check
+        uses: $/checks/static-analysis
+        with:
+          security-scan: ${{ inputs.security-scan }}
+          scope: ${{ inputs.gate-scope }}
 
       - name: build
         id: build
