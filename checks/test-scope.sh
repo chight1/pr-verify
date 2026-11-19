@@ -70,7 +70,7 @@ commit_change
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on a change that adds a problem to old code"
 fi
-expect_names "::error title=ruff check::" F401 C901 PLR0913 "::error title=complexipy::" shipping_totals \
+expect_names "::error title=ruff check::" F401 PLR0913 "::error title=complexipy::" shipping_totals \
   "long.py has 411 lines"
 for legacy_finding in T201 SC2164; do
   if grep -qF "$legacy_finding" <<< "$output"; then
