@@ -2,6 +2,11 @@ name: PR Verify online checks
 description: >-
   The gate's checks that look things up on GitHub, with the workflow's token,
   and on package registries.
+inputs:
+  scope:
+    description: repository checks every file; changes checks only the code the pull request changes
+    required: false
+    default: repository
 runs:
   using: composite
   steps:
@@ -9,4 +14,5 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        GATE_SCOPE: ${{ inputs.scope }}
       run: bash "$GITHUB_ACTION_PATH/../run.sh" online

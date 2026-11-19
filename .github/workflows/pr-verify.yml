@@ -49,6 +49,13 @@ on:
         required: false
         type: string
         default: strict
+      gate-scope:
+        description: >-
+          repository checks every file; changes checks only the code the pull
+          request changes, for a codebase too large to fix in one pull request.
+        required: false
+        type: string
+        default: repository
       audit-command:
         description: Dependency vulnerability scan. Leave empty to skip the audit step.
         required: false
@@ -135,9 +142,13 @@ jobs:
 
       # The checks that hold the workflow's token, which run first: no process
       # the project starts is alive yet to read it. From this workflow's own
-      # commit, like the code-quality checks below.
+      # commit, like the code-quality checks below. They fetch the pull
+      # request's base commit, which the steps after them compare with when
+      # gate-scope is changes.
       - name: online checks
         uses: $/checks/online
+        with:
+          scope: ${{ inputs.gate-scope }}
 
       # Each check below runs even when an earlier one failed, so one run shows
       # every failure. A step is skipped only when a step it needs failed. The
@@ -157,6 +168,8 @@ jobs:
       - name: code quality
         if: ${{ !cancelled() }}
         uses: $/checks
+        with:
+          scope: ${{ inputs.gate-scope }}
 
       - name: lint
         if: ${{ !cancelled() && steps.install.outcome == 'success' && inputs.lint && inputs.lint-command != '' }}
@@ -165,16 +178,25 @@ jobs:
         run: eval "$COMMAND"
 
       # Lint finds smells; this follows untrusted input to a dangerous call.
+      # With gate-scope changes, Semgrep reports only what it does not also
+      # find on the pull request's base commit.
       - name: static analysis
         if: ${{ !cancelled() }}
         env:
           MODE: ${{ inputs.security-scan }}
+          SCOPE: ${{ inputs.gate-scope }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           case "$MODE" in
             strict | loose) ;;
             *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
           esac
           read -ra args <<< "$SEMGREP_ARGS"
+          case "$SCOPE" in
+            repository) ;;
+            changes) args+=(--baseline-commit "$BASE_SHA") ;;
+            *) echo "gate-scope must be repository or changes, not '$SCOPE'" >&2; exit 1 ;;
+          esac
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
             "$SEMGREP_IMAGE" semgrep scan "${args[@]}" --error --metrics off --disable-version-check
 
@@ -212,19 +234,39 @@ jobs:
           echo "$TRIVY_SHA256  $archive" | sha256sum --check --strict
           tar -xzf "$archive" -C "$RUNNER_TEMP" trivy
 
-      # node_modules is skipped because the lockfile already lists everything in it.
+      # node_modules is skipped because the lockfile already lists everything in
+      # it. Trivy reports by file, not line, so with gate-scope changes it scans
+      # copies of the files the pull request changes, each in full.
       - name: security scan
         if: ${{ !cancelled() && steps.trivy.outcome == 'success' }}
         env:
           MODE: ${{ inputs.security-scan }}
+          SCOPE: ${{ inputs.gate-scope }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           case "$MODE" in
             strict) severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL ;;
             loose) severity=HIGH,CRITICAL ;;
             *) echo "security-scan must be strict or loose, not '$MODE'" >&2; exit 1 ;;
           esac
+          target=.
+          scanned=(.)
+          case "$SCOPE" in
+            repository) ;;
+            changes)
+              target="$RUNNER_TEMP/changed-files"
+              mkdir -p "$target"
+              mapfile -t scanned < <(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD)
+              if [ "${#scanned[@]}" -eq 0 ]; then
+                echo "The pull request changes no files to scan."
+                exit 0
+              fi
+              cp --parents -t "$target" -- "${scanned[@]}"
+              ;;
+            *) echo "gate-scope must be repository or changes, not '$SCOPE'" >&2; exit 1 ;;
+          esac
           # Trivy has no switch to turn off inline ignore comments, so they fail the step.
-          if git grep -nE 'trivy[:]ignore[:]'; then
+          if git grep -nE 'trivy[:]ignore[:]' -- "${scanned[@]}"; then
             echo "Inline Trivy ignore comments are not allowed. Fix the finding instead." >&2
             exit 1
           fi
@@ -234,7 +276,7 @@ jobs:
           echo '{}' > "$empty"
           "$RUNNER_TEMP/trivy" fs --scanners vuln,secret,misconfig --severity "$severity" \
             --config "$empty" --ignorefile "$empty" --secret-config "$empty" \
-            --exit-code 1 --no-progress --skip-dirs node_modules .
+            --exit-code 1 --no-progress --skip-dirs node_modules "$target"
 
   # Not a required check, and nothing needs it: a red canary never blocks a
   # merge or starts an investigation. It says the pin is not safe to move yet.

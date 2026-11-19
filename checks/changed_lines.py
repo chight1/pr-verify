@@ -1,0 +1,90 @@
+"""Which lines of which files a pull request changes, from git's diff of its base
+commit and the checkout, and where each function in a file starts and ends,
+from lizard, which reads every language the gate checks.
+"""
+
+from __future__ import annotations
+
+import csv
+import re
+import subprocess
+from dataclasses import dataclass
+
+from pull_request import git
+
+# A hunk of a diff with no context: where its lines start on the new side, and
+# how many there are. A count of 0 means lines were only removed, after the
+# start line.
+HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+NEW_SIDE = "+++ "
+NEW_PATH = "+++ b/"
+LIZARD = "lizard==1.26.0"
+# lizard's CSV columns: NLOC, CCN, tokens, parameters, length, location, file,
+# function, long name, start line, end line.
+LIZARD_COLUMNS = 11
+
+
+@dataclass
+class ChangedCode:
+    # The lines each changed file has that the base commit did not.
+    lines: dict[str, set[int]]
+    # Those lines, and the line after which lines were removed, since a removal
+    # touches the function it was made in.
+    touched: dict[str, set[int]]
+
+    def add_hunk(self, path: str, start: int, count: int) -> None:
+        self.lines.setdefault(path, set()).update(range(start, start + count))
+        self.touched.setdefault(path, set()).update(range(start, start + max(count, 1)))
+
+
+@dataclass(frozen=True)
+class Function:
+    name: str
+    start: int
+    end: int
+
+
+def changed_code(base: str) -> ChangedCode:
+    """What the checkout changes since the base commit. A deleted file has no
+    lines left to change."""
+    diff_options = ["--unified=0", "--no-color", "--no-ext-diff"]
+    diff = git("-c", "core.quotePath=false", "diff", *diff_options, base, "HEAD").stdout
+    code = ChangedCode(lines={}, touched={})
+    path: str | None = None
+    for line in diff.splitlines():
+        if line.startswith(NEW_SIDE):
+            # A deleted file's new side is /dev/null.
+            path = None
+            if line.startswith(NEW_PATH):
+                path = line.removeprefix(NEW_PATH)
+            continue
+        hunk = HUNK.match(line)
+        if hunk is not None and path is not None:
+            code.add_hunk(path, int(hunk.group(1)), int(hunk.group(2) or "1"))
+    return code
+
+
+def lizard_function(row: list[str]) -> tuple[str, Function] | None:
+    """A row of lizard's CSV as the file and the function it describes."""
+    if len(row) < LIZARD_COLUMNS or not row[9].isdigit() or not row[10].isdigit():
+        return None
+    return row[6], Function(row[7], int(row[9]), int(row[10]))
+
+
+def functions(paths: list[str]) -> dict[str, list[Function]]:
+    """Every function lizard finds in the given files, by file."""
+    if not paths:
+        return {}
+    listing = subprocess.run(
+        ["pipx", "run", LIZARD, "--csv", *paths],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    found: dict[str, list[Function]] = {}
+    for row in csv.reader(listing.stdout.splitlines()):
+        described = lizard_function(row)
+        if described is not None:
+            path, function = described
+            found.setdefault(path, []).append(function)
+    return found

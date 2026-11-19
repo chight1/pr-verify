@@ -10,6 +10,10 @@ hijacked maintainer account ships malware before anyone notices, unless a
 published advisory names it as the fix for a vulnerability, and a package it
 adds to a lockfile from git or a URL fails, as a direct one does.
 
+With GATE_SCOPE set to changes, only the dependencies the pull request adds are
+looked up, so a codebase whose existing dependencies fail can still take a pull
+request that adds good ones.
+
 Usage: check_new_dependencies.py. Compares each tracked manifest and lockfile
 with its copy on the pull request's base commit, read from the event GitHub
 Actions provides.
@@ -17,21 +21,19 @@ Actions provides.
 
 from __future__ import annotations
 
-import base64
-import json
 import os
-import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from cpp_manifest_parsing import local_vcpkg_ports, with_vcpkg_configuration
 from lockfile_parsing import lockfile_parser, outside_source_parser
 from manifest_parsing import manifest_parser
+from pull_request import base_sha, fetch_commit, git
 from registry_lookups import CREATED, RELEASED, fixes_advisory
 
 if TYPE_CHECKING:
@@ -77,29 +79,6 @@ class LockedSource:
 
     def __str__(self) -> str:
         return f"{self.name} ({self.ecosystem})"
-
-
-def git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], capture_output=True, text=True, check=False)
-
-
-def base_sha() -> str | None:
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
-    if not event_path:
-        return None
-    event: dict[str, Any] = json.loads(Path(event_path).read_text(encoding="utf-8"))
-    return event.get("pull_request", {}).get("base", {}).get("sha")
-
-
-def fetch_commit(sha: str) -> None:
-    """The checkout is one commit deep and holds no credentials, so the base
-    commit is fetched with the workflow's token when it is not already here."""
-    if git("cat-file", "-e", f"{sha}^{{commit}}").returncode == 0:
-        return
-    token = os.environ.get("GH_TOKEN", "")
-    credentials = base64.b64encode(f"x-access-token:{token}".encode()).decode()
-    header = f"http.extraHeader=Authorization: basic {credentials}"
-    git("-c", header, "fetch", "--depth", "1", "--no-tags", "origin", sha)
 
 
 def checkout_text(path: str) -> str | None:
@@ -263,6 +242,8 @@ def main() -> int:
     # file is read here.
     tracked = git("ls-files").stdout.splitlines()
     dependencies = direct_dependencies(tracked, base)
+    if os.environ.get("GATE_SCOPE") == "changes":
+        dependencies = [dependency for dependency in dependencies if dependency.added]
     versions = added_versions(tracked, base)
     found = [source_problem(locked) for locked in added_sources(tracked, base)]
     found.extend(problems(dependencies, versions))

@@ -5,24 +5,34 @@
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Files over 400 lines. With GATE_SCOPE=changes, a long file fails only when the
+# pull request makes it longer than it was on the base commit.
 long_files() {
-  local status=0 file lines
+  local status=0 file lines base=""
+  if [ "${GATE_SCOPE:-repository}" = changes ]; then
+    base="$(python3 "$here/changed_code.py" base)" || return 1
+  fi
   for file in "$@"; do
     lines="$(wc -l < "$file")"
-    if [ "$lines" -gt 400 ]; then
-      echo "$file has $lines lines, over 400. Split it by what each part does." >&2
-      status=1
+    [ "$lines" -gt 400 ] || continue
+    if [ -n "$base" ] && [ "$(git show "$base:$file" 2> /dev/null | wc -l)" -ge "$lines" ]; then
+      continue
     fi
+    echo "$file has $lines lines, over 400. Split it by what each part does." >&2
+    status=1
   done
   return "$status"
 }
 
-# Runs the size checks on the given files that are code.
+# Runs the size checks on the given files that are code. Copies are looked for
+# across every file, since changed code can copy code that did not change.
 size_checks() {
-  local -a python cpp source_code
+  local -a python cpp source_code everything all_source_code
   mapfile -t python < <(python_files "$@")
   mapfile -t cpp < <(cpp_files "$@")
   mapfile -t source_code < <(source_code_files "$@")
+  mapfile -t everything < <(written_files)
+  mapfile -t all_source_code < <(source_code_files "${everything[@]}")
 
   if any "${python[@]}"; then
     # Cognitive complexity, which ruff does not measure.
@@ -37,6 +47,6 @@ size_checks() {
   if any "${source_code[@]}"; then
     # An empty config, so a project's own jscpd settings have no effect.
     run "jscpd" "$here/node_modules/.bin/jscpd" --config "$here/jscpd.json" --min-tokens 50 \
-      --threshold 0 --exit-code 1 --reporters console --no-colors "${source_code[@]}"
+      --threshold 0 --exit-code 1 --reporters console --no-colors "${all_source_code[@]}"
   fi
 }

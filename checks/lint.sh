@@ -2,13 +2,15 @@
 # The lint and type checks, each with the gate's config and none of the
 # project's: code in each language, workflows, shell scripts and Dockerfiles,
 # the Semgrep rules for common mistakes no linter here checks, and the comments
-# that switch a check off. Sourced by run.sh.
+# that switch a check off. Each prints every finding on a line of its own that
+# names the file and line, so that with GATE_SCOPE=changes run.sh can tell which
+# findings are in changed code. Sourced by run.sh.
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 python_lint() {
   run "ruff check" pipx run ruff==0.17.2 check --config "$here/ruff.toml" --ignore-noqa --no-cache \
-    -- "$@"
+    --output-format concise -- "$@"
   # Checks against the Python on PATH, where the install step put the project's dependencies.
   local pyright_config="$PWD/pyrightconfig.pr-verify.json"
   remember_written "$pyright_config"
@@ -63,7 +65,7 @@ semgrep_check() {
   semgrep_image="${SEMGREP_IMAGE:-$(sed -n 's/^  SEMGREP_IMAGE: //p' "$here/../.github/workflows/pr-verify.yml")}"
   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" \
     -v "$here/semgrep.yml:/rules.yml:ro" -w /src "$semgrep_image" \
-    semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem \
+    semgrep scan --config /rules.yml --error --metrics off --disable-version-check --disable-nosem --emacs \
     -- "$@"
 }
 
@@ -85,7 +87,7 @@ script_checks() {
       -- "${workflows[@]}"
   fi
   if any "${shell[@]}"; then
-    run "shellcheck" "$shellcheck_bin" --norc --severity=style -- "${shell[@]}"
+    run "shellcheck" "$shellcheck_bin" --norc --severity=style --format gcc -- "${shell[@]}"
   fi
 }
 
@@ -153,11 +155,12 @@ lint_checks() {
     tsconfig="$PWD/tsconfig.pr-verify.json"
     remember_written "$tsconfig"
     node "$here/tsconfig.mjs" "$tsconfig" "${typescript[@]}"
-    run "tsc" "$here/node_modules/.bin/tsc" --project "$tsconfig"
+    run "tsc" "$here/node_modules/.bin/tsc" --project "$tsconfig" --pretty false
   fi
   if any "${typescript[@]}" "${javascript[@]}"; then
     run "ESLint" env PR_VERIFY_TSCONFIG="$tsconfig" "$here/node_modules/.bin/eslint" \
       --config "$here/eslint.config.mjs" --no-inline-config --max-warnings 0 \
+      --format "$here/eslint-locations.mjs" \
       -- "${typescript[@]}" "${javascript[@]}"
   fi
 

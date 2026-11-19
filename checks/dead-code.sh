@@ -76,11 +76,13 @@ left_out_files() {
 
 # Unused files, exports and types, imports of packages the manifest does not
 # list, duplicate exports and import cycles. An entry point written as a pattern
-# fails the check, and knip still runs without it. Takes the files every check reads.
+# fails the check, and knip still runs without it. knip reads every file a
+# person writes, even when only some are checked, to know what each one uses.
 knip_check() {
-  local config="$PWD/knip.pr-verify.json" ignored status=0
+  local config="$PWD/knip.pr-verify.json" everything ignored status=0
   remember_written "$config"
-  mapfile -t ignored < <(left_out_files "$@")
+  mapfile -t everything < <(written_files)
+  mapfile -t ignored < <(left_out_files "${everything[@]}")
   node "$here/knip-config.mjs" "$config" "${ignored[@]}" || status=1
   "$here/node_modules/.bin/knip" --config "$config" --no-progress --no-config-hints \
     --include files,unlisted,unresolved,exports,types,nsExports,nsTypes,enumMembers,duplicates,cycles \
@@ -90,8 +92,9 @@ knip_check() {
 
 # Runs each dead code and dependency check the project's languages need.
 dead_code_checks() {
-  local -a python cpp_sources typescript javascript
+  local -a python go_module cpp_sources typescript javascript
   mapfile -t python < <(python_files "$@")
+  mapfile -t go_module < <(matching '(^|/)go\.mod$|\.go$' "$@")
   mapfile -t cpp_sources < <(cpp_source_files "$@")
   mapfile -t typescript < <(typescript_files "$@")
   mapfile -t javascript < <(javascript_files "$@")
@@ -99,7 +102,7 @@ dead_code_checks() {
   if any "${python[@]}" && declares_python_dependencies; then
     run "deptry" deptry_check
   fi
-  if [ -f go.mod ]; then
+  if [ -f go.mod ] && any "${go_module[@]}"; then
     run "go mod tidy" go mod tidy -diff
     run "deadcode" deadcode_check
   fi
@@ -107,6 +110,6 @@ dead_code_checks() {
     run "cppcheck" unused_functions
   fi
   if [ -f package.json ] && any "${typescript[@]}" "${javascript[@]}"; then
-    run "knip" knip_check "$@"
+    run "knip" knip_check
   fi
 }
