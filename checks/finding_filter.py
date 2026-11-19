@@ -19,17 +19,28 @@ from changed_lines import ChangedCode, Function, functions
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-LOCATION = re.compile(
-    r"(?P<path>[\w@.+/-]+)"
-    r"(?::(?P<line>\d+)|\((?P<call_line>\d+),\d+\)"
-    r"|\s\[(?P<start>\d+):\d+ - (?P<end>\d+):\d+\])?"
+# Where in a file a finding is, written right after the file's path: :12,
+# (12,5), or jscpd's [12:1 - 20:2]. Nothing there means the whole file.
+AFTER_PATH = re.compile(
+    r":(?P<line>\d+)|\((?P<call_line>\d+),\d+\)"
+    r"|\s\[(?P<start>\d+):\d+ - (?P<end>\d+):\d+\]"
 )
+# The characters around a path in a line of output. A changed file's path is
+# searched for whole, since it can hold brackets, parentheses or spaces, as a
+# route in a web framework can.
+BEFORE_A_PATH = frozenset(" \t\"'`=(<[,")
+AFTER_A_PATH = frozenset(" \t:,()\"'`>[]")
+# Something shaped like a path, to tell whether output names any tracked file.
+PATH_LIKE = re.compile(r"[\w@.+/-]+")
+# A ./ before a path, which the files' own paths do not have.
+DOT_SLASH = re.compile(r"(^|[\s\"'(=])\./")
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+")
-# How a diff names the file its hunks belong to: +++ path, and git's +++ b/path.
-DIFF_FILE = re.compile(r"^\+\+\+ (?:b/)?(\S+)")
+# How a diff names the file its hunks belong to: +++ path, and git's +++ b/path,
+# with any timestamp after a tab left off.
+DIFF_FILE = re.compile(r"^\+\+\+ (?:b/)?([^\t]+)")
 ANSI_COLOR = re.compile(r"\x1b\[[0-9;]*m")
 # complexipy's plain output: the file, the function and its score.
-COMPLEXIPY_LINE = re.compile(r"^(?P<path>\S+) (?P<function>\S+) \d+$")
+COMPLEXIPY_LINE = re.compile(r"^(?P<path>.+) (?P<function>\S+) \d+$")
 # The checks whose every finding is about a function's size or complexity,
 # and the rules of the other linters that are.
 SIZE_CHECKS = frozenset({"lizard", "complexipy"})
@@ -66,13 +77,12 @@ class FindingFilter:
         self.functions: dict[str, list[Function]] | None = None
 
     def mentions(self, line: str) -> list[Mention]:
-        """The tracked files a line of output names, and where in each."""
+        """The changed files a line of output names, and where in each."""
         found: list[Mention] = []
-        for match in LOCATION.finditer(line):
-            path = match.group("path").removeprefix("./")
-            if path not in self.tracked:
-                continue
-            found.append(Mention(path, mentioned_lines(match)))
+        for path in self.code.lines:
+            for start in path_starts(line, path):
+                following = AFTER_PATH.match(line, start + len(path))
+                found.append(Mention(path, mentioned_lines(following)))
         hunk = HUNK.match(line)
         if hunk is not None and self.diff_file is not None:
             start, count = int(hunk.group(1)), int(hunk.group(2) or "1")
@@ -173,17 +183,24 @@ class FindingFilter:
             self.counts(mention, size_finding=size_finding) for mention in mentions
         )
 
+    def names_a_tracked_file(self, line: str) -> bool:
+        """Whether a line names a tracked file, changed or not, as a check's
+        findings do and its errors about itself do not."""
+        return any(token in self.tracked for token in PATH_LIKE.findall(line))
+
     def report(self, output: Iterable[str]) -> Report:
         report = Report(kept=[], left_out=0, names_a_file=False)
         for raw_line in output:
             line = ANSI_COLOR.sub("", raw_line).replace(self.root, "")
+            line = DOT_SLASH.sub(r"\1", line)
             if self.header(line):
                 report.names_a_file = True
                 continue
             mentions = self.line_mentions(line)
+            if mentions or self.names_a_tracked_file(line):
+                report.names_a_file = True
             if not mentions:
                 continue
-            report.names_a_file = True
             if self.explains(line):
                 continue
             if self.in_changed_code(line, mentions):
@@ -193,8 +210,24 @@ class FindingFilter:
         return report
 
 
-def mentioned_lines(match: re.Match[str]) -> range | None:
+def path_starts(line: str, path: str) -> list[int]:
+    """Where a path appears in a line whole, not as part of a longer path."""
+    starts: list[int] = []
+    start = line.find(path)
+    while start != -1:
+        end = start + len(path)
+        before_ok = start == 0 or line[start - 1] in BEFORE_A_PATH
+        after_ok = end == len(line) or line[end] in AFTER_A_PATH
+        if before_ok and after_ok:
+            starts.append(start)
+        start = line.find(path, start + 1)
+    return starts
+
+
+def mentioned_lines(match: re.Match[str] | None) -> range | None:
     """The lines a location names: one line, a range, or the whole file."""
+    if match is None:
+        return None
     single = match.group("line") or match.group("call_line")
     if single is not None:
         return range(int(single), int(single) + 1)

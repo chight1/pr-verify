@@ -129,3 +129,16 @@ def test_a_complexipy_finding_counts_when_any_function_of_its_name_is_touched() 
     }
     assert finding_filter.report(["src/app.py run 22"]).kept == ["src/app.py run 22"]
     assert finding_filter.report(["src/app.py Old::run 22"]).kept == []
+
+
+def test_a_changed_path_with_brackets_or_parentheses_is_found_whole() -> None:
+    route = "app/(shop)/[id]/page.tsx"
+    code = ChangedCode(lines={route: {3}}, touched={route: {3}})
+    finding_filter = FindingFilter("tsc", code, {route, "app/page.tsx"}, ROOT)
+    report = finding_filter.report(
+        [f"{route}(3,5): error TS7006: Parameter implicitly has an any type."]
+    )
+    assert report.kept == [
+        f"{route}(3,5): error TS7006: Parameter implicitly has an any type."
+    ]
+    assert finding_filter.report(["./app/page.tsx:3:1: error"]).kept == []
