@@ -60,10 +60,14 @@ run() {
   shift
   echo "::group::$name"
   if [ "$scope" = changes ] && ! whole_file_check "$name"; then
-    output="$("$@" 2>&1)"
+    # The output goes to a file rather than through a subshell, so the configs
+    # a check registers for removal are removed.
+    output="$(mktemp)"
+    "$@" > "$output" 2>&1
     status=$?
-    python3 "$here/changed_code.py" filter "$name" "$status" <<< "$output"
+    python3 "$here/changed_code.py" filter "$name" "$status" < "$output"
     status=$?
+    rm -f "$output"
   else
     "$@"
     status=$?

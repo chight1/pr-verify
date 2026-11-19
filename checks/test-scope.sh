@@ -57,6 +57,9 @@ commit_change
 if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on a clean change to old code"
 fi
+if [ -e pyrightconfig.pr-verify.json ]; then
+  fail "run.sh left the config it wrote for pyright behind"
+fi
 if output="$(GATE_SCOPE=repository bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on the old code with every file checked"
 fi
