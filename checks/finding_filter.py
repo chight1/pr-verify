@@ -107,13 +107,25 @@ class FindingFilter:
                 return range(function.start, function.end + 1)
         return None
 
-    def named_function(self, path: str, name: str) -> range | None:
-        """The lines of a function complexipy names, as Class::method or alone."""
-        short_name = name.rsplit("::", 1)[-1]
-        for function in self.file_functions(path):
-            if function.name.rsplit(".", 1)[-1] == short_name:
-                return range(function.start, function.end + 1)
-        return None
+    def named_functions(self, path: str, name: str) -> list[range]:
+        """The lines of each function complexipy could mean by a name such as
+        Class::method: the one lizard names Class.method, or failing that,
+        every function with the method's name, since several classes can each
+        have one. The finding counts if any of them is touched."""
+        full_name = name.replace("::", ".")
+        short_name = full_name.rsplit(".", 1)[-1]
+        functions_in_file = self.file_functions(path)
+        exact = [
+            function for function in functions_in_file if function.name == full_name
+        ]
+        same_name = [
+            function
+            for function in functions_in_file
+            if function.name.rsplit(".", 1)[-1] == short_name
+        ]
+        return [
+            range(function.start, function.end + 1) for function in exact or same_name
+        ]
 
     def counts(self, mention: Mention, *, size_finding: bool) -> bool:
         """Whether a finding is in code the pull request changes."""
@@ -138,7 +150,10 @@ class FindingFilter:
         path = match.group("path")
         if path not in self.tracked:
             return []
-        return [Mention(path, self.named_function(path, match.group("function")))]
+        functions_named = self.named_functions(path, match.group("function"))
+        if not functions_named:
+            return [Mention(path, None)]
+        return [Mention(path, lines) for lines in functions_named]
 
     def line_mentions(self, line: str) -> list[Mention]:
         mentions = self.complexipy_mentions(line)

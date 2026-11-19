@@ -120,3 +120,12 @@ def test_shellcheck_notes_are_findings_and_only_clang_tidy_notes_explain() -> No
     note = "src/app.py:10:3: note: Double quote to prevent globbing. [SC2086]"
     assert changed_filter("shellcheck").report([note]).kept == [note]
     assert changed_filter("clang-tidy").report([note]).kept == []
+
+
+def test_a_complexipy_finding_counts_when_any_function_of_its_name_is_touched() -> None:
+    finding_filter = changed_filter("complexipy")
+    finding_filter.functions = {
+        "src/app.py": [Function("Old.run", 1, 4), Function("New.run", 8, 15)]
+    }
+    assert finding_filter.report(["src/app.py run 22"]).kept == ["src/app.py run 22"]
+    assert finding_filter.report(["src/app.py Old::run 22"]).kept == []
