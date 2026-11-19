@@ -12,6 +12,12 @@ trap 'rm -rf "$scratch"' EXIT
 # shellcheck source=checks/test-helpers.sh
 source "$here/test-helpers.sh"
 
+# Commits a change on top of the base, as a pull request's checkout holds it.
+commit_change() {
+  git add -A
+  git -c user.name=fixture -c user.email=fixture@example.test commit -qm change
+}
+
 mkdir "$scratch/legacy" && cd "$scratch/legacy"
 git init -q
 # Untyped, over the complexity and parameter limits, with debug output.
@@ -47,7 +53,7 @@ export GATE_SCOPE=changes
 
 # A clean function added to the old file.
 printf '\n\ndef doubled(count: int) -> int:\n    """Twice the count."""\n    return count * 2\n' >> legacy.py
-git add -A
+commit_change
 if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on a clean change to old code"
 fi
@@ -60,7 +66,7 @@ fi
 sed -i '1i import sys' legacy.py
 sed -i 's/^    totals = /    totals: list[int] = /' legacy.py
 echo "STEP_410 = 410" >> long.py
-git add -A
+commit_change
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on a change that adds a problem to old code"
 fi
