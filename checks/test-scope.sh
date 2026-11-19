@@ -20,14 +20,15 @@ commit_change() {
 
 mkdir "$scratch/legacy" && cd "$scratch/legacy"
 git init -q
-# Untyped, over the complexity and parameter limits, with debug output, and an
-# eval that Semgrep's rules find.
+# Untyped, over the complexity and parameter limits, with debug output, and a
+# shell command that Semgrep's rules find.
 cat > legacy.py <<'PY'
 import os
+import subprocess
 
 
-def run_expression(expression):
-    return eval(expression)
+def run_command(command):
+    return subprocess.run(command, shell=True, check=False)
 
 
 def shipping_totals(orders, regions, carriers, discount, surcharge, limit):
@@ -93,17 +94,17 @@ for legacy_finding in T201 SC2164; do
   fi
 done
 
-# A new eval, on a changed line, which static analysis must count.
-printf '\n\ndef evaluate(text: str) -> object:\n    """The value of an expression."""\n    return eval(text)\n' \
+# A new shell command, on a changed line, which static analysis must count.
+printf '\n\ndef run_script(script: str) -> object:\n    """Runs a script."""\n    return subprocess.run(script, shell=True, check=False)\n' \
   >> legacy.py
 commit_change
 if output="$(bash "$here/static-analysis.sh" 2>&1)"; then
-  fail "static analysis passed on a new eval in changed code"
+  fail "static analysis passed on a new shell command in changed code"
 fi
-expect_names "legacy.py:" eval
-# The old eval is on line 6, below the two imports and run_expression's def.
-if grep -qF "legacy.py:6:" <<< "$output"; then
-  fail "static analysis counted the old eval, on a line the change leaves alone"
+expect_names "legacy.py:" shell
+# The old command is on line 7, below the three imports and run_command's def.
+if grep -qF "legacy.py:7:" <<< "$output"; then
+  fail "static analysis counted the old shell command, on a line the change leaves alone"
 fi
 
 # Outside a pull request there is no base to compare with.

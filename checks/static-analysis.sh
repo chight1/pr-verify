@@ -7,8 +7,6 @@
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=checks/checked-files.sh
-source "$here/checked-files.sh"
 
 case "${MODE:-strict}" in
   strict | loose) ;;
@@ -39,10 +37,13 @@ if [ "$scope" = repository ]; then
   exit
 fi
 
-mapfile -t files < <(written_files)
+# Every changed file, including any .gitattributes marks generated, which the
+# code-quality checks leave out: a pull request must not be able to hide its
+# own code from the security scan by marking it.
+mapfile -t files < <(git ls-files)
 changed="$(python3 "$here/changed_code.py" files "${files[@]}")" || exit 1
 mapfile -t changed_files < <(grep -v '^$' <<< "$changed")
-if ! any "${changed_files[@]}"; then
+if [ "${#changed_files[@]}" -eq 0 ]; then
   echo "The pull request changes no files for Semgrep to scan."
   exit 0
 fi
