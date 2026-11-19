@@ -37,6 +37,23 @@ clang_format_check() {
   pipx run clang-format==23.1.5 --style="file:$here/clang-format.yml" --dry-run --Werror -- "$@"
 }
 
+# Prettier's defaults on every file given: no config, no .editorconfig and no
+# ignore file. Its check lists the files it would change but not where, so with
+# GATE_SCOPE=changes each file's diff shows which lines it would change.
+prettier_check() {
+  local prettier="$here/node_modules/.bin/prettier" status=0 file
+  local -a defaults=(--no-config --no-editorconfig --ignore-path /dev/null)
+  if [ "${GATE_SCOPE:-repository}" != changes ]; then
+    "$prettier" --check "${defaults[@]}" -- "$@"
+    return
+  fi
+  for file in "$@"; do
+    "$prettier" "${defaults[@]}" -- "$file" | diff -u --label "$file" --label "$file" "$file" - \
+      || status=1
+  done
+  return "$status"
+}
+
 # Runs each formatter on the given files of its kind.
 formatting_checks() {
   local -a python go cpp templates prettier
@@ -59,8 +76,6 @@ formatting_checks() {
     run "djLint" check_copies djlint_check "${templates[@]}"
   fi
   if any "${prettier[@]}"; then
-    # No config, no .editorconfig and no ignore file: Prettier's defaults, on every file given.
-    run "Prettier" "$here/node_modules/.bin/prettier" --check --no-config --no-editorconfig \
-      --ignore-path /dev/null -- "${prettier[@]}"
+    run "Prettier" prettier_check "${prettier[@]}"
   fi
 }

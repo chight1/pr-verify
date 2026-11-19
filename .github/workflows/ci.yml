@@ -73,6 +73,8 @@ jobs:
         run: pipx run pytest==9.1.1 -q -p no:cacheprovider --rootdir=. -o pythonpath=checks checks
       - name: checks test
         run: bash checks/test.sh
+      - name: changed-code checks test
+        run: bash checks/test-scope.sh
       # The C++ scratch projects include GoogleTest's headers, and look ports up
       # on GitHub's API, whose rate limit the token raises.
       - name: install GoogleTest

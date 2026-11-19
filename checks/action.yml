@@ -2,6 +2,11 @@ name: PR Verify checks
 description: >-
   The gate's code-quality checks, with settings that ship with PR Verify rather
   than the project's own.
+inputs:
+  scope:
+    description: repository checks every file; changes checks only the code the pull request changes
+    required: false
+    default: repository
 runs:
   using: composite
   steps:
@@ -11,4 +16,6 @@ runs:
       run: npm ci --prefix "$GITHUB_ACTION_PATH" --ignore-scripts --no-audit --no-fund
     - name: code quality
       shell: bash
+      env:
+        GATE_SCOPE: ${{ inputs.scope }}
       run: bash "$GITHUB_ACTION_PATH/run.sh"

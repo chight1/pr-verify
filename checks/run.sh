@@ -4,9 +4,22 @@
 # with settings that ship here, so a project's own config and ignore files have
 # no effect on the result. Each check runs even when an earlier one fails, and
 # the script fails at the end if any did.
+#
+# GATE_SCOPE=changes checks only the code the pull request changes, for a
+# codebase too large to fix in one pull request: the checks read the changed
+# files, and each finding counts only on a changed line, or for a size limit,
+# in a function the pull request touches.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+scope="${GATE_SCOPE:-repository}"
+case "$scope" in
+  repository | changes) ;;
+  *)
+    echo "gate-scope must be repository or changes, not '$scope'" >&2
+    exit 1
+    ;;
+esac
 failed=()
 # Configs written at the project root, since pyright and TypeScript resolve the
 # project's imports from the config's own directory. Untracked, and removed on exit.
@@ -30,13 +43,35 @@ source "$here/dead-code.sh"
 # shellcheck source=checks/file-hygiene.sh
 source "$here/file-hygiene.sh"
 
-# Runs one tool in a collapsible log group and records it if it fails.
+# Checks whose findings are about a file as a whole, small files such as
+# workflows, Dockerfiles and go.mod, which with GATE_SCOPE=changes count in full
+# in every changed file.
+whole_file_check() {
+  case "$1" in
+    actionlint | zizmor | hadolint | "go mod tidy") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Runs one tool in a collapsible log group and records it if it fails. With
+# GATE_SCOPE=changes, only its findings in changed code count.
 run() {
-  local name="$1"
+  local name="$1" output status
   shift
   echo "::group::$name"
-  "$@"
-  local status=$?
+  if [ "$scope" = changes ] && ! whole_file_check "$name"; then
+    # The output goes to a file rather than through a subshell, so the configs
+    # a check registers for removal are removed.
+    output="$(mktemp)"
+    "$@" > "$output" 2>&1
+    status=$?
+    python3 "$here/changed_code.py" filter "$name" "$status" < "$output"
+    status=$?
+    rm -f "$output"
+  else
+    "$@"
+    status=$?
+  fi
   echo "::endgroup::"
   if [ "$status" -ne 0 ]; then
     failed+=("$name")
@@ -64,6 +99,10 @@ summarize() {
 }
 
 mapfile -t files < <(written_files)
+if [ "$scope" = changes ]; then
+  changed="$(python3 "$here/changed_code.py" files "${files[@]}")" || exit 1
+  mapfile -t files < <(grep -v '^$' <<< "$changed")
+fi
 
 # With "online", only the checks that look things up on GitHub with the
 # workflow's token, and on package registries. The gate runs them in a step of
