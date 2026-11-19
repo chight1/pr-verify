@@ -13,18 +13,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from changed_lines import changed_code
+from changed_lines import DiffError, changed_code
 from finding_filter import FindingFilter
-from pull_request import base_sha, git
+from pull_request import base_sha, fetch_commit, git
 
 USAGE_ERROR = 2
 
 
 def pull_request_base() -> str:
+    """The base commit, fetched when the checkout lacks it, as it does when the
+    online checks list the changed files: they run before anything else."""
     base = base_sha()
     if base is None:
         message = "gate-scope: changes needs a pull request, to compare with its base."
         raise SystemExit(message)
+    fetch_commit(base)
     return base
 
 
@@ -78,4 +81,8 @@ def main(arguments: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except DiffError as error:
+        sys.stderr.write(f"{error}\n")
+        sys.exit(1)

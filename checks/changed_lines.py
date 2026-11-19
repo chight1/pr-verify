@@ -44,11 +44,20 @@ class Function:
     end: int
 
 
+class DiffError(Exception):
+    """git could not compare the checkout with the base commit. Read as no
+    changes, it would pass every check, so it fails instead."""
+
+
 def changed_code(base: str) -> ChangedCode:
     """What the checkout changes since the base commit. A deleted file has no
     lines left to change."""
     diff_options = ["--unified=0", "--no-color", "--no-ext-diff"]
-    diff = git("-c", "core.quotePath=false", "diff", *diff_options, base, "HEAD").stdout
+    compared = git("-c", "core.quotePath=false", "diff", *diff_options, base, "HEAD")
+    if compared.returncode != 0:
+        message = f"Could not compare with the base commit {base}: {compared.stderr}"
+        raise DiffError(message)
+    diff = compared.stdout
     code = ChangedCode(lines={}, touched={})
     path: str | None = None
     for line in diff.splitlines():

@@ -194,7 +194,13 @@ jobs:
           read -ra args <<< "$SEMGREP_ARGS"
           case "$SCOPE" in
             repository) ;;
-            changes) args+=(--baseline-commit "$BASE_SHA") ;;
+            changes)
+              if [ -z "$BASE_SHA" ]; then
+                echo "gate-scope: changes needs a pull request, to compare with its base." >&2
+                exit 1
+              fi
+              args+=(--baseline-commit "$BASE_SHA")
+              ;;
             *) echo "gate-scope must be repository or changes, not '$SCOPE'" >&2; exit 1 ;;
           esac
           docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src \
@@ -254,9 +260,14 @@ jobs:
           case "$SCOPE" in
             repository) ;;
             changes)
+              # A diff that fails would read as no changes and skip the scan.
+              if [ -z "$BASE_SHA" ] || ! changed="$(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD)"; then
+                echo "Could not compare with the pull request's base commit." >&2
+                exit 1
+              fi
               target="$RUNNER_TEMP/changed-files"
               mkdir -p "$target"
-              mapfile -t scanned < <(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD)
+              mapfile -t scanned < <(grep -v '^$' <<< "$changed")
               if [ "${#scanned[@]}" -eq 0 ]; then
                 echo "The pull request changes no files to scan."
                 exit 0

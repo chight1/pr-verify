@@ -114,3 +114,9 @@ def test_a_path_alone_is_a_finding_only_for_knip() -> None:
     assert pyright.kept == []
     knip = changed_filter("knip").report(["Unused files (1)", "src/app.py"])
     assert knip.kept == ["src/app.py"]
+
+
+def test_shellcheck_notes_are_findings_and_only_clang_tidy_notes_explain() -> None:
+    note = "src/app.py:10:3: note: Double quote to prevent globbing. [SC2086]"
+    assert changed_filter("shellcheck").report([note]).kept == [note]
+    assert changed_filter("clang-tidy").report([note]).kept == []

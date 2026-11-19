@@ -153,8 +153,10 @@ class FindingFilter:
             if not mentions:
                 continue
             report.names_a_file = True
-            # A note explains a finding; it is not one.
-            if ": note:" in line:
+            # A clang-tidy note explains a finding; it is not one. shellcheck's
+            # gcc format prints its info and style findings as notes too, and
+            # those are findings.
+            if self.check == "clang-tidy" and ": note:" in line:
                 continue
             size_finding = (
                 self.check in SIZE_CHECKS or SIZE_RULES.search(line) is not None

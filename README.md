@@ -130,6 +130,20 @@ Each tool runs even when another fails, and the log shows each one in its own gr
 
 `lint-command` adds a linter of the project's own, run in its own step after the gate's checks; `lint: false` skips it. Neither can turn the code-quality checks off.
 
+## Checking only what a pull request changes
+
+By default the gate checks every file. A codebase too large to fix in one pull request can set `gate-scope: changes`, and the gate then judges only what each pull request changes, so old code stays as it is until a pull request touches it:
+
+- Lint, types, formatting, spelling, suppression comments and dead code count only on lines the pull request adds or changes.
+- A function the pull request touches, anywhere in it, has to meet the size and complexity limits.
+- A file over 400 lines fails only when the pull request makes it longer.
+- Copied code counts when either copy is in changed code, and copies are looked for across every file.
+- Workflows, Dockerfiles and `go.mod`, which are small, are checked in full when the pull request touches them. Trivy reports by file rather than line, so it scans each changed file in full.
+- Semgrep's static analysis reports only what it does not also find on the base commit.
+- The dependency check looks up only the dependencies the pull request adds.
+
+Each check prints every finding with its file and line, and the gate compares them with git's diff from the pull request's base commit, which the online checks fetch. A check that fails without naming any file failed to run, and still fails. The build, tests and audit run as they always do. Outside a pull request there is no base to compare with, so the setting fails.
+
 ## Static analysis
 
 After lint, the gate runs Semgrep with its maintained rules for the runtime (`p/python`, `p/golang`, `p/c` for C++, or `p/javascript` and `p/typescript`), which follow untrusted input to a dangerous call such as a shell command, a query or a file path. `security-scan` sets its mode as well: strict fails on any finding, loose only on ERROR. The engine runs from an image pinned by digest, and the rules come from Semgrep's registry at run time, so a new rule can fail a gate the code passed before, the way a new advisory can for Trivy. There is no ignore file, and inline `nosemgrep` comments are ignored. A failure is investigated like a failing test: when the agent proposes a fix, the harness re-runs Semgrep on it, outside the sandbox since Semgrep reads the code without running it, and the suite inside the sandbox, and calls the fix verified only when Semgrep finds nothing and the suite passes.
