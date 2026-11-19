@@ -20,6 +20,22 @@ const EDIT_TEST = patch(
   `@@ -3,2 +3,2 @@\n-test('a', () => {});\n+test('a2', () => {});\n test('c', () => {});\n`,
 );
 
+const ADD_CPP_TEST = patch(
+  "src/order_test.cpp",
+  "@@ -0,0 +1,1 @@\n+TEST(Order, Totals) { EXPECT_EQ(total({}), 0); }\n",
+  { newFile: true },
+);
+
+/** A patch that adds these lines to CMakeLists.txt, after its project() line. */
+function cmakePatch(addedLines: string[]): string {
+  const body = addedLines.map((line) => `+${line}\n`).join("");
+  const newCount = String(addedLines.length + 1);
+  return patch(
+    "CMakeLists.txt",
+    `@@ -3,1 +3,${newCount} @@\n project(order)\n${body}`,
+  );
+}
+
 describe("isTestPath", () => {
   it("recognises test directories and test-named files across ecosystems", () => {
     for (const p of [
@@ -32,6 +48,10 @@ describe("isTestPath", () => {
       "test_d.py",
       "e_test.py",
       "FooTests.cs",
+      "src/order_test.cpp",
+      "order_unittest.cc",
+      "test_order.cxx",
+      "OrderTest.cpp",
     ]) {
       expect(isTestPath(p), p).toBe(true);
     }
@@ -44,6 +64,8 @@ describe("isTestPath", () => {
       "latest.ts",
       "protest.go",
       "src/attestation.py",
+      "src/latest.cpp",
+      "src/contest.cc",
     ]) {
       expect(isTestPath(p), p).toBe(false);
     }
@@ -60,6 +82,11 @@ describe("isDependencyFile", () => {
       "pyproject.toml",
       "Cargo.lock",
       "Api.csproj",
+      "vcpkg.json",
+      "vcpkg-configuration.json",
+      "conanfile.txt",
+      "conanfile.py",
+      "conan.lock",
     ]) {
       expect(isDependencyFile(p), p).toBe(true);
     }
@@ -156,6 +183,53 @@ describe("checkPatchPolicy", () => {
     });
     expect(checkPatchPolicy(ignore, "fix", LIMITS).violations[0]).toMatch(
       /scanner ignore files are off limits/,
+    );
+  });
+
+  it("accepts a C++ test patch that adds its new test file to the build", () => {
+    const registration = cmakePatch([
+      "add_executable(order_test  # the new test",
+      "  src/order_test.cpp)",
+      "target_link_libraries(order_test GTest::gtest_main)",
+      "gtest_discover_tests(order_test)",
+    ]);
+    expect(
+      checkPatchPolicy(ADD_CPP_TEST + registration, "test", LIMITS),
+    ).toMatchObject({ ok: true, violations: [] });
+  });
+
+  it("rejects CMake changes in a test patch other than adding its new tests", () => {
+    const flags = cmakePatch(["add_compile_options(-O0)"]);
+    expect(
+      checkPatchPolicy(ADD_CPP_TEST + flags, "test", LIMITS).violations,
+    ).toContain(
+      "CMakeLists.txt: a test patch may only add a test to the build, not call add_compile_options",
+    );
+
+    const otherTest = cmakePatch([
+      "add_executable(other_test src/other_test.cpp)",
+    ]);
+    expect(
+      checkPatchPolicy(ADD_CPP_TEST + otherTest, "test", LIMITS).violations,
+    ).toContain(
+      "CMakeLists.txt: add_executable names no test file this patch adds",
+    );
+
+    const looseText = cmakePatch(["order_test"]);
+    expect(
+      checkPatchPolicy(ADD_CPP_TEST + looseText, "test", LIMITS).violations,
+    ).toContain(
+      "CMakeLists.txt: a test patch may only add whole CMake commands",
+    );
+
+    const removal = patch(
+      "CMakeLists.txt",
+      "@@ -3,1 +3,1 @@\n-add_executable(order src/order.cpp)\n+add_executable(order_test src/order_test.cpp)\n",
+    );
+    expect(
+      checkPatchPolicy(ADD_CPP_TEST + removal, "test", LIMITS).violations,
+    ).toContain(
+      "CMakeLists.txt: a test patch may only add lines to CMakeLists.txt",
     );
   });
 

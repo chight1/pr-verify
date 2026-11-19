@@ -1,6 +1,7 @@
 import json
 
 from lockfile_parsing import (
+    conan_lock_versions,
     go_sum_versions,
     lockfile_parser,
     outside_source_parser,
@@ -197,6 +198,21 @@ github.com/google/uuid v1.6.0/go.mod h1:def=
 golang.org/x/mod v0.20.0/go.mod h1:ghi=
 """
     assert go_sum_versions(sums) == {("github.com/google/uuid", "v1.6.0")}
+
+
+def test_conan_lock_keeps_the_revision_and_skips_other_remotes() -> None:
+    lock = {
+        "version": "0.5",
+        "requires": [
+            "zlib/1.3.1#cac0f6daea041b0ccf42934163defb20%1765284699.337",
+            "company-logging/2.0@company/stable#abc%1700000000",
+        ],
+        "build_requires": ["cmake/3.31.0"],
+    }
+    assert conan_lock_versions(json.dumps(lock)) == {
+        ("zlib", "1.3.1#cac0f6daea041b0ccf42934163defb20"),
+        ("cmake", "3.31.0"),
+    }
 
 
 def test_lockfiles_are_recognized_by_name() -> None:

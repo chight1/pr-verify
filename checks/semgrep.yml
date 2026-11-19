@@ -1,5 +1,7 @@
-# Common mistakes that no linter the gate runs checks, in Python
-# and Go. JavaScript and TypeScript get the same checks from ESLint.
+# Common mistakes that no linter the gate runs checks, in Python, Go and C++.
+# JavaScript and TypeScript get the same checks from ESLint. The C++ rules match
+# text, since Semgrep's C++ parser cannot read every project, and know
+# GoogleTest's macros.
 rules:
   - id: vague-name-python
     message: "'$NAME' says nothing about what it holds. Name it for what it is."
@@ -38,6 +40,19 @@ rules:
       - metavariable-regex:
           metavariable: $NAME
           regex: ^(pos|idx|cnt|tmp|val|obj|res|ret|lib|mgr|data|info)$
+
+  # A declaration: a vague name after a type, then what can follow a declared name.
+  - id: vague-name-cpp
+    message: A name such as data, info, tmp or res says nothing about what it holds. Name it for what it is.
+    severity: ERROR
+    languages: [cpp]
+    pattern-regex: '[\w>&*]\s+(pos|idx|cnt|tmp|val|obj|res|ret|lib|mgr|data|info)\s*(=|;|\{|,|\)|:(?!:))'
+
+  - id: debug-output-cpp
+    message: Debug output. Write to a std::ostream the caller passes in, so a test can check what is written.
+    severity: ERROR
+    languages: [cpp]
+    pattern-regex: '\bstd::(cout|cerr|clog)\b|\b(std::)?(printf|puts)\s*\(|\bfprintf\s*\(\s*(stdout|stderr)'
 
   - id: unconditional-skip-python
     message: A test that is always skipped never runs. Fix it or delete it.
@@ -81,6 +96,16 @@ rules:
       - pattern-not-inside: |
           if $CONDITION { ... } else { ... }
 
+  # A test named DISABLED_, or in a suite named DISABLED_, which GoogleTest never
+  # runs, or one whose first statement skips it.
+  - id: unconditional-skip-cpp
+    message: A test that is always skipped never runs. Fix it or delete it.
+    severity: ERROR
+    languages: [cpp]
+    pattern-either:
+      - pattern-regex: '\bTEST(_F|_P)?\s*\(\s*(DISABLED_\w*\s*,|\w+\s*,\s*DISABLED_)'
+      - pattern-regex: '\bTEST(_F|_P)?\s*\([^)]*\)\s*\{\s*GTEST_SKIP\(\)'
+
   # A test counts as checking something when it asserts, expects an error, or
   # calls a helper named assert* or expect*, as ESLint's expect-expect allows.
   - id: test-without-assertion-python
@@ -107,3 +132,12 @@ rules:
           metavariable: $TEST
           regex: ^Test
       - pattern-not-regex: \.(Error|Errorf|Fatal|Fatalf|Fail|FailNow|Run)\(|\b(assert|require)\.\w+\(
+
+  # A GoogleTest test and its body, braces nested to any depth.
+  - id: test-without-assertion-cpp
+    message: This test checks nothing, so it cannot fail.
+    severity: ERROR
+    languages: [cpp]
+    patterns:
+      - pattern-regex: '\bTEST(_F|_P)?\s*\([^)]*\)\s*(?<body>\{([^{}]++|(?&body))*\})'
+      - pattern-not-regex: \b(EXPECT|ASSERT)_\w+\s*\(|\b(FAIL|ADD_FAILURE)\(\)

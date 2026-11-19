@@ -9,18 +9,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-
-fail() {
-  echo "$output"
-  echo "$1" >&2
-  exit 1
-}
-
-expect_names() {
-  for name in "$@"; do
-    grep -qF -- "$name" <<< "$output" || fail "expected the output to name $name"
-  done
-}
+# shellcheck source=checks/test-helpers.sh
+source "$here/test-helpers.sh"
 
 # The project's own settings, which must have no effect.
 loosen() {
@@ -112,11 +102,7 @@ cat > existing/package.json <<'JSON'
   }
 }
 JSON
-# The pull request's base, so the dependencies the files below add are new.
-git add -A
-git -c user.name=fixture -c user.email=fixture@example.test commit -qm base
-printf '{"pull_request": {"base": {"sha": "%s"}}}\n' "$(git rev-parse HEAD)" > "$scratch/event.json"
-export GITHUB_EVENT_PATH="$scratch/event.json"
+commit_base "$scratch/event.json"
 # Each tool's own suppression comment, which the gate ignores or rejects.
 printf 'import requests\n\n\ndef double(x):  # noqa\n    return x * 2  # type: ignore\n' > lint.py
 # Dependencies no registry has, as made-up names would be: one by name, one

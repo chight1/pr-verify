@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The size and complexity checks. ESLint, ruff and golangci-lint hold each
-# function to the limits in their configs; these cover the rest, with the same
-# numbers. Sourced by run.sh.
+# The size and complexity checks. ESLint, ruff, golangci-lint and clang-tidy
+# hold each function to the limits in their configs; these cover the rest, with
+# the same numbers. Sourced by run.sh.
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -19,14 +19,19 @@ long_files() {
 
 # Runs the size checks on the given files that are code.
 size_checks() {
-  local -a python source_code
+  local -a python cpp source_code
   mapfile -t python < <(python_files "$@")
+  mapfile -t cpp < <(cpp_files "$@")
   mapfile -t source_code < <(source_code_files "$@")
 
   if any "${python[@]}"; then
     # Cognitive complexity, which ruff does not measure.
     run "complexipy" pipx run complexipy==8.3.0 --isolated --no-ignore --snapshot-ignore \
       --max-complexity-allowed 15 --plain "${python[@]}"
+  fi
+  if any "${cpp[@]}"; then
+    # Cyclomatic complexity, which clang-tidy does not measure.
+    run "lizard" pipx run lizard==1.26.0 --CCN 10 --warnings_only --languages cpp "${cpp[@]}"
   fi
   run "file length" long_files "${source_code[@]}"
   if any "${source_code[@]}"; then

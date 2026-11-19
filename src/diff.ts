@@ -25,6 +25,8 @@ export interface DiffFile {
   symlink: boolean;
   added: number;
   removed: number;
+  /** The text of each added line, without its `+`, in diff order. */
+  addedText: string[];
   hunks: Hunk[];
   /** New-side line numbers that appear in a hunk (added or context). Commentable on GitHub. */
   rightLines: Set<number>;
@@ -56,6 +58,7 @@ function emptyFile(path: string, oldPath: string | null): DiffFile {
     symlink: false,
     added: 0,
     removed: 0,
+    addedText: [],
     hunks: [],
     rightLines: new Set(),
     leftLines: new Set(),
@@ -139,6 +142,7 @@ class DiffParser {
     const marker = line[0];
     if (marker === "+" && this.newRemaining > 0) {
       file.added += 1;
+      file.addedText.push(line.slice(1));
       file.rightLines.add(this.newLine);
       this.newLine += 1;
       this.newRemaining -= 1;

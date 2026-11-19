@@ -60,7 +60,7 @@ jobs:
   # above runs the same checks, from this commit, on PR Verify itself.
   quality:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -73,3 +73,11 @@ jobs:
         run: pipx run pytest==9.1.1 -q -p no:cacheprovider --rootdir=. -o pythonpath=checks checks
       - name: checks test
         run: bash checks/test.sh
+      # The C++ scratch projects include GoogleTest's headers, and look ports up
+      # on GitHub's API, whose rate limit the token raises.
+      - name: install GoogleTest
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libgtest-dev
+      - name: C++ checks test
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash checks/test-cpp.sh

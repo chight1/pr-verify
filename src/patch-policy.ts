@@ -5,6 +5,10 @@
  */
 
 import path from "node:path";
+import {
+  isCMakeLists,
+  registrationViolations,
+} from "./cmake-test-registration.js";
 import { parseDiff, totalChangedLines, type DiffFile } from "./diff.js";
 import type { PatchKind } from "./types.js";
 
@@ -21,6 +25,9 @@ const TEST_FILE_PATTERNS = [
   /_test\.go$/,
   /^test_.*\.py$/,
   /_test\.py$/,
+  /_(test|unittest)\.(cc|cpp|cxx)$/,
+  /^test_.*\.(cc|cpp|cxx)$/,
+  /Tests?\.(cc|cpp|cxx)$/,
   /Tests?\.cs$/,
   /Tests?\.java$/,
   /_spec\.rb$/,
@@ -51,6 +58,9 @@ const DEPENDENCY_FILES = [
   /^Pipfile(\.lock)?$/,
   /^uv\.lock$/,
   /^go\.(mod|sum)$/,
+  /^vcpkg(-configuration)?\.json$/,
+  /^conanfile\.(txt|py)$/,
+  /^conan\.lock$/,
   /^Cargo\.(toml|lock)$/,
   /^Gemfile(\.lock)?$/,
   /\.csproj$/,
@@ -129,10 +139,18 @@ function pathViolations(p: string): string[] {
   return violations;
 }
 
-/** A test patch only adds tests: new test files, or lines added to existing ones. */
-function testPatchViolations(file: DiffFile): string[] {
+/**
+ * A test patch only adds tests: new test files, or lines added to existing
+ * ones, and the commands in CMakeLists.txt that add its new test files to the build.
+ */
+function testPatchViolations(file: DiffFile, files: DiffFile[]): string[] {
   const violations: string[] = [];
-  if (!isTestPath(file.path)) {
+  if (!isTestPath(file.path) && isCMakeLists(file.path)) {
+    const addedTests = files.filter(
+      (other) => other.status === "added" && isTestPath(other.path),
+    );
+    violations.push(...registrationViolations(file, addedTests));
+  } else if (!isTestPath(file.path)) {
     violations.push(`${file.path}: a test patch may only touch test locations`);
   } else if (file.status !== "added" && file.removed > 0) {
     violations.push(
@@ -147,15 +165,19 @@ function testPatchViolations(file: DiffFile): string[] {
   return violations;
 }
 
-/** Every rule one file of the patch breaks. */
-function fileViolations(file: DiffFile, kind: PatchKind): string[] {
+/** Every rule one file of the patch breaks, given every file the patch touches. */
+function fileViolations(
+  file: DiffFile,
+  kind: PatchKind,
+  files: DiffFile[],
+): string[] {
   const paths = [file.path, file.oldPath].filter(
     (p): p is string => p !== null,
   );
   const violations = paths.flatMap(pathViolations);
   if (file.binary) violations.push(`${file.path}: binary files are off limits`);
   if (file.symlink) violations.push(`${file.path}: symlinks are off limits`);
-  if (kind === "test") violations.push(...testPatchViolations(file));
+  if (kind === "test") violations.push(...testPatchViolations(file, files));
   return violations;
 }
 
@@ -170,7 +192,8 @@ export function checkPatchPolicy(
 ): PolicyResult {
   const files = parseDiff(diffText);
   const violations = sizeViolations(files, limits);
-  for (const file of files) violations.push(...fileViolations(file, kind));
+  for (const file of files)
+    violations.push(...fileViolations(file, kind, files));
 
   if (
     kind === "fix" &&

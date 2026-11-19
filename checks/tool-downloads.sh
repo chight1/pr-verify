@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The pinned linters the gate downloads rather than installs, each checked
-# against its SHA-256. Sourced by run.sh.
+# against its SHA-256, and the tools it installs from PyPI and Ubuntu's archive.
+# Sourced by run.sh.
 
 # Downloads a pinned release and checks it against its SHA-256, then prints the
 # path of the binary: the download itself, or the named member of its archive.
@@ -35,4 +36,32 @@ shellcheck() {
 hadolint() {
   fetch_tool https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64 \
     c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+}
+
+# Installs a pinned PyPI package in a virtual environment of its own and prints
+# the path of its command, for a tool run many times at once, where starting
+# each run through pipx would be slow.
+python_tool() {
+  local package="$1" command="$2" environment
+  environment="$(mktemp -d)"
+  python3 -m venv "$environment" >&2 \
+    && "$environment/bin/pip" install --isolated --quiet --disable-pip-version-check "$package" >&2 \
+    && echo "$environment/bin/$command"
+}
+
+clang_tidy() {
+  python_tool clang-tidy==23.1.4 clang-tidy
+}
+
+# cppcheck publishes no binaries, so it comes from Ubuntu's signed archive,
+# whose package lists are refreshed only when the runner's are out of date.
+# Always the archive's copy, never one on PATH, which the install step could
+# have put there.
+cppcheck() {
+  if ! sudo apt-get install -y -qq --no-install-recommends cppcheck > /dev/null 2>&1; then
+    sudo apt-get update -qq >&2 \
+      && sudo apt-get install -y -qq --no-install-recommends cppcheck > /dev/null \
+      || return 1
+  fi
+  echo /usr/bin/cppcheck
 }
