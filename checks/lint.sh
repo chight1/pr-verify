@@ -24,16 +24,38 @@ python_lint() {
 # paths go into the header filters as they are: a checkout's path has no
 # character a regular expression treats specially but the dot, which matches
 # itself as well.
+#
+# The compiler's warnings go on top of the project's flags, after them, so a
+# project's -Wno- flag cannot turn one off. clang-tidy guesses the flags of a
+# file CMake does not list from a file near it, and puts the file's name last
+# behind a --, so anything added after it would be read as a file name; those
+# files get the warnings before their flags instead. A GCC project's flags that
+# clang does not know are not findings.
 clang_tidy_check() {
-  local commands clang_tidy_bin
+  local commands clang_tidy_bin warning status=0
   commands="$(compile_commands_dir)" || return 1
   clang_tidy_bin="$(clang_tidy)" || return 1
-  local -a headers=(--header-filter="^$PWD/")
+  local -a options=(-p "$commands" --config-file="$here/clang-tidy.yml" --quiet --header-filter="^$PWD/")
   if [ "$commands" != "$PWD" ]; then
-    headers+=(--exclude-header-filter="^$commands/")
+    options+=(--exclude-header-filter="^$commands/")
   fi
-  printf '%s\0' "$@" | xargs -0 -n 4 -P "$(nproc)" "$clang_tidy_bin" -p "$commands" \
-    --config-file="$here/clang-tidy.yml" --quiet "${headers[@]}"
+  local -a after=() before=() listed guessed
+  for warning in -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion -Wold-style-cast \
+    -Wmissing-declarations -Wno-unknown-warning-option -Wno-unused-command-line-argument; do
+    after+=("--extra-arg=$warning")
+    before+=("--extra-arg-before=$warning")
+  done
+  mapfile -t listed < <(python3 "$here/compiled_files.py" "$commands/compile_commands.json" "$@")
+  mapfile -t guessed < <(comm -23 <(printf '%s\n' "$@" | sort) <(printf '%s\n' "${listed[@]}" | sort))
+  if any "${listed[@]}"; then
+    printf '%s\0' "${listed[@]}" | xargs -0 -n 4 -P "$(nproc)" "$clang_tidy_bin" "${options[@]}" \
+      "${after[@]}" || status=1
+  fi
+  if any "${guessed[@]}"; then
+    printf '%s\0' "${guessed[@]}" | xargs -0 -n 4 -P "$(nproc)" "$clang_tidy_bin" "${options[@]}" \
+      "${before[@]}" || status=1
+  fi
+  return "$status"
 }
 
 # Comment lines that end the way a statement or a block does, the mark of code
