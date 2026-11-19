@@ -12,7 +12,7 @@ permissions: {}
 
 jobs:
   pr-verify:
-    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v1
+    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v2
     permissions:
       contents: read
       pull-requests: write

@@ -122,7 +122,7 @@ Every project also gets, whatever its runtime:
 - LF line endings, no trailing whitespace and a final newline in every text file, including the ones no formatter reads.
 - No committed file over 1 MB outside Git LFS.
 - typos on every text file and file name. A project's typos config can teach it a word, such as a name in its license, with the word mapped to itself under `[default.extend-words]`. The rest of that config is ignored.
-- actionlint on workflows, with shellcheck on every `run:` block, and zizmor on workflows and actions. zizmor requires every action pinned to a commit, except PR Verify's own, which a project calls at `@v1`. zizmor looks actions up on GitHub with the workflow's token, so it runs in an `online checks` step of its own, before the install step runs any of the project's code.
+- actionlint on workflows, with shellcheck on every `run:` block, and zizmor on workflows and actions. zizmor requires every action pinned to a commit, except PR Verify's own, which a project calls at `@v2`. zizmor looks actions up on GitHub with the workflow's token, so it runs in an `online checks` step of its own, before the install step runs any of the project's code.
 - shellcheck on shell scripts, and hadolint on Dockerfiles.
 
 Each tool runs even when another fails, and the log shows each one in its own group. The type checks and typed lint rules run after install, against the project's dependencies. The tools are pinned to a version.
@@ -191,7 +191,7 @@ Nothing here runs on a push to the default branch, only on pull requests.
 
 ## Releases
 
-Releases are tagged `vMAJOR.MINOR.PATCH` with notes, and `@v1` runs the latest 1.x release.
+Releases are tagged `vMAJOR.MINOR.PATCH` with notes, and `@v2` runs the latest 2.x release.
 
 ## Non-goals for version 1
 
