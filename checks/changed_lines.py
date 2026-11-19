@@ -17,7 +17,9 @@ from pull_request import git
 # start line.
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 NEW_SIDE = "+++ "
-NEW_PATH = "+++ b/"
+# The escapes git writes in a quoted path, and what each stands for.
+QUOTED_PATH_ESCAPE = re.compile(r'\\(["\\tn])')
+ESCAPED = {'"': '"', "\\": "\\", "t": "\t", "n": "\n"}
 LIZARD = "lizard==1.26.0"
 # lizard's CSV columns: NLOC, CCN, tokens, parameters, length, location, file,
 # function, long name, start line, end line.
@@ -44,6 +46,21 @@ class Function:
     end: int
 
 
+def new_side_path(line: str) -> str | None:
+    """The path a diff's +++ line names: b/ and the path, with the tab git
+    writes after a path that holds a space left off, and quoted, with escapes,
+    when the path holds a quote, a backslash or a control character. A deleted
+    file's new side is /dev/null, which names no path."""
+    name = line.removeprefix(NEW_SIDE).split("\t", 1)[0]
+    if len(name) > 1 and name.startswith('"') and name.endswith('"'):
+        name = QUOTED_PATH_ESCAPE.sub(
+            lambda escape: ESCAPED[escape.group(1)], name[1:-1]
+        )
+    if not name.startswith("b/"):
+        return None
+    return name.removeprefix("b/")
+
+
 class DiffError(Exception):
     """git could not compare the checkout with the base commit. Read as no
     changes, it would pass every check, so it fails instead."""
@@ -62,10 +79,7 @@ def changed_code(base: str) -> ChangedCode:
     path: str | None = None
     for line in diff.splitlines():
         if line.startswith(NEW_SIDE):
-            # A deleted file's new side is /dev/null.
-            path = None
-            if line.startswith(NEW_PATH):
-                path = line.removeprefix(NEW_PATH)
+            path = new_side_path(line)
             continue
         hunk = HUNK.match(line)
         if hunk is not None and path is not None:
