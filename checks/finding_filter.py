@@ -79,15 +79,17 @@ class FindingFilter:
             found.append(Mention(self.diff_file, range(start, start + max(count, 1))))
         return found
 
-    def diff_header(self, line: str) -> bool:
-        """Whether a line heads a formatter's diff rather than reporting
-        anything, noting which file the hunks after it belong to: the one a +++
-        line names, or for djLint, which prints no +++ line, the path alone."""
+    def header(self, line: str) -> bool:
+        """Whether a line heads what follows rather than reporting anything: a
+        formatter's diff header, noting which file the hunks after it belong
+        to, or a file's path on a line of its own, as pyright prints before its
+        findings and djLint before its hunks. Only knip lists a whole file as a
+        finding that way, an unused one."""
         diff_file = DIFF_FILE.match(line)
         if diff_file is not None:
             self.diff_file = diff_file.group(1)
             return True
-        if self.check == "djLint" and line.strip() in self.tracked:
+        if line.strip() in self.tracked and self.check != "knip":
             self.diff_file = line.strip()
             return True
         return line.startswith(("--- ", "diff "))
@@ -142,7 +144,7 @@ class FindingFilter:
         report = Report(kept=[], left_out=0, names_a_file=False)
         for raw_line in output:
             line = ANSI_COLOR.sub("", raw_line).replace(self.root, "")
-            if self.diff_header(line):
+            if self.header(line):
                 report.names_a_file = True
                 continue
             mentions = self.complexipy_mentions(line)

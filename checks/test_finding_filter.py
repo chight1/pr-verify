@@ -105,3 +105,12 @@ def test_notes_and_output_naming_no_file_are_not_findings() -> None:
     assert report.kept == []
     assert report.names_a_file
     assert not changed_filter().report(["Error: no config found"]).names_a_file
+
+
+def test_a_path_alone_is_a_finding_only_for_knip() -> None:
+    pyright = changed_filter("pyright").report(
+        [f"{ROOT}/src/app.py", f"  {ROOT}/src/app.py:30:1 - error: Type unknown"]
+    )
+    assert pyright.kept == []
+    knip = changed_filter("knip").report(["Unused files (1)", "src/app.py"])
+    assert knip.kept == ["src/app.py"]

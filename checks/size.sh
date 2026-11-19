@@ -37,7 +37,7 @@ size_checks() {
   if any "${python[@]}"; then
     # Cognitive complexity, which ruff does not measure.
     run "complexipy" pipx run complexipy==8.3.0 --isolated --no-ignore --snapshot-ignore \
-      --max-complexity-allowed 15 --plain "${python[@]}"
+      --max-complexity-allowed 15 --failed --plain "${python[@]}"
   fi
   if any "${cpp[@]}"; then
     # Cyclomatic complexity, which clang-tidy does not measure.
