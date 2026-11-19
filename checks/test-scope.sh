@@ -20,9 +20,14 @@ commit_change() {
 
 mkdir "$scratch/legacy" && cd "$scratch/legacy"
 git init -q
-# Untyped, over the complexity and parameter limits, with debug output.
+# Untyped, over the complexity and parameter limits, with debug output, and an
+# eval that Semgrep's rules find.
 cat > legacy.py <<'PY'
 import os
+
+
+def run_expression(expression):
+    return eval(expression)
 
 
 def shipping_totals(orders, regions, carriers, discount, surcharge, limit):
@@ -63,6 +68,13 @@ fi
 if output="$(GATE_SCOPE=repository bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on the old code with every file checked"
 fi
+export SEMGREP_ARGS="--config p/python --disable-nosem"
+if ! output="$(bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis failed on a clean change to old code"
+fi
+if output="$(GATE_SCOPE=repository bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis passed on the old code with every file checked"
+fi
 
 # An unused import added, a line of the over-complex function changed, and the
 # long file made longer. The old debug output is on a line the change leaves.
@@ -80,6 +92,19 @@ for legacy_finding in T201 SC2164; do
     fail "run.sh counted $legacy_finding, on a line the change leaves alone"
   fi
 done
+
+# A new eval, on a changed line, which static analysis must count.
+printf '\n\ndef evaluate(text: str) -> object:\n    """The value of an expression."""\n    return eval(text)\n' \
+  >> legacy.py
+commit_change
+if output="$(bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis passed on a new eval in changed code"
+fi
+expect_names "legacy.py:" eval
+# The old eval is on line 6, below the two imports and run_expression's def.
+if grep -qF "legacy.py:6:" <<< "$output"; then
+  fail "static analysis counted the old eval, on a line the change leaves alone"
+fi
 
 # Outside a pull request there is no base to compare with.
 if output="$(GITHUB_EVENT_PATH="" bash "$here/run.sh" 2>&1)"; then
