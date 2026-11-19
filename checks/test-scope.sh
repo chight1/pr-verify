@@ -19,20 +19,20 @@ cat > legacy.py <<'PY'
 import os
 
 
-def tangle(a, b, c, d, e, f):
-    total = 0
-    for x in a:
-        if x:
-            for y in b:
-                if y and c:
-                    while total < d:
-                        if x > y:
-                            total += e
-                        elif x < y:
-                            total -= f
+def shipping_totals(orders, regions, carriers, discount, surcharge, limit):
+    totals = []
+    for order in orders:
+        if order in regions:
+            for carrier in carriers:
+                if carrier and discount:
+                    while len(totals) < limit:
+                        if order > carrier:
+                            totals.append(surcharge)
+                        elif order < carrier:
+                            totals.append(discount)
                         else:
                             break
-    return total
+    return totals
 
 
 print(os.name)
@@ -51,20 +51,20 @@ git add -A
 if ! output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh failed on a clean change to old code"
 fi
-if GATE_SCOPE=repository output="$(bash "$here/run.sh" 2>&1)"; then
+if output="$(GATE_SCOPE=repository bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on the old code with every file checked"
 fi
 
 # An unused import added, a line of the over-complex function changed, and the
 # long file made longer. The old debug output is on a line the change leaves.
 sed -i '1i import sys' legacy.py
-sed -i 's/    total = 0/    total = 0  # the running total/' legacy.py
+sed -i 's/^    totals = /    totals: list[int] = /' legacy.py
 echo "STEP_410 = 410" >> long.py
 git add -A
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on a change that adds a problem to old code"
 fi
-expect_names "::error title=ruff check::" F401 C901 PLR0913 "::error title=complexipy::" tangle \
+expect_names "::error title=ruff check::" F401 C901 PLR0913 "::error title=complexipy::" shipping_totals \
   "long.py has 411 lines"
 for legacy_finding in T201 SC2164; do
   if grep -qF "$legacy_finding" <<< "$output"; then
