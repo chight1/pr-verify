@@ -76,13 +76,23 @@ def test_a_formatter_diff_counts_only_hunks_over_changed_lines() -> None:
         "+y = 2",
     ]
     report = changed_filter("ruff format").report(diff)
-    assert report.kept == ["@@ -11,1 +11,1 @@"]
+    assert report.kept == ["src/app.py: @@ -11,1 +11,1 @@"]
     assert report.names_a_file
 
 
+def test_a_hunks_context_lines_are_not_lines_it_changes() -> None:
+    """Lines 9 to 11 are context around the change to line 12; the pull
+    request changed lines 10 and 11."""
+    diff = ["+++ src/app.py", "@@ -9,4 +9,4 @@", " a", " b", " c", "-d=1", "+d = 1"]
+    report = changed_filter("gofmt").report(diff)
+    assert report.kept == []
+    assert report.left_out == 1
+
+
 def test_djlint_names_its_file_on_a_line_of_its_own() -> None:
-    report = changed_filter("djLint").report(["page.html", "─────", "@@ -3,2 +3,4 @@"])
-    assert report.kept == ["@@ -3,2 +3,4 @@"]
+    output = ["page.html", "─────", "@@ -3,1 +3,2 @@", "-<p>hi</p>", "+<p>", "+hi</p>"]
+    report = changed_filter("djLint").report(output)
+    assert report.kept == ["page.html: @@ -3,1 +3,2 @@"]
 
 
 def test_a_copied_block_counts_when_either_copy_is_changed_code() -> None:

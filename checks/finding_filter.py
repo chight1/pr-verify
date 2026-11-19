@@ -1,11 +1,11 @@
 """Keeps the findings a check reported in the code a pull request changes.
 
 A finding is a line of the check's output that names a tracked file: with a line
-number, as path:12 or path(12,5); with a range of lines, as jscpd and the hunks
-of a formatter's diff give; or as the whole file. One on a changed line counts,
-and so does one about a whole file the pull request changes. A size or
-complexity finding is about a function, so it counts when the pull request
-touches any line of that function.
+number, as path:12 or path(12,5); with a range of lines, as jscpd gives; or as
+the whole file. One on a changed line counts, and so does one about a whole file
+the pull request changes. A size or complexity finding is about a function, so
+it counts when the pull request touches any line of that function. A
+formatter's diff counts when a hunk changes a line the pull request changed.
 """
 
 from __future__ import annotations
@@ -15,9 +15,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from changed_lines import ChangedCode, Function, functions
+from formatter_diff import hunks
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Collection, Iterable
 
 # Where in a file a finding is, written right after the file's path: :12,
 # (12,5), or jscpd's [12:1 - 20:2]. Nothing there means the whole file.
@@ -34,10 +35,6 @@ AFTER_A_PATH = frozenset(" \t:,()\"'`>[]")
 PATH_LIKE = re.compile(r"[\w@.+/-]+")
 # A ./ before a path, which the files' own paths do not have.
 DOT_SLASH = re.compile(r"(^|[\s\"'(=])\./")
-HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+")
-# How a diff names the file its hunks belong to: +++ path, and git's +++ b/path,
-# with any timestamp after a tab left off.
-DIFF_FILE = re.compile(r"^\+\+\+ (?:b/)?([^\t]+)")
 ANSI_COLOR = re.compile(r"\x1b\[[0-9;]*m")
 # complexipy's plain output: the file, the function and its score.
 COMPLEXIPY_LINE = re.compile(r"^(?P<path>.+) (?P<function>\S+) \d+$")
@@ -49,13 +46,15 @@ SIZE_RULES = re.compile(
     r"|complexity|max-lines-per-function|max-params|max-depth|max-statements"
     r"|readability-function-size|readability-function-cognitive-complexity)\b"
 )
+# The formatters that print a diff of each file they would change.
+DIFF_CHECKS = frozenset({"ruff format", "gofmt", "Prettier", "djLint"})
 
 
 @dataclass(frozen=True)
 class Mention:
     path: str
     # None when the finding is about the file as a whole.
-    lines: range | None
+    lines: Collection[int] | None
 
 
 @dataclass
@@ -73,7 +72,6 @@ class FindingFilter:
         self.code = code
         self.tracked = tracked
         self.root = f"{root}/"
-        self.diff_file: str | None = None
         self.functions: dict[str, list[Function]] | None = None
 
     def mentions(self, line: str) -> list[Mention]:
@@ -83,26 +81,13 @@ class FindingFilter:
             for start in path_starts(line, path):
                 following = AFTER_PATH.match(line, start + len(path))
                 found.append(Mention(path, mentioned_lines(following)))
-        hunk = HUNK.match(line)
-        if hunk is not None and self.diff_file is not None:
-            start, count = int(hunk.group(1)), int(hunk.group(2) or "1")
-            found.append(Mention(self.diff_file, range(start, start + max(count, 1))))
         return found
 
     def header(self, line: str) -> bool:
-        """Whether a line heads what follows rather than reporting anything: a
-        formatter's diff header, noting which file the hunks after it belong
-        to, or a file's path on a line of its own, as pyright prints before its
-        findings and djLint before its hunks. Only knip lists a whole file as a
-        finding that way, an unused one."""
-        diff_file = DIFF_FILE.match(line)
-        if diff_file is not None:
-            self.diff_file = diff_file.group(1)
-            return True
-        if line.strip() in self.tracked and self.check != "knip":
-            self.diff_file = line.strip()
-            return True
-        return line.startswith(("--- ", "diff "))
+        """Whether a line is a file's path on its own, as pyright prints before
+        that file's findings. Only knip lists a whole file as a finding that
+        way, an unused one."""
+        return line.strip() in self.tracked and self.check != "knip"
 
     def file_functions(self, path: str) -> list[Function]:
         """The functions lizard finds in a changed file, read once for them all."""
@@ -148,7 +133,7 @@ class FindingFilter:
             return True
         if not size_finding:
             return False
-        function = self.function_lines(mention.path, mention.lines.start)
+        function = self.function_lines(mention.path, min(mention.lines))
         touched = self.code.touched.get(mention.path, set())
         return function is not None and any(line in touched for line in function)
 
@@ -188,22 +173,40 @@ class FindingFilter:
         findings do and its errors about itself do not."""
         return any(token in self.tracked for token in PATH_LIKE.findall(line))
 
-    def report(self, output: Iterable[str]) -> Report:
-        report = Report(kept=[], left_out=0, names_a_file=False)
+    def cleaned(self, output: Iterable[str]) -> list[str]:
+        """The output without color, and with paths relative to the project."""
+        lines: list[str] = []
         for raw_line in output:
             line = ANSI_COLOR.sub("", raw_line).replace(self.root, "")
-            line = DOT_SLASH.sub(r"\1", line)
+            lines.append(DOT_SLASH.sub(r"\1", line))
+        return lines
+
+    def diff_report(self, output: list[str]) -> Report:
+        """A formatter's hunks that change a line the pull request changed."""
+        report = Report(kept=[], left_out=0, names_a_file=False)
+        for hunk in hunks(output, self.tracked):
+            report.names_a_file = True
+            if hunk.lines & self.code.lines.get(hunk.path, set()):
+                report.kept.append(f"{hunk.path}: {hunk.header}")
+            else:
+                report.left_out += 1
+        return report
+
+    def report(self, output: Iterable[str]) -> Report:
+        lines = self.cleaned(output)
+        if self.check in DIFF_CHECKS:
+            return self.diff_report(lines)
+        report = Report(kept=[], left_out=0, names_a_file=False)
+        for line in lines:
             if self.header(line):
                 report.names_a_file = True
                 continue
             mentions = self.line_mentions(line)
-            if mentions or self.names_a_tracked_file(line):
-                report.names_a_file = True
-            if not mentions:
+            names_a_file = bool(mentions) or self.names_a_tracked_file(line)
+            report.names_a_file = report.names_a_file or names_a_file
+            if not names_a_file or self.explains(line):
                 continue
-            if self.explains(line):
-                continue
-            if self.in_changed_code(line, mentions):
+            if mentions and self.in_changed_code(line, mentions):
                 report.kept.append(line)
             else:
                 report.left_out += 1
