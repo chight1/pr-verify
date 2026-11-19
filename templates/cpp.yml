@@ -1,0 +1,32 @@
+# Copy to .github/workflows/pr-verify.yml in a C++ project built with CMake.
+# Configuring writes build/compile_commands.json, which the gate's C++ checks
+# read, and fetches what the build needs, since the review builds and tests
+# without network access. Keep build/ in .gitignore.
+name: pr-verify
+
+on:
+  pull_request:
+
+concurrency:
+  group: pr-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  pr-verify:
+    uses: chight1/pr-verify/.github/workflows/pr-verify.yml@v2
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    with:
+      runtime: cpp
+      runtime-version: "14"
+      install-command: >-
+        cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+        -DFETCHCONTENT_UPDATES_DISCONNECTED=ON
+      build-command: cmake --build build --parallel
+      test-command: ctest --test-dir build --output-on-failure
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

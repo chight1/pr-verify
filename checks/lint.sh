@@ -16,7 +16,36 @@ python_lint() {
   run "pyright" "$here/node_modules/.bin/pyright" --project "$pyright_config" "$@"
 }
 
-# No Go linter allows a task comment that names its issue, as ruff and ESLint do here.
+# clang-tidy on each C++ source file, and on the project's own headers it
+# includes, with the flags CMake recorded for it, many files at a time. Headers
+# CMake generated, in the directory it wrote the commands to, are left out. The
+# paths go into the header filters as they are: a checkout's path has no
+# character a regular expression treats specially but the dot, which matches
+# itself as well.
+clang_tidy_check() {
+  local commands clang_tidy_bin
+  commands="$(compile_commands_dir)" || return 1
+  clang_tidy_bin="$(clang_tidy)" || return 1
+  local -a headers=(--header-filter="^$PWD/")
+  if [ "$commands" != "$PWD" ]; then
+    headers+=(--exclude-header-filter="^$commands/")
+  fi
+  printf '%s\0' "$@" | xargs -0 -n 4 -P "$(nproc)" "$clang_tidy_bin" -p "$commands" \
+    --config-file="$here/clang-tidy.yml" --quiet "${headers[@]}"
+}
+
+# Comment lines that end the way a statement or a block does, the mark of code
+# commented out, which no C++ linter here checks for.
+commented_out_code() {
+  local found
+  found="$(git grep -nE '^\s*//.*[;{}]\s*$' -- "$@")"
+  [ -z "$found" ] && return 0
+  echo "$found"
+  echo "Delete commented-out code instead of keeping it. Git keeps the history." >&2
+  return 1
+}
+
+# No Go or C++ linter allows a task comment that names its issue, as ruff and ESLint do here.
 untracked_tasks() {
   local found
   found="$(git grep -nE '//.*\b(TODO|FIXME|XXX|HACK)\b' -- "$@" | grep -vE '#[0-9]+|https?://')"
@@ -27,7 +56,8 @@ untracked_tasks() {
 }
 
 # Vague names, tests that are always skipped, and tests that assert nothing, in
-# Python and Go. Semgrep runs from the image the static analysis step uses.
+# Python, Go and C++, and C++'s debug output. Semgrep runs from the image the
+# static analysis step uses.
 semgrep_check() {
   local semgrep_image
   semgrep_image="${SEMGREP_IMAGE:-$(sed -n 's/^  SEMGREP_IMAGE: //p' "$here/../.github/workflows/pr-verify.yml")}"
@@ -69,10 +99,11 @@ grep_files() {
 }
 
 suppressions() {
-  local -a python go templates prettier source_code shell workflows actions code markup yaml
+  local -a python go cpp templates prettier source_code shell workflows actions code markup yaml
   local found=1
   mapfile -t python < <(python_files "$@")
   mapfile -t go < <(go_files "$@")
+  mapfile -t cpp < <(cpp_files "$@")
   mapfile -t templates < <(template_files "$@")
   mapfile -t prettier < <(prettier_files "$@")
   mapfile -t source_code < <(source_code_files "$@")
@@ -90,6 +121,10 @@ suppressions() {
   grep_files '# *prettier-ignore' "${yaml[@]}" && found=0
   grep_files '(\{#|<!--) *djlint:off' "${templates[@]}" && found=0
   grep_files '// *(nolint|lint:ignore)' "${go[@]}" && found=0
+  # clang-tidy's NOLINT, clang-format's off switch, lizard's forgiveness, and
+  # the pragmas that turn a compiler warning off.
+  grep_files '(//|/\*) *(NOLINT|clang-format +off|#lizard +forgives)' "${cpp[@]}" && found=0
+  grep_files '#pragma +((GCC|clang) +diagnostic +ignored|warning *\( *disable)' "${cpp[@]}" && found=0
   grep_files 'jscpd: *ignore' "${source_code[@]}" && found=0
   grep_files '# *shellcheck +disable' "${shell[@]}" "${workflows[@]}" "${actions[@]}" && found=0
   if [ "$found" -eq 0 ]; then
@@ -100,9 +135,11 @@ suppressions() {
 
 # Runs each linter and type checker on the given files of its kind.
 lint_checks() {
-  local -a python go typescript javascript dockerfiles
+  local -a python go cpp cpp_sources typescript javascript dockerfiles
   mapfile -t python < <(python_files "$@")
   mapfile -t go < <(go_files "$@")
+  mapfile -t cpp < <(cpp_files "$@")
+  mapfile -t cpp_sources < <(cpp_source_files "$@")
   mapfile -t typescript < <(typescript_files "$@")
   mapfile -t javascript < <(javascript_files "$@")
   mapfile -t dockerfiles < <(docker_files "$@")
@@ -126,11 +163,19 @@ lint_checks() {
 
   if any "${go[@]}"; then
     run "golangci-lint" "$(golangci_lint)" run --config "$here/golangci.yml" ./...
-    run "task comments" untracked_tasks "${go[@]}"
+  fi
+  if any "${cpp_sources[@]}"; then
+    run "clang-tidy" clang_tidy_check "${cpp_sources[@]}"
+  fi
+  if any "${cpp[@]}"; then
+    run "commented-out code" commented_out_code "${cpp[@]}"
+  fi
+  if any "${go[@]}" "${cpp[@]}"; then
+    run "task comments" untracked_tasks "${go[@]}" "${cpp[@]}"
   fi
 
-  if any "${python[@]}" "${go[@]}"; then
-    run "Semgrep" semgrep_check "${python[@]}" "${go[@]}"
+  if any "${python[@]}" "${go[@]}" "${cpp[@]}"; then
+    run "Semgrep" semgrep_check "${python[@]}" "${go[@]}" "${cpp[@]}"
   fi
 
   script_checks "$@"

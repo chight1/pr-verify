@@ -29,6 +29,8 @@ const PASSED_THROUGH = [
   "TZ",
   "LD_LIBRARY_PATH",
   "PKG_CONFIG_PATH",
+  "CC",
+  "CXX",
   "GOROOT",
   "GOPATH",
   "GOMODCACHE",

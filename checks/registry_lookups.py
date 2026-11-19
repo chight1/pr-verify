@@ -1,6 +1,7 @@
-"""When a package, or one version of it, first appeared on the npm registry, PyPI
-or the Go module proxy, and whether an advisory names a version as a fix. Each
-date lookup returns None when the registry has no such package or version.
+"""When a package, or one version of it, first appeared on the npm registry, PyPI,
+the Go module proxy, vcpkg's curated registry or ConanCenter, and whether an
+advisory names a version as a fix. Each date lookup returns None when the
+registry has no such package or version.
 """
 
 from __future__ import annotations
@@ -8,14 +9,16 @@ from __future__ import annotations
 import gzip
 import http.client
 import json
+import os
 import re
 import sys
 import urllib.parse
+from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
-from manifest_parsing import normalized
+from requirement import normalized
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,18 +27,34 @@ REQUEST_TIMEOUT_SECONDS = 20
 HTTP_OK = 200
 MISSING_STATUSES = frozenset({404, 410})
 GO_VERSION = re.compile(r"^v(\d+)\.(\d+)\.(\d+)")
-OSV_ECOSYSTEMS = {"npm": "npm", "pypi": "PyPI", "go": "Go"}
+OSV_ECOSYSTEMS = {"npm": "npm", "pypi": "PyPI", "go": "Go", "conan": "ConanCenter"}
+CONAN_CENTER = "center2.conan.io"
+# The page GitHub's Link header names as a paged listing's last.
+LAST_PAGE = re.compile(r'[?&]page=(\d+)>; rel="last"')
 
 
 class RegistryError(Exception):
     """A registry answered with neither the package nor its absence."""
 
 
-def fetch(host: str, path: str, query: bytes | None = None) -> bytes | None:
-    """The body of an HTTPS GET, or of a POST when there is a query to send, or
-    None when the registry has no such package."""
+@dataclass(frozen=True)
+class Response:
+    # None when the registry has no such package.
+    body: bytes | None
+    # GitHub's Link header, which names the other pages of a paged listing.
+    link: str
+
+
+def request(
+    host: str,
+    path: str,
+    query: bytes | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> Response:
+    """An HTTPS GET, or a POST when there is a query to send."""
     connection = http.client.HTTPSConnection(host, timeout=REQUEST_TIMEOUT_SECONDS)
     headers = {"Accept": "application/json", "Accept-Encoding": "gzip"}
+    headers.update(extra_headers or {})
     method = "GET"
     if query is not None:
         method = "POST"
@@ -45,14 +64,20 @@ def fetch(host: str, path: str, query: bytes | None = None) -> bytes | None:
         body = response.read()
     finally:
         connection.close()
+    link = response.getheader("Link", "")
     if response.status in MISSING_STATUSES:
-        return None
+        return Response(None, link)
     if response.status != HTTP_OK:
         message = f"https://{host}{path} answered {response.status}"
         raise RegistryError(message)
     if response.getheader("Content-Encoding") == "gzip":
-        return gzip.decompress(body)
-    return body
+        body = gzip.decompress(body)
+    return Response(body, link)
+
+
+def fetch(host: str, path: str, query: bytes | None = None) -> bytes | None:
+    """The body of a request, or None when the registry has no such package."""
+    return request(host, path, query).body
 
 
 def fetch_json(
@@ -151,6 +176,87 @@ def go_created(module: str) -> datetime | None:
     return go_released(module, min(versions, key=go_version_key))
 
 
+def github_headers() -> dict[str, str]:
+    """GitHub's API refuses a request without a User-Agent, and the workflow's
+    token raises its rate limit."""
+    headers = {"User-Agent": "pr-verify"}
+    token = os.environ.get("GH_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def vcpkg_created(port: str) -> datetime | None:
+    """When the port was added to vcpkg's curated registry: the date of the
+    oldest commit that touched its folder, the last page of a listing one
+    commit to a page. A port the registry has since removed has no folder."""
+    folder = f"ports/{urllib.parse.quote(port)}"
+    if (
+        fetch(
+            "raw.githubusercontent.com", f"/microsoft/vcpkg/master/{folder}/vcpkg.json"
+        )
+        is None
+    ):
+        return None
+    commits_path = f"/repos/microsoft/vcpkg/commits?path={folder}&per_page=1"
+    first_page = request("api.github.com", commits_path, extra_headers=github_headers())
+    last_page = LAST_PAGE.search(first_page.link)
+    oldest_page = first_page
+    if last_page is not None:
+        oldest_path = f"{commits_path}&page={last_page.group(1)}"
+        oldest_page = request(
+            "api.github.com", oldest_path, extra_headers=github_headers()
+        )
+    commits: list[dict[str, Any]] = json.loads(oldest_page.body or b"[]")
+    if not commits:
+        return None
+    return datetime.fromisoformat(commits[0]["commit"]["committer"]["date"])
+
+
+def conan_revision_times(name: str, version: str) -> dict[str, datetime] | None:
+    """When ConanCenter published each recipe revision of a version."""
+    reference = f"{urllib.parse.quote(name)}/{urllib.parse.quote(version)}"
+    listing = fetch_json(CONAN_CENTER, f"/v2/conans/{reference}/_/_/revisions")
+    if listing is None:
+        return None
+    # Times such as 2025-12-09T12:51:39.337+0000.
+    return {
+        revision["revision"]: datetime.strptime(
+            revision["time"], "%Y-%m-%dT%H:%M:%S.%f%z"
+        )
+        for revision in listing["revisions"]
+    }
+
+
+def conan_released(name: str, version: str) -> datetime | None:
+    """When ConanCenter published a version, given as version#revision when a
+    lockfile names the revision, which is then the time that counts."""
+    plain_version, _, revision = version.partition("#")
+    times = conan_revision_times(name, plain_version)
+    if times is None:
+        return None
+    if revision:
+        return times.get(revision)
+    return min(times.values(), default=None)
+
+
+def conan_created(name: str) -> datetime | None:
+    """When ConanCenter published the package's earliest version it still has."""
+    search = fetch_json(
+        CONAN_CENTER, f"/v2/conans/search?q={urllib.parse.quote(name)}/*"
+    )
+    published: list[datetime] = []
+    # Each result is a reference such as zlib/1.3.1@_/_.
+    for reference in (search or {}).get("results", []):
+        found_name, _, rest = str(reference).partition("/")
+        if found_name != name:
+            continue
+        released = conan_released(name, rest.split("@", 1)[0])
+        if released is not None:
+            published.append(released)
+    return min(published, default=None)
+
+
 def osv_advisories(ecosystem: str, name: str) -> list[dict[str, Any]]:
     """Every advisory OSV holds for a package, which includes GitHub's."""
     package = {"name": name, "ecosystem": OSV_ECOSYSTEMS[ecosystem]}
@@ -197,11 +303,13 @@ def fixed_versions(advisory: dict[str, Any], ecosystem: str, name: str) -> set[s
 
 
 def fixes_advisory(ecosystem: str, name: str, version: str) -> bool:
-    """Whether a published advisory names this version as a vulnerability's fix."""
+    """Whether a published advisory names this version as a vulnerability's fix.
+    Advisories name a Conan version without its recipe revision."""
+    plain_version = version.partition("#")[0]
     for advisory in osv_advisories(ecosystem, name):
         if "withdrawn" in advisory:
             continue
-        if version in fixed_versions(advisory, ecosystem, name):
+        if plain_version in fixed_versions(advisory, ecosystem, name):
             return True
     return False
 
@@ -210,9 +318,14 @@ CREATED: dict[str, Callable[[str], datetime | None]] = {
     "npm": npm_created,
     "pypi": pypi_created,
     "go": go_created,
+    "vcpkg": vcpkg_created,
+    "conan": conan_created,
 }
+# vcpkg has no lockfile: its versions come from the registry commit vcpkg.json
+# names as its baseline.
 RELEASED: dict[str, Callable[[str, str], datetime | None]] = {
     "npm": npm_released,
     "pypi": pypi_released,
     "go": go_released,
+    "conan": conan_released,
 }

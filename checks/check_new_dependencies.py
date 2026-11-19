@@ -26,9 +26,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from cpp_manifest_parsing import local_vcpkg_ports, with_vcpkg_configuration
 from lockfile_parsing import lockfile_parser, outside_source_parser
 from manifest_parsing import manifest_parser
 from registry_lookups import CREATED, RELEASED, fixes_advisory
@@ -36,7 +37,7 @@ from registry_lookups import CREATED, RELEASED, fixes_advisory
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
-    from manifest_parsing import Requirement
+    from requirement import Requirement
 
 MINIMUM_PACKAGE_AGE = timedelta(days=30)
 MINIMUM_VERSION_AGE = timedelta(days=7)
@@ -101,36 +102,60 @@ def fetch_commit(sha: str) -> None:
     git("-c", header, "fetch", "--depth", "1", "--no-tags", "origin", sha)
 
 
-def parsed_in_checkout(path: str, parse: Callable[[str], set[Parsed]]) -> set[Parsed]:
-    return parse(Path(path).read_text(encoding="utf-8"))
+def checkout_text(path: str) -> str | None:
+    """What a file holds in the checkout; None when there is no such file."""
+    file = Path(path)
+    if not file.is_file():
+        return None
+    return file.read_text(encoding="utf-8")
 
 
-def parsed_at_commit(
-    sha: str, path: str, parse: Callable[[str], set[Parsed]]
-) -> set[Parsed]:
-    """What a file held on a commit; nothing when the commit had no such file."""
+def commit_text(sha: str, path: str) -> str | None:
+    """What a file held on a commit; None when the commit had no such file."""
     shown = git("show", f"{sha}:{path}")
     if shown.returncode != 0:
+        return None
+    return shown.stdout
+
+
+def manifest_text(path: str, read: Callable[[str], str | None]) -> str | None:
+    """A manifest as its package manager reads it: vcpkg.json together with the
+    vcpkg-configuration.json beside it, which can name other registries."""
+    text = read(path)
+    manifest = PurePosixPath(path)
+    if text is None or manifest.name != "vcpkg.json":
+        return text
+    configuration = read(str(manifest.with_name("vcpkg-configuration.json")))
+    return with_vcpkg_configuration(text, configuration)
+
+
+def parsed(text: str | None, parse: Callable[[str], set[Parsed]]) -> set[Parsed]:
+    if text is None:
         return set()
-    return parse(shown.stdout)
+    return parse(text)
 
 
 def added(path: str, base: str, parse: Callable[[str], set[Parsed]]) -> set[Parsed]:
     """What a file holds now that it did not hold on the base commit."""
-    return parsed_in_checkout(path, parse) - parsed_at_commit(base, path, parse)
+    return parsed(checkout_text(path), parse) - parsed(commit_text(base, path), parse)
 
 
-def direct_dependencies(paths: Iterable[str], base: str) -> list[Dependency]:
-    """Every dependency the manifests name, each marked as added or already there."""
+def direct_dependencies(paths: list[str], base: str) -> list[Dependency]:
+    """Every dependency the manifests name, each marked as added or already
+    there. vcpkg ports kept in the repository are left out, as local paths are."""
+    local_ports = local_vcpkg_ports(paths)
+    at_base_commit = partial(commit_text, base)
     dependencies: list[Dependency] = []
     for path in paths:
         parser = manifest_parser(path)
         if parser is None:
             continue
         ecosystem, parse = parser
-        current = parsed_in_checkout(path, parse)
-        at_base = parsed_at_commit(base, path, parse)
+        current = parsed(manifest_text(path, checkout_text), parse)
+        at_base = parsed(manifest_text(path, at_base_commit), parse)
         for requirement in sorted(current, key=lambda listed: listed.name):
+            if ecosystem == "vcpkg" and requirement.name in local_ports:
+                continue
             added_here = requirement not in at_base
             dependencies.append(Dependency(ecosystem, requirement, added=added_here))
     return dependencies

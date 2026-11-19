@@ -11,7 +11,7 @@ import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from manifest_parsing import normalized
+from requirement import normalized
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -183,6 +183,25 @@ def go_sum_versions(text: str) -> set[Locked]:
     return versions
 
 
+def conan_lock_versions(text: str) -> set[Locked]:
+    """conan.lock records each package as name/version#revision%time. The
+    version includes the recipe revision, since a new revision of an old version
+    is new code. One with a user and channel, as in name/version@user/channel,
+    comes from a remote other than ConanCenter, and the time is left out, since
+    the registry's own record of it is what counts."""
+    lock: dict[str, Any] = json.loads(text)
+    versions: set[Locked] = set()
+    for section in ("requires", "build_requires", "python_requires"):
+        for reference in lock.get(section, []):
+            recipe = str(reference).split("%", 1)[0]
+            name_and_version = recipe.split("#", 1)[0]
+            if "@" in name_and_version:
+                continue
+            name, _, version = recipe.partition("/")
+            versions.add((name, version))
+    return versions
+
+
 def is_git_source(source: str) -> bool:
     return source.startswith(GIT_SOURCES) or "#commit=" in source
 
@@ -295,6 +314,7 @@ LOCKFILES: dict[str, tuple[str, Callable[[str], set[Locked]]]] = {
     "poetry.lock": ("pypi", poetry_versions),
     "Pipfile.lock": ("pypi", pipfile_versions),
     "go.sum": ("go", go_sum_versions),
+    "conan.lock": ("conan", conan_lock_versions),
 }
 
 

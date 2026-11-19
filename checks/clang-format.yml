@@ -1,0 +1,2 @@
+# The gate's C++ formatting: Google's style, as clang-format ships it.
+BasedOnStyle: Google

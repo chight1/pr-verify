@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The dead code and dependency checks: deptry, go mod tidy, deadcode and knip.
-# Sourced by run.sh.
+# The dead code and dependency checks: deptry, go mod tidy, deadcode, cppcheck
+# and knip. Sourced by run.sh.
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -40,6 +40,22 @@ deadcode_check() {
   [ -z "$out" ]
 }
 
+# C++ functions nothing calls, across the whole program, from the files and
+# flags CMake recorded. Files CMake generated or fetched, in the directory it
+# wrote the commands to, are left out. cppcheck ignores its inline suppression
+# comments unless told to read them.
+unused_functions() {
+  local commands cppcheck_bin
+  commands="$(compile_commands_dir)" || return 1
+  cppcheck_bin="$(cppcheck)" || return 1
+  local -a generated=()
+  if [ "$commands" != "$PWD" ]; then
+    generated=(-i "$commands")
+  fi
+  "$cppcheck_bin" --project="$commands/compile_commands.json" "${generated[@]}" \
+    --enable=unusedFunction --library=googletest --error-exitcode=1 --quiet
+}
+
 # Tracked files that every check leaves out, given the files they check.
 # comm -23 prints the lines only the first list has.
 left_out_files() {
@@ -62,8 +78,9 @@ knip_check() {
 
 # Runs each dead code and dependency check the project's languages need.
 dead_code_checks() {
-  local -a python typescript javascript
+  local -a python cpp_sources typescript javascript
   mapfile -t python < <(python_files "$@")
+  mapfile -t cpp_sources < <(cpp_source_files "$@")
   mapfile -t typescript < <(typescript_files "$@")
   mapfile -t javascript < <(javascript_files "$@")
 
@@ -73,6 +90,9 @@ dead_code_checks() {
   if [ -f go.mod ]; then
     run "go mod tidy" go mod tidy -diff
     run "deadcode" deadcode_check
+  fi
+  if any "${cpp_sources[@]}"; then
+    run "cppcheck" unused_functions
   fi
   if [ -f package.json ] && any "${typescript[@]}" "${javascript[@]}"; then
     run "knip" knip_check "$@"

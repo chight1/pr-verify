@@ -8,7 +8,7 @@
 lockfiles=(
   package-lock.json npm-shrinkwrap.json yarn.lock pnpm-lock.yaml bun.lock bun.lockb
   poetry.lock Pipfile.lock uv.lock
-  go.sum Cargo.lock Gemfile.lock packages.lock.json composer.lock
+  go.sum Cargo.lock Gemfile.lock packages.lock.json composer.lock conan.lock
 )
 
 is_lockfile() {
@@ -70,6 +70,31 @@ javascript_files() {
   matching '\.(js|jsx|mjs|cjs)$' "$@"
 }
 
+# C++ sources and headers. A .h header counts as C++, since the gate checks no C.
+cpp_files() {
+  matching '\.(cc|cpp|cxx|c\+\+|hh|hpp|hxx|h\+\+|h|ipp|tpp|inl)$' "$@"
+}
+
+# The C++ files the compiler builds, rather than the headers they include.
+cpp_source_files() {
+  matching '\.(cc|cpp|cxx|c\+\+)$' "$@"
+}
+
+# Where CMake wrote the compile commands that clang-tidy and cppcheck read: the
+# project root or build/. They hold each file's include paths and flags, without
+# which a C++ file cannot be read correctly.
+compile_commands_dir() {
+  local dir
+  for dir in "$PWD" "$PWD/build"; do
+    if [ -f "$dir/compile_commands.json" ]; then
+      echo "$dir"
+      return 0
+    fi
+  done
+  echo "No compile_commands.json at the project root or in build/. Configure CMake in install-command with -DCMAKE_EXPORT_COMPILE_COMMANDS=ON, as templates/cpp.yml does." >&2
+  return 1
+}
+
 docker_files() {
   matching '(^|/)(Dockerfile|Containerfile)([.-][^/]*)?$|\.dockerfile$' "$@"
 }
@@ -128,6 +153,7 @@ shell_files() {
 source_code_files() {
   python_files "$@"
   go_files "$@"
+  cpp_files "$@"
   typescript_files "$@"
   javascript_files "$@"
   shell_files "$@"

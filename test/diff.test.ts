@@ -98,6 +98,7 @@ describe("hunk bodies", () => {
     );
     assert.isDefined(file);
     expect(file).toMatchObject({ path: "q.sql", added: 1, removed: 1 });
+    expect(file.addedText).toEqual(["++ note"]);
     expect([...file.rightLines]).toEqual([1, 2]);
     expect([...file.leftLines]).toEqual([1, 2]);
   });

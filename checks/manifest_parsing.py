@@ -1,6 +1,7 @@
 """What a manifest asks to install: the dependencies in package.json,
-pyproject.toml, requirements files and go.mod, each with where it comes from.
-Read by check_new_dependencies.py.
+pyproject.toml, requirements files and go.mod, each with where it comes from,
+and in the C++ manifests cpp_manifest_parsing.py reads. Read by
+check_new_dependencies.py.
 
 A dependency on a local path is left out, since its code is in the repository
 and the gate checks it there.
@@ -11,9 +12,11 @@ from __future__ import annotations
 import json
 import re
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+
+from cpp_manifest_parsing import conan_requirements, vcpkg_requirements
+from requirement import Requirement, normalized
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -46,20 +49,6 @@ GO_REQUIREMENT_FIELDS = 2
 # The go.mod directives that bring a module in, and the lines that open a block of them.
 GO_DIRECTIVES = ("require", "replace")
 GO_BLOCK_STARTS = {"require (": "require", "replace (": "replace"}
-
-
-@dataclass(frozen=True)
-class Requirement:
-    """A dependency a manifest names: a registry package, unless it comes from
-    git or a URL, whose age no registry can tell."""
-
-    name: str
-    outside_source: str | None = None
-
-
-def normalized(name: str) -> str:
-    """A Python package name as PyPI compares it."""
-    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def requirement_name(spec: str) -> str | None:
@@ -324,15 +313,18 @@ def go_requirements(text: str) -> set[Requirement]:
     return requirements
 
 
+MANIFESTS: dict[str, tuple[str, Callable[[str], set[Requirement]]]] = {
+    "package.json": ("npm", npm_requirements),
+    "pyproject.toml": ("pypi", pyproject_requirements),
+    "go.mod": ("go", go_requirements),
+    "vcpkg.json": ("vcpkg", vcpkg_requirements),
+    "conanfile.txt": ("conan", conan_requirements),
+}
+
+
 def manifest_parser(path: str) -> tuple[str, Callable[[str], set[Requirement]]] | None:
     """The ecosystem a manifest belongs to, and the function that reads it."""
     file_name = Path(path).name
-    if file_name == "package.json":
-        return "npm", npm_requirements
-    if file_name == "pyproject.toml":
-        return "pypi", pyproject_requirements
     if file_name.startswith("requirements") and file_name.endswith(".txt"):
         return "pypi", requirements_file_requirements
-    if file_name == "go.mod":
-        return "go", go_requirements
-    return None
+    return MANIFESTS.get(file_name)

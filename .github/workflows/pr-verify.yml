@@ -12,11 +12,13 @@ on:
   workflow_call:
     inputs:
       runtime:
-        description: node, python or go
+        description: node, python, go or cpp
         required: true
         type: string
       runtime-version:
-        description: Version passed to the matching setup action
+        description: >-
+          Version passed to the matching setup action, or for cpp, the GCC
+          version, such as 14
         required: true
         type: string
       install-command:
@@ -79,6 +81,7 @@ env:
   SEMGREP_ARGS: >-
     ${{ inputs.runtime == 'python' && '--config p/python'
     || inputs.runtime == 'go' && '--config p/golang'
+    || inputs.runtime == 'cpp' && '--config p/c'
     || '--config p/javascript --config p/typescript' }}
     ${{ inputs.security-scan == 'loose' && '--severity ERROR' || '' }}
     --disable-nosem
@@ -116,6 +119,19 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ inputs.runtime-version }}
+
+      # The image has CMake and several GCC versions; this installs the one asked
+      # for if it is missing and makes it the compiler for every later step.
+      - name: Set up C++
+        if: inputs.runtime == 'cpp'
+        env:
+          GCC_VERSION: ${{ inputs.runtime-version }}
+        run: &set-up-cpp |
+          if ! command -v "g++-$GCC_VERSION" > /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends "g++-$GCC_VERSION"
+          fi
+          { echo "CC=gcc-$GCC_VERSION"; echo "CXX=g++-$GCC_VERSION"; } >> "$GITHUB_ENV"
 
       # The checks that hold the workflow's token, which run first: no process
       # the project starts is alive yet to read it. From this workflow's own
@@ -298,6 +314,12 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ inputs.runtime-version }}
+
+      - name: Set up C++
+        if: inputs.runtime == 'cpp'
+        env:
+          GCC_VERSION: ${{ inputs.runtime-version }}
+        run: *set-up-cpp
 
       - name: install
         env:
