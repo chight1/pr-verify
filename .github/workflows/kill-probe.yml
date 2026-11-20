@@ -7,36 +7,55 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: tools
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: shell, full sandbox chain
         run: |
-          ls -l /usr/bin/sudo /usr/bin/timeout /usr/bin/unshare
-          sudo --version | head -1
-          timeout --version | head -1
-          ls /usr/bin /usr/lib/cargo/bin 2>/dev/null | grep -E 'sudo|timeout' || true
-      - name: kill cases
-        run: |
-          # Each case runs sleep 20 with a 2-second kill, its output piped as
-          # Node pipes it. About 2 seconds means the kill works; about 20, not.
+          # The sandbox's chain in a shell: mounts, setpriv to the runner's
+          # user, env -i, bash -c. About 2 seconds means the kill works.
+          snapshot() { sleep "$1"; echo "--- processes at ${1}s"; ps -eo pid,ppid,pgid,stat,etimes,args --forest | grep -E 'sleep 2[0-9]|unshare|setpriv|timeout|sudo' | grep -v grep; }
           attempt() {
             local label="$1"
             shift
             local start=$SECONDS
+            snapshot 4 &
             "$@" 2>&1 | cat
             echo "$label: exit ${PIPESTATUS[0]}, $((SECONDS - start))s"
+            wait
           }
-          attempt "1 timeout alone" timeout -s KILL 2s sleep 20
-          attempt "2 sudo + timeout" sudo -n timeout -s KILL 2s sleep 20
-          for gnu in gnutimeout /usr/lib/gnu-coreutils/timeout; do
-            if command -v "$gnu" > /dev/null; then
-              attempt "3a sudo + GNU timeout ($gnu)" sudo -n "$gnu" -s KILL 2s sleep 20
-            fi
-          done
-          if command -v sudo.ws > /dev/null; then
-            attempt "3b sudo.ws + timeout" sudo.ws -n timeout -s KILL 2s sleep 20
-          fi
-          attempt "4 sudo + timeout + unshare" sudo -n timeout -s KILL 2s \
-            unshare --net --pid --fork --kill-child --mount --mount-proc -- sleep 20
-          attempt "5 timeout + unshare, as root" sudo -n sh -c \
-            'timeout -s KILL 2s unshare --net --pid --fork --kill-child --mount --mount-proc -- sleep 20'
+          uid="$(id -u)" gid="$(id -g)"
+          drop="exec setpriv --reuid=$uid --regid=$gid --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all --"
+          unshared=(sudo -n timeout -s KILL 2s unshare --net --pid --fork --kill-child --mount --mount-proc --)
+          attempt "6 + setpriv" "${unshared[@]}" sh -c "$drop sleep 21"
+          attempt "7 + setpriv + env -i bash -c" "${unshared[@]}" sh -c "$drop env -i PATH=/usr/bin:/bin bash -c 'sleep 22'"
+          attempt "8 + /run tmpfs + lo up + setpriv" "${unshared[@]}" sh -c "mount -t tmpfs -o mode=0755 tmpfs /run; ip link set lo up; $drop env -i PATH=/usr/bin:/bin bash -c 'sleep 23'"
+      - name: Node, the real sandbox
+        run: |
+          npx tsc -p tsconfig.build.json
+          cat > "$RUNNER_TEMP/probe.mjs" <<'JS'
+          import { mkdtempSync } from "node:fs";
+          import { execFileSync } from "node:child_process";
+          import os from "node:os";
+          import path from "node:path";
+          const { Sandbox } = await import(path.resolve("build/sandbox.js"));
+          const { runCommand } = await import(path.resolve("build/test-checkout.js"));
+          const sandbox = await Sandbox.forRunner();
+          const dir = mkdtempSync(path.join(os.tmpdir(), "probe-"));
+          execFileSync("git", ["init", "-q"], { cwd: dir });
+          setTimeout(() => {
+            console.log("--- processes at 4s");
+            console.log(execFileSync("sh", ["-c", "ps -eo pid,ppid,pgid,stat,etimes,args --forest | grep -E 'sleep 24|unshare|setpriv|timeout|sudo' | grep -v grep"]).toString());
+          }, 4000).unref();
+          const result = await runCommand("sleep 24", dir, 2000, 64 * 1024, sandbox);
+          console.log("9 real sandbox from Node:", JSON.stringify(result));
+          JS
+          node "$RUNNER_TEMP/probe.mjs"
+      - name: vitest, the real test with a long limit
+        run: npx vitest run test/sandbox.test.ts --testTimeout 90000 --reporter verbose
