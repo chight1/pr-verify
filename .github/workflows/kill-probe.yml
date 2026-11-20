@@ -1,0 +1,42 @@
+name: kill probe
+on:
+  push:
+    branches: [canary-kill-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: tools
+        run: |
+          ls -l /usr/bin/sudo /usr/bin/timeout /usr/bin/unshare
+          sudo --version | head -1
+          timeout --version | head -1
+          ls /usr/bin /usr/lib/cargo/bin 2>/dev/null | grep -E 'sudo|timeout' || true
+      - name: kill cases
+        run: |
+          # Each case runs sleep 20 with a 2-second kill, its output piped as
+          # Node pipes it. About 2 seconds means the kill works; about 20, not.
+          attempt() {
+            local label="$1"
+            shift
+            local start=$SECONDS
+            "$@" 2>&1 | cat
+            echo "$label: exit ${PIPESTATUS[0]}, $((SECONDS - start))s"
+          }
+          attempt "1 timeout alone" timeout -s KILL 2s sleep 20
+          attempt "2 sudo + timeout" sudo -n timeout -s KILL 2s sleep 20
+          for gnu in gnutimeout /usr/lib/gnu-coreutils/timeout; do
+            if command -v "$gnu" > /dev/null; then
+              attempt "3a sudo + GNU timeout ($gnu)" sudo -n "$gnu" -s KILL 2s sleep 20
+            fi
+          done
+          if command -v sudo.ws > /dev/null; then
+            attempt "3b sudo.ws + timeout" sudo.ws -n timeout -s KILL 2s sleep 20
+          fi
+          attempt "4 sudo + timeout + unshare" sudo -n timeout -s KILL 2s \
+            unshare --net --pid --fork --kill-child --mount --mount-proc -- sleep 20
+          attempt "5 timeout + unshare, as root" sudo -n sh -c \
+            'timeout -s KILL 2s unshare --net --pid --fork --kill-child --mount --mount-proc -- sleep 20'
