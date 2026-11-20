@@ -45,8 +45,10 @@ size_checks() {
   fi
   run "file length" long_files "${source_code[@]}"
   if any "${source_code[@]}"; then
-    # An empty config, so a project's own jscpd settings have no effect.
+    # An empty config, so a project's own jscpd settings have no effect. Full
+    # paths, since jscpd otherwise prints only each file's name, and two files
+    # can share one, as two tools' main.cpp do.
     run "jscpd" "$here/node_modules/.bin/jscpd" --config "$here/jscpd.json" --min-tokens 50 \
-      --threshold 0 --exit-code 1 --reporters console --no-colors "${all_source_code[@]}"
+      --threshold 0 --exit-code 1 --reporters console --no-colors --absolute "${all_source_code[@]}"
   fi
 }

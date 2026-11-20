@@ -54,6 +54,29 @@ PY
   for line in $(seq 409); do echo "STEP_$line = $line"; done
 } > long.py
 printf '#!/usr/bin/env bash\ncd %s\n' "\$1" > legacy.sh
+# A block copied between two files of one name in different folders, as two
+# tools' main files often are.
+mkdir -p tools/plan tools/relocate
+cat > tools/plan/main.py <<'PY'
+def report_failure(error, attempts, log):
+    message = f"failed after {attempts} attempts: {error}"
+    log.write(message)
+    log.write("\n")
+    if attempts > 3:
+        log.write("giving up after the last attempt\n")
+        log.flush()
+        return 2
+    log.write("retrying with the same settings\n")
+    log.flush()
+    return 1
+
+
+def main(arguments, log):
+    if not arguments:
+        return report_failure("no arguments", 0, log)
+    return 0
+PY
+cp tools/plan/main.py tools/relocate/main.py
 commit_base "$scratch/event.json"
 export GATE_SCOPE=changes
 
