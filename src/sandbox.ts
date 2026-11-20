@@ -98,7 +98,7 @@ KEEP
 mount -t tmpfs -o mode=0755 tmpfs /run
 ip link set lo up
 cd "$cwd"
-exec setpriv --reuid="$uid" --regid="$gid" --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all -- "$@"`;
+setpriv --reuid="$uid" --regid="$gid" --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all -- "$@"`;
 
 export interface SandboxedCommand {
   file: string;

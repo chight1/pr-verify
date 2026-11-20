@@ -33,9 +33,11 @@ jobs:
           uid="$(id -u)" gid="$(id -g)"
           drop="exec setpriv --reuid=$uid --regid=$gid --clear-groups --no-new-privs --inh-caps=-all --bounding-set=-all --"
           unshared=(sudo -n timeout -s KILL 2s unshare --net --pid --fork --kill-child --mount --mount-proc --)
-          attempt "6 + setpriv" "${unshared[@]}" sh -c "$drop sleep 21"
-          attempt "7 + setpriv + env -i bash -c" "${unshared[@]}" sh -c "$drop env -i PATH=/usr/bin:/bin bash -c 'sleep 22'"
-          attempt "8 + /run tmpfs + lo up + setpriv" "${unshared[@]}" sh -c "mount -t tmpfs -o mode=0755 tmpfs /run; ip link set lo up; $drop env -i PATH=/usr/bin:/bin bash -c 'sleep 23'"
+          attempt "6 uutils timeout, setpriv as the namespace's first process" "${unshared[@]}" sh -c "$drop sleep 21"
+          gnu=(sudo -n gnutimeout -s KILL 2s unshare --net --pid --fork --kill-child --mount --mount-proc --)
+          attempt "7 GNU timeout, setpriv as the namespace's first process" "${gnu[@]}" sh -c "$drop sleep 22"
+          attempt "8 uutils timeout, setpriv under sh" "${unshared[@]}" sh -c "${drop#exec } sleep 23"
+          attempt "8b GNU timeout, setpriv under sh" "${gnu[@]}" sh -c "${drop#exec } sleep 23"
       - name: Node, the real sandbox
         run: |
           npx tsc -p tsconfig.build.json
@@ -58,4 +60,21 @@ jobs:
           JS
           node "$RUNNER_TEMP/probe.mjs"
       - name: vitest, the real test with a long limit
+        env:
+          PR_VERIFY_CANARY: canary-probe
         run: npx vitest run test/sandbox.test.ts --testTimeout 90000 --reporter verbose
+  still-works-on-24:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: vitest, the sandbox tests
+        env:
+          PR_VERIFY_CANARY: canary-probe
+        run: npx vitest run test/sandbox.test.ts --reporter verbose
