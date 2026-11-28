@@ -166,7 +166,7 @@ A project can run its pull requests' jobs on a virtual machine on a Windows PC i
 
 - VirtualBox, installed with winget when it is missing, and Ubuntu 24.04, installed unattended from Ubuntu's server image after checking it against the SHA-256 Ubuntu publishes.
 - Nothing shared with the PC: no shared folders, clipboard, drag and drop, or VirtualBox guest software.
-- The internet and nothing else. A Windows Firewall rule blocks the machine from the local network, the router and the PC's own addresses, and VirtualBox's NAT keeps it from the PC's loopback. Setup proves both from inside the machine before any job runs, and stops when Windows Firewall is off. Adding the rule asks for administrator rights once.
+- The internet and nothing else. A Windows Firewall rule blocks the machine from the local network, the router and the PC's own addresses, and VirtualBox's NAT keeps it from the PC's loopback. Setup proves both from inside the machine before any job runs, and stops when Windows Firewall is off. Adding the rule and installing VirtualBox ask for administrator rights, together in one prompt.
 - A snapshot taken right after provisioning. Every job starts from it, and the machine is powered off and reset after, so nothing a job does reaches the next.
 - No lasting credential inside. For each job, a loop on the PC registers a runner that works once, with the PC's `gh` sign-in, and hands it to the machine over SSH.
 - One job at a time across every listed repository, on half the PC's cores up to 4, a quarter of its memory up to 8 GB, below-normal priority where VirtualBox allows it, and 5 MB/s of network. `-Cpus`, `-MemoryMB` and `-NetworkLimit` change them.

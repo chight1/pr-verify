@@ -8,8 +8,9 @@ Builds everything from nothing on every run, so the same command works after
 the PC is wiped: VirtualBox if it is missing, the firewall rule, Ubuntu's
 installer image, the machine, and the clean snapshot each job starts from. The
 machine shares nothing with this PC: no folders, clipboard, drag and drop or
-VirtualBox guest software, and no network but the internet. Adding the firewall
-rule asks for administrator rights once; nothing else runs elevated.
+VirtualBox guest software, and no network but the internet. Installing
+VirtualBox and adding the firewall rule ask for administrator rights, together
+in one prompt; nothing else runs elevated.
 
 .PARAMETER Repository
 The repositories, as owner/name, whose jobs labeled pr-verify-vm run here.
@@ -45,14 +46,17 @@ function Assert-Prerequisite {
     }
 }
 
-function Install-VirtualBox {
-    if (-not (Test-Path (Join-Path (Get-VirtualBoxDirectory) 'VBoxManage.exe'))) {
-        & winget.exe install --id Oracle.VirtualBox --exact --silent `
-            --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -ne 0) {
-            throw 'Installing VirtualBox failed.'
-        }
+function Invoke-AdministratorStep {
+    $adminScript = Join-Path $PSScriptRoot 'admin.ps1'
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$adminScript`""
+    $elevated = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden `
+        -ArgumentList $arguments
+    if ($elevated.ExitCode -ne 0) {
+        throw "The administrator step failed, so the machine is not built. Its error is in $(Join-Path $LogDirectory 'runner.log')."
     }
+}
+
+function Assert-VirtualBoxVersion {
     # 7.1 is the first to install Ubuntu 24.04 unattended.
     $version = (Invoke-VBoxManage @('--version')) -replace '^(\d+\.\d+).*$', '$1'
     if ([version]$version -lt [version]'7.1') {
@@ -74,17 +78,6 @@ function Remove-PreviousRunner {
     New-Item -ItemType Directory -Force -Path $StateDirectory | Out-Null
 }
 
-function Block-MachineLocalNetwork {
-    $firewallScript = Join-Path $PSScriptRoot 'firewall.ps1'
-    $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$firewallScript`" " +
-        "-VirtualBoxDirectory `"$(Get-VirtualBoxDirectory)`""
-    $elevated = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden `
-        -ArgumentList $arguments
-    if ($elevated.ExitCode -ne 0) {
-        throw 'Adding the firewall rule failed, so the machine is not built.'
-    }
-}
-
 # The newest 24.04 server image, checked against the SHA-256 Ubuntu publishes,
 # and downloaded only when the copy here is missing or stale.
 function Get-UbuntuInstaller {
@@ -93,13 +86,15 @@ function Get-UbuntuInstaller {
     if ($LASTEXITCODE -ne 0) {
         throw "Could not read $release/SHA256SUMS."
     }
-    $pattern = '^([0-9a-f]{64}) \*?(ubuntu-24\.04[.0-9]*-live-server-amd64\.iso)$'
-    $match = $sums | Select-String -Pattern $pattern | Select-Object -First 1
-    if (-not $match) {
+    $pattern = '^([0-9a-f]{64}) \*?(ubuntu-(24\.04[.0-9]*)-live-server-amd64\.iso)$'
+    $images = $sums | Select-String -Pattern $pattern | ForEach-Object { $_.Matches[0] }
+    if (-not $images) {
         throw "Ubuntu's SHA256SUMS names no 24.04 server image."
     }
-    $expectedHash = $match.Matches[0].Groups[1].Value
-    $installer = Join-Path $StateDirectory $match.Matches[0].Groups[2].Value
+    # The list holds every point release still published, oldest first.
+    $newest = $images | Sort-Object { [version]$_.Groups[3].Value } | Select-Object -Last 1
+    $expectedHash = $newest.Groups[1].Value
+    $installer = Join-Path $StateDirectory $newest.Groups[2].Value
     if ((Test-Path $installer) -and (Get-FileHash $installer -Algorithm SHA256).Hash -eq $expectedHash) {
         return $installer
     }
@@ -271,7 +266,8 @@ function Register-JobLoop {
 }
 
 Assert-Prerequisite
-Install-VirtualBox
+Invoke-AdministratorStep
+Assert-VirtualBoxVersion
 if ($Cpus -eq 0) {
     $Cpus = Get-DefaultCpuCount
 }
@@ -279,7 +275,6 @@ if ($MemoryMB -eq 0) {
     $MemoryMB = Get-DefaultMemoryMB
 }
 Remove-PreviousRunner
-Block-MachineLocalNetwork
 $installer = Get-UbuntuInstaller
 $publicKey = New-SshKey
 New-Machine

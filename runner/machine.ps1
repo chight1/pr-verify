@@ -18,8 +18,10 @@ $KnownHosts = Join-Path $StateDirectory 'known_hosts'
 $RepositoryList = Join-Path $StateDirectory 'repositories.txt'
 $LogDirectory = Join-Path $StateDirectory 'logs'
 
+# Read from the PC's settings, not this process's environment, which predates a
+# VirtualBox installed since the process started.
 function Get-VirtualBoxDirectory {
-    $directory = $env:VBOX_MSI_INSTALL_PATH
+    $directory = [Environment]::GetEnvironmentVariable('VBOX_MSI_INSTALL_PATH', 'Machine')
     if (-not $directory) {
         $directory = Join-Path $env:ProgramFiles 'Oracle\VirtualBox'
     }
