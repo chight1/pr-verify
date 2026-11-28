@@ -2,7 +2,7 @@ import json
 import os
 import subprocess
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import chdir, contextmanager
 from pathlib import Path
 
@@ -17,7 +17,7 @@ AUTHOR = {
 
 
 @contextmanager
-def environment(**variables: str) -> Iterator[None]:
+def environment(**variables: str) -> Generator[None]:
     """Sets the variables for the length of a test, then restores them."""
     saved = {name: os.environ.get(name) for name in variables}
     os.environ.update(variables)
