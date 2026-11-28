@@ -6,6 +6,9 @@ name: pr-verify
 
 on:
   pull_request:
+  # The weekly canary: the gate alone, on the runner image the pin moves to next.
+  schedule:
+    - cron: "17 6 * * 1"
 
 concurrency:
   group: pr-verify-${{ github.event.pull_request.number }}

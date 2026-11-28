@@ -1,0 +1,31 @@
+#cloud-config
+# The unattended Ubuntu install of the runner's virtual machine. Setup writes in
+# the public key it connects with, and VirtualBox fills in the password hash, of
+# a random password nothing uses: SSH takes the key alone, and sudo asks for no
+# password.
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  storage:
+    layout:
+      name: direct
+    swap:
+      size: 0
+  identity:
+    hostname: pr-verify-vm
+    username: runner
+    realname: runner
+    password: "@@VBOX_INSERT_USER_PASSWORD_SHACRYPT512@@"
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - "__SSH_PUBLIC_KEY__"
+  # As on GitHub's runners, whose jobs use sudo to install packages.
+  late-commands:
+    - echo 'runner ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/runner
+    - chmod 0440 /target/etc/sudoers.d/runner
+  # Setup waits for the machine to power off, then provisions it.
+  shutdown: poweroff

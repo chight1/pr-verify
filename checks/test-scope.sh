@@ -130,9 +130,16 @@ if grep -qF "legacy.py:7:" <<< "$output"; then
   fail "static analysis counted the old shell command, on a line the change leaves alone"
 fi
 
-# Outside a pull request there is no base to compare with.
-if output="$(GITHUB_EVENT_PATH="" bash "$here/run.sh" 2>&1)"; then
+# The weekly canary compares the newest commit, which added the shell command,
+# with the one before it.
+if output="$(GITHUB_EVENT_NAME=schedule GITHUB_EVENT_PATH="" bash "$here/static-analysis.sh" 2>&1)"; then
+  fail "static analysis passed on the canary's newest commit, which adds a shell command"
+fi
+expect_names "legacy.py:" shell
+
+# Outside a pull request and the canary there is no base to compare with.
+if output="$(GITHUB_EVENT_NAME=push GITHUB_EVENT_PATH="" bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed with gate-scope changes outside a pull request"
 fi
-expect_names "gate-scope: changes needs a pull request"
+expect_names "gate-scope: changes needs a commit to compare with"
 echo "changed-code checks: ok"

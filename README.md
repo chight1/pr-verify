@@ -142,7 +142,7 @@ By default the gate checks every file. A codebase too large to fix in one pull r
 - Semgrep's static analysis scans the changed files, and only its findings on changed lines count.
 - The dependency check looks up only the dependencies the pull request adds.
 
-Each check prints every finding with its file and line, and the gate compares them with git's diff from the pull request's base commit, which the online checks fetch. A check that fails without naming any file failed to run, and still fails. The build, tests and audit run as they always do. Outside a pull request there is no base to compare with, so the setting fails.
+Each check prints every finding with its file and line, and the gate compares them with git's diff from the pull request's base commit, which the online checks fetch. A check that fails without naming any file failed to run, and still fails. The build, tests and audit run as they always do. The weekly canary has no pull request, so it compares the newest commit on the branch with the one before it. On any other event there is no base to compare with, so the setting fails.
 
 ## Static analysis
 
@@ -154,19 +154,41 @@ Every gate ends with a Trivy filesystem scan for known vulnerabilities in depend
 
 ## Runner image
 
-The gate and the review run on a pinned image, `ubuntu-24.04`. A third job, `pr-verify / canary: ubuntu-latest (non-blocking)`, runs the gate's steps on `ubuntu-latest`. Nothing depends on it and it is not a required check: when it fails, the next image breaks something in the project, and the pin should not move until it passes.
+The gate and the review run on a pinned image, `ubuntu-24.04`. The template's weekly schedule is the canary: that run is the gate alone, on `ubuntu-latest`, the image the pin moves to next. It decides nothing. When it fails, the next image breaks something in the project, and the pin should not move until it passes. A workflow file copied from an older template gets the canary by adding the template's `schedule` lines.
 
 Every action the workflows use is pinned to a commit SHA. Dependabot proposes updates as pull requests once a release is a week old.
+
+## A virtual machine of your own
+
+A project can run its pull requests' jobs on a virtual machine on a Windows PC instead of GitHub's runners, by passing `runner: pr-verify-vm` in its workflow file. The weekly canary still runs on GitHub's `ubuntu-latest`.
+
+`runner/setup.ps1 -Repository owner/name, owner/other` builds the machine from nothing, so the same command works again after the PC is wiped:
+
+- VirtualBox, installed with winget when it is missing, and Ubuntu 24.04, installed unattended from Ubuntu's server image after checking it against the SHA-256 Ubuntu publishes.
+- Nothing shared with the PC: no shared folders, clipboard, drag and drop, or VirtualBox guest software.
+- The internet and nothing else. A Windows Firewall rule blocks the machine from the local network, the router and the PC's own addresses, and VirtualBox's NAT keeps it from the PC's loopback. Setup proves both from inside the machine before any job runs, and stops when Windows Firewall is off. Adding the rule asks for administrator rights once.
+- A snapshot taken right after provisioning. Every job starts from it, and the machine is powered off and reset after, so nothing a job does reaches the next.
+- No lasting credential inside. For each job, a loop on the PC registers a runner that works once, with the PC's `gh` sign-in, and hands it to the machine over SSH.
+- One job at a time across every listed repository, on half the PC's cores up to 4, a quarter of its memory up to 8 GB, below-normal priority where VirtualBox allows it, and 5 MB/s of network. `-Cpus`, `-MemoryMB` and `-NetworkLimit` change them.
+
+What it does not remove:
+
+- Jobs run slower than on GitHub's runners, and slower still with WSL or Hyper-V on, since VirtualBox then runs on top of Hyper-V.
+- Every job downloads its toolchains and tools again, since each starts from the snapshot. Only the Semgrep image is in the snapshot.
+- A job can use the internet, at the network limit, until it ends or the loop stops it at 40 minutes.
+- A flaw that lets code escape a virtual machine is the risk any virtual machine carries.
+
+The loop starts at every sign-in, and its logs are in `%LOCALAPPDATA%\pr-verify-vm\logs`.
 
 ## Attaching it to a project
 
 1. Make sure the build and test commands pass on a clean Ubuntu machine with no local model present, and the tests without network access.
 2. Add the Anthropic key as a repository secret named `ANTHROPIC_API_KEY`. A run without it, such as on a Dependabot pull request, which gets Dependabot's secrets instead, still runs the gate and skips the review.
 3. Copy the matching file from `templates/` to `.github/workflows/pr-verify.yml` and fill in the commands. For C++, `runtime-version` is the GCC version, and the install command configures CMake, which writes the compile commands the gate reads and fetches what the build needs, since the review builds without network access.
-4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` and the canary optional; they never block.
+4. In the branch rules, mark `pr-verify / gate` as a required check. Leave `pr-verify / review` optional; it never blocks.
 5. Optionally add a `REVIEW.md` at the repository root (8 KB cap) saying what matters in this project: invariants, areas to scrutinize, things to ignore. It is read into the review brief verbatim.
 
-Nothing here runs on a push to the default branch, only on pull requests.
+Nothing here runs on a push to the default branch: only on pull requests, and on the weekly canary.
 
 ## Repository layout
 
@@ -200,8 +222,9 @@ Nothing here runs on a push to the default branch, only on pull requests.
 | `src/run-record.ts`               | The run record.                                                                               |
 | `src/budget.ts`                   | Token, time, call and finding counters.                                                       |
 | `src/precision.ts`                | Thumbs-down counts per category, run locally with `npm run precision`.                        |
-| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, its canary, and the review.                                  |
+| `.github/workflows/pr-verify.yml` | The reusable workflow: the gate, the review, and the weekly canary.                           |
 | `templates/`                      | The one-file workflow a project copies, per runtime.                                          |
+| `runner/`                         | The virtual machine of your own: setup, the job loop, the firewall rule, its install.         |
 
 `dist/index.js` is committed, since that is what a consumer's `uses:` line runs.
 

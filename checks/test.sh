@@ -59,7 +59,7 @@ printf '#!/usr/bin/env bash\necho "ok"\n' > build.sh
 git add -A
 
 # Not a pull request, so no base to compare dependencies with.
-export GITHUB_EVENT_PATH=""
+export GITHUB_EVENT_NAME=push GITHUB_EVENT_PATH=""
 
 if output="$(bash "$here/run.sh" 2>&1)"; then
   fail "run.sh passed on unformatted files"

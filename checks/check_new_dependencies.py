@@ -235,7 +235,7 @@ def problems(
 def main() -> int:
     base = base_sha()
     if base is None:
-        sys.stdout.write("Not a pull request, so there is no base to compare with.\n")
+        sys.stdout.write("There is no base commit to compare with.\n")
         return 0
     fetch_commit(base)
     # Lockfiles are among the files the other checks leave out, so every tracked

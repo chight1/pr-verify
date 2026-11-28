@@ -25,5 +25,5 @@ commit_base() {
   git add -A
   git -c user.name=fixture -c user.email=fixture@example.test commit -qm base
   printf '{"pull_request": {"base": {"sha": "%s"}}}\n' "$(git rev-parse HEAD)" > "$event"
-  export GITHUB_EVENT_PATH="$event"
+  export GITHUB_EVENT_NAME=pull_request GITHUB_EVENT_PATH="$event"
 }

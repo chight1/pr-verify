@@ -1,5 +1,6 @@
-"""The pull request a gate runs on: its base commit, read from the event GitHub
-Actions provides, fetched when the checkout lacks it.
+"""The commit a gate compares with: a pull request's base commit, read from the
+event GitHub Actions provides, or on the weekly canary, the commit before the
+newest one on the branch. Fetched when the checkout lacks it.
 """
 
 from __future__ import annotations
@@ -17,12 +18,25 @@ def git(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def base_sha() -> str | None:
-    """The pull request's base commit, or None outside a pull request."""
+    """The commit to compare with, or None for an event that has none."""
+    if os.environ.get("GITHUB_EVENT_NAME") == "schedule":
+        return first_parent("HEAD")
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     if not event_path:
         return None
     event: dict[str, Any] = json.loads(Path(event_path).read_text(encoding="utf-8"))
     return event.get("pull_request", {}).get("base", {}).get("sha")
+
+
+def first_parent(commit: str) -> str | None:
+    """Read from the commit itself, which names its parents even in a shallow
+    checkout that lacks them. For a merged pull request, the first parent is
+    the branch before the merge. None for a commit with no parent."""
+    header = git("cat-file", "commit", commit).stdout.split("\n\n", 1)[0]
+    for line in header.splitlines():
+        if line.startswith("parent "):
+            return line.removeprefix("parent ")
+    return None
 
 
 def fetch_commit(sha: str) -> None:
