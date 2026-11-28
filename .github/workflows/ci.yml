@@ -1,10 +1,14 @@
 # CI for PR Verify itself: its own gate and review, from this commit's copy of
 # the workflow, and a check that dist/ matches src/. The review runs the
-# released action, so a PR cannot change the reviewer that judges it.
+# released action, so a PR cannot change the reviewer that judges it. The
+# weekly run is the gate's canary alone.
 name: ci
 
 on:
   pull_request:
+  # The weekly canary: the gate alone, on the runner image the pin moves to next.
+  schedule:
+    - cron: "17 6 * * 1"
 
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
@@ -32,6 +36,7 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
   dist:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -59,6 +64,7 @@ jobs:
   # The code-quality checks on scratch projects built to fail them. The gate
   # above runs the same checks, from this commit, on PR Verify itself.
   quality:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

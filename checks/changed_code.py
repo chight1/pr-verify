@@ -1,7 +1,8 @@
 """The code a pull request changes, for a gate set to check only that.
 
 Usage:
-  changed_code.py base                  the pull request's base commit
+  changed_code.py base                  the commit compared with: the pull
+                                        request's base, or the canary's
   changed_code.py files PATH...         the given paths the pull request changes
   changed_code.py filter CHECK STATUS   a check's output, read from stdin, cut to
                                         the findings in changed code, given the
@@ -25,7 +26,10 @@ def pull_request_base() -> str:
     online checks list the changed files: they run before anything else."""
     base = base_sha()
     if base is None:
-        message = "gate-scope: changes needs a pull request, to compare with its base."
+        message = (
+            "gate-scope: changes needs a commit to compare with: a pull "
+            "request's base, or on the weekly canary, the commit before the newest."
+        )
         raise SystemExit(message)
     fetch_commit(base)
     return base

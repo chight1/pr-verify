@@ -1,10 +1,13 @@
 # Reusable workflow. A project calls this from its own one-file workflow;
 # see templates/ for the file to copy.
 #
-# Three jobs. "gate" is plain CI with no model in it and is what a required
+# Two jobs. "gate" is plain CI with no model in it and is what a required
 # status check is made of. "review" runs the action after the gate, in both
 # directions: a green gate gets a review, a red gate gets a diagnosis.
-# "canary" runs the gate's steps on the next runner image and decides nothing.
+#
+# A run on the project's weekly schedule is the canary: the gate alone, on
+# ubuntu-latest, the image the pin moves to next. It compares the newest commit
+# on the branch with the one before it, since there is no pull request.
 
 name: pr-verify
 
@@ -74,6 +77,14 @@ on:
         required: false
         type: string
         default: REVIEW.md
+      runner:
+        description: >-
+          The runner label a pull request's jobs run on: GitHub's pinned image
+          by default, or pr-verify-vm for the local virtual machine in runner/.
+          The weekly canary always runs on ubuntu-latest.
+        required: false
+        type: string
+        default: ubuntu-24.04
     secrets:
       # Optional, so a run without it still gets a gate: Dependabot's pull
       # requests get Dependabot's secrets, not the repository's.
@@ -96,12 +107,11 @@ env:
 jobs:
   gate:
     name: gate
-    # The canary runs the same steps on the image ubuntu-latest points at next.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || inputs.runner }}
     timeout-minutes: 20
     permissions:
       contents: read
-    steps: &gate-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # No token left in .git/config for the project's code to read.
@@ -142,9 +152,9 @@ jobs:
 
       # The checks that hold the workflow's token, which run first: no process
       # the project starts is alive yet to read it. From this workflow's own
-      # commit, like the code-quality checks below. They fetch the pull
-      # request's base commit, which the steps after them compare with when
-      # gate-scope is changes.
+      # commit, like the code-quality checks below. They fetch the commit the
+      # steps after them compare with when gate-scope is changes: the pull
+      # request's base, or on the canary, the commit before the newest.
       - name: online checks
         uses: $/checks/online
         with:
@@ -229,8 +239,14 @@ jobs:
         env:
           MODE: ${{ inputs.security-scan }}
           SCOPE: ${{ inputs.gate-scope }}
+          EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          # The canary compares with the newest commit's first parent, which the
+          # online checks fetched. The shallow checkout still records its SHA.
+          if [ "$EVENT" = schedule ]; then
+            BASE_SHA="$(git cat-file commit HEAD | sed -n 's/^parent //p' | head -n 1)"
+          fi
           case "$MODE" in
             strict) severity=UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL ;;
             loose) severity=HIGH,CRITICAL ;;
@@ -243,7 +259,7 @@ jobs:
             changes)
               # A diff that fails would read as no changes and skip the scan.
               if [ -z "$BASE_SHA" ] || ! changed="$(git diff --name-only --diff-filter=d "$BASE_SHA" HEAD)"; then
-                echo "Could not compare with the pull request's base commit." >&2
+                echo "Could not compare with the base commit." >&2
                 exit 1
               fi
               target="$RUNNER_TEMP/changed-files"
@@ -270,20 +286,13 @@ jobs:
             --config "$empty" --ignorefile "$empty" --secret-config "$empty" \
             --exit-code 1 --no-progress --skip-dirs node_modules "$target"
 
-  # Not a required check, and nothing needs it: a red canary never blocks a
-  # merge or starts an investigation. It says the pin is not safe to move yet.
-  canary:
-    name: "canary: ubuntu-latest (non-blocking)"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps: *gate-steps
-
-  # Says whether the review can run, from outside the job that would use the key.
+  # Says whether the review can run, from outside the job that would use the
+  # key. Skipped when the review is off and on the weekly canary, which has no
+  # pull request to review; the review, which needs it, is skipped with it.
   key:
     name: key
-    runs-on: ubuntu-24.04
+    if: inputs.review && github.event_name != 'schedule'
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 2
     permissions: {}
     outputs:
@@ -313,7 +322,7 @@ jobs:
       && needs.key.outputs.present == 'true'
       && github.event.pull_request.draft == false
       && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 25
     permissions:
       contents: read
